@@ -1,0 +1,112 @@
+# RobCo Industries UOS Configuration
+# Raspberry Pi Boot Configuration for Unified Operating System
+# Place this file as config.txt in the root of your SD card
+
+# ============================================================================
+# UART Configuration
+# ============================================================================
+# Enable UART for serial console debugging
+enable_uart=1
+uart_2ndstage=1
+
+# ============================================================================
+# Boot Configuration
+# ============================================================================
+# Boot kernel (RETROS-BIOS loads first, then MFBootAgent, then UOS)
+kernel=kernel.img
+
+# Disable boot delay for faster boot
+boot_delay=0
+
+# ============================================================================
+# Display Configuration
+# ============================================================================
+# Set framebuffer resolution (UOS default: 640x480)
+framebuffer_width=640
+framebuffer_height=480
+framebuffer_depth=32
+
+# Disable overscan (black borders)
+disable_overscan=1
+
+# HDMI settings for better compatibility
+hdmi_force_hotplug=1
+hdmi_drive=2
+
+# Disable rainbow splash screen (more authentic)
+disable_splash=1
+
+# ============================================================================
+# GPU Memory Configuration
+# ============================================================================
+# Allocate minimal GPU memory (UOS needs very little)
+# Valid values: 16, 32, 64, 128, 256
+gpu_mem=64
+
+# For Pi 4, use separate allocation
+# gpu_mem_256=64
+# gpu_mem_512=64
+# gpu_mem_1024=64
+
+# ============================================================================
+# Performance Configuration
+# ============================================================================
+# Default ARM frequency (no overclocking)
+# Uncomment to overclock (at your own risk!)
+# arm_freq=1400
+# over_voltage=2
+
+# ============================================================================
+# Platform-Specific Settings
+# ============================================================================
+
+# For Raspberry Pi 3/4 - Use 32-bit mode for UOS
+# arm_64bit=0
+
+# For Raspberry Pi 4 - Disable USB 3.0 for stability (if needed)
+# dtoverlay=dwc2,dr_mode=host
+
+# ============================================================================
+# Audio Configuration (Optional)
+# ============================================================================
+# Disable audio (UOS uses PWM for beeps only)
+# dtparam=audio=off
+
+# ============================================================================
+# Debug Configuration (Optional)
+# ============================================================================
+# Enable bootloader UART output
+bootloader_uart=1
+
+# UART baud rate (should match UOS: 115200)
+init_uart_baud=115200
+
+# Enable debug overlay (shows boot info)
+# dtdebug=1
+
+# ============================================================================
+# Advanced Settings
+# ============================================================================
+
+# Device tree overlays (if needed)
+# dtoverlay=...
+
+# Additional overlays for debugging
+# dtoverlay=uart1
+# dtoverlay=uart0
+
+# ============================================================================
+# Notes
+# ============================================================================
+# - For best UOS experience, keep settings at defaults
+# - Serial console works best at 115200 baud
+# - Overclocking may cause instability
+# - GPU memory of 64MB is sufficient
+# - Disable features you don't need for faster boot
+# - See Raspberry Pi documentation for more options:
+#   https://www.raspberrypi.com/documentation/computers/config_txt.html
+
+# ============================================================================
+# RobCo Industries
+# "The Future of Computing, Yesterday!"
+# ============================================================================
