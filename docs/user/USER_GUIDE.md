@@ -1,3 +1,5 @@
+> This document describes the intended design, not the current code. See the [README status](../../README.md#status).
+
 # UOS User Guide
 **Unified Operating System Command Reference**
 
