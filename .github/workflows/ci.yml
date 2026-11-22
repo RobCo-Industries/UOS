@@ -1,0 +1,29 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [bcm2835, bcm2836, bcm2837]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install toolchain
+        run: sudo apt-get update && sudo apt-get install -y gcc-arm-none-eabi
+      - name: Build
+        run: make clean && make ${{ matrix.target }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: kernel-${{ matrix.target }}
+          path: build/kernel8.img
+          if-no-files-found: error

@@ -44,21 +44,3 @@ clear_bss_done:
 halt:
     wfe
     b halt
-
-// Interrupt vector table (placeholder)
-.section ".text"
-
-.global __aeabi_uidiv
-.global __aeabi_uidivmod
-.global __aeabi_idiv
-.global __aeabi_idivmod
-
-// Unsigned division (placeholder - will use libgcc)
-__aeabi_uidiv:
-__aeabi_uidivmod:
-    bx lr
-
-// Signed division (placeholder - will use libgcc)
-__aeabi_idiv:
-__aeabi_idivmod:
-    bx lr

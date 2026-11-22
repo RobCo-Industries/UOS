@@ -1,33 +1,49 @@
 # UOS - Unified Operating System
 **RobCo Industries Terminal Operating System for ARM Architecture**
 
+## Status
+
+This is an early demo. It builds for BCM2835, BCM2836 and BCM2837, but it is not a working operating system.
+
+What works:
+- Serial console on the PL011 UART (polled, no interrupts).
+- Timer-based delays.
+- A mailbox framebuffer. There is no font yet, so each character is drawn as a solid block.
+- A command table with 12 handlers.
+
+What does not work:
+- `COPY`, `DELETE`, `RENAME` and `RUN` print "not yet implemented".
+- `DIRECTORY` prints a fixed list. `TYPE` always says "File not found".
+- Login uses hardcoded accounts and only checks the first 5 characters. One failed login halts the system.
+- `SET HALT RESTART/MAINT` only prints text.
+- There is no filesystem, scheduler, interrupt handling, networking, hacking minigame, holotape support or device control.
+- There is no password hashing.
+- There are no tests. CI only checks that the three targets build.
+
+The project is being rebuilt on the shared [RobCo-Core](https://github.com/RobCo-Industries/RobCo-Core) repo.
+
 ![Version](https://img.shields.io/badge/version-7.0.2.8-green)
 ![Kernel](https://img.shields.io/badge/kernel-UOSKRNL.303-blue)
 ![Platform](https://img.shields.io/badge/platform-ARM-orange)
 ![License](https://img.shields.io/badge/license-MIT-lightgrey)
 
-The Unified Operating System (UOS) is RobCo Industries' flagship terminal operating system, faithfully recreated for modern ARM hardware (Raspberry Pi). This implementation creates a fully functional, lore-accurate terminal system inspired by the Fallout video game series.
+The Unified Operating System (UOS) is RobCo Industries' flagship terminal operating system, faithfully recreated for modern ARM hardware (Raspberry Pi). It is inspired by the Fallout video game series. See [Status](#status) for what works today.
 
 ## Features
 
 ### Core System
-- **Microkernel Design**: Minimal kernel with modular services
+- **Monolithic Kernel**: Single image with drivers and shell linked in
 - **Memory Management**: Flat memory model with efficient allocation
 - **Terminal System**: OpenVMS-inspired command interpreter
-- **Multi-Terminal Support**: Up to 12 concurrent terminal sessions
-- **Authentic Interface**: CRT effects, phosphor display simulation
 
 ### Terminal Interface
 - **80x24 Character Display**: Classic terminal dimensions
-- **Color Schemes**: Green phosphor (default), amber, blue, white on black
-- **CRT Effects**: Scanlines, phosphor persistence, authentic feel
-- **RobCo Termlink Protocol**: VT100 compatible with extensions
+- **Serial Console**: Plain text over UART
 
 ### Security System (Intentionally Flawed)
 The security system contains deliberate vulnerabilities for authentic Fallout gameplay:
 - **Weak Authentication**: Default accounts (ADMIN/ADMIN, GUEST/GUEST, MAINT/MAINT)
-- **Maintenance Mode Exploit**: `SET HALT RESTART/MAINT` dumps passwords
-- **Memory Access**: Credentials dumped to 0x000FFF00
+- **Maintenance Mode Exploit**: `SET HALT RESTART/MAINT` prints the account list (text only)
 
 ### Command System
 OpenVMS-style command syntax with RobCo modifications:
@@ -43,7 +59,6 @@ OpenVMS-style command syntax with RobCo modifications:
 - `SET` - Configure system settings
 - `SHOW` - Display system information
 - `RUN` - Execute programs
-- `LOGIN` - User authentication
 - `LOGOUT` - End session
 
 **Special Commands:**
@@ -56,7 +71,7 @@ OpenVMS-style command syntax with RobCo modifications:
 ### Supported Platforms
 - **BCM2835**: Raspberry Pi Zero, Zero W, 1A, 1B, 1B+
 - **BCM2836**: Raspberry Pi 2B
-- **BCM2837**: Raspberry Pi 3B, 3B+, 4B (in 32-bit mode)
+- **BCM2837**: Raspberry Pi 3B, 3B+
 
 ### Peripherals
 - **Display**: HDMI output (640x480)
@@ -82,7 +97,7 @@ sudo pacman -S arm-none-eabi-gcc
 
 ### Build Commands
 
-Build for Raspberry Pi 3/4 (default):
+Build for Raspberry Pi 3 (default):
 ```bash
 make
 ```
@@ -91,7 +106,7 @@ Build for specific platforms:
 ```bash
 make bcm2835  # Raspberry Pi 0/1
 make bcm2836  # Raspberry Pi 2
-make bcm2837  # Raspberry Pi 3/4
+make bcm2837  # Raspberry Pi 3
 ```
 
 Clean build artifacts:
@@ -171,26 +186,17 @@ UOS/
 ├── kernel/           # Kernel core and initialization
 │   ├── arch/        # Architecture-specific code
 │   ├── core/        # Core kernel functions
-│   ├── memory/      # Memory management
-│   └── process/     # Process management (future)
+│   └── memory/      # Memory management
 ├── drivers/         # Hardware drivers
 │   ├── uart/        # Serial communication
 │   ├── framebuffer/ # Display driver
-│   ├── timer/       # System timer
-│   ├── gpio/        # GPIO control (future)
-│   └── mmc/         # SD card (future)
+│   └── timer/       # System timer
 ├── services/        # System services
-│   ├── terminal/    # Terminal service
-│   ├── filesystem/  # File system (future)
-│   ├── network/     # Networking (future)
-│   └── security/    # Authentication (future)
+│   └── terminal/    # Terminal service
 ├── userspace/       # User-space applications
-│   ├── shell/       # Command shell
-│   ├── commands/    # Command implementations
-│   └── utilities/   # System utilities (future)
+│   └── commands/    # Command implementations
 ├── include/         # Header files
-├── docs/            # Documentation
-└── tools/           # Build tools
+└── docs/            # Documentation
 ```
 
 ### Memory Layout
@@ -236,7 +242,6 @@ This implementation faithfully recreates the terminal experience from the Fallou
 - **Authentic Boot Sequence**: References RETROS-BIOS and MFBootAgent
 - **OpenVMS-Style Commands**: Case-insensitive, abbreviated commands
 - **Security Vulnerabilities**: The famous maintenance mode hack
-- **Terminal Effects**: Green phosphor display, CRT aesthetics
 - **Error Messages**: Lore-accurate system messages
 - **Dated Elements**: Files and logs dated 2077 (pre-war)
 

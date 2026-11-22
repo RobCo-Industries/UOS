@@ -40,7 +40,8 @@ ifeq ($(PLATFORM),bcm2837)
 endif
 
 # Compiler flags
-CFLAGS = -Wall -Wextra -Werror -O2 -nostdlib -nostartfiles -ffreestanding
+CFLAGS = -Wall -Wextra -Werror -O2 -std=gnu11 -nostdlib -nostartfiles -ffreestanding
+CFLAGS += -fno-tree-loop-distribute-patterns
 CFLAGS += $(ARCH_FLAGS)
 CFLAGS += -I$(INCLUDE_DIR) -I$(INCLUDE_DIR)/kernel -I$(INCLUDE_DIR)/drivers
 CFLAGS += -I$(INCLUDE_DIR)/services -I$(INCLUDE_DIR)/userspace
@@ -52,6 +53,7 @@ ASFLAGS = $(ARCH_FLAGS)
 
 # Linker flags
 LDFLAGS = -T linker.ld -nostdlib
+LIBGCC = $(shell $(CC) $(ARCH_FLAGS) -print-libgcc-file-name)
 
 # Source files
 KERNEL_SOURCES = $(wildcard $(SRC_KERNEL)/*/*.c) $(wildcard $(SRC_KERNEL)/*/*/*.c)
@@ -104,12 +106,12 @@ $(BUILD_DIR)/%.o: %.c | $(BUILD_DIR)
 # Compile assembly files
 $(BUILD_DIR)/%.o: %.S | $(BUILD_DIR)
 	@echo "AS $<"
-	@$(AS) $(ASFLAGS) $< -o $@
+	@$(CC) $(ASFLAGS) -c $< -o $@
 
 # Link kernel
 $(KERNEL_ELF): $(ALL_OBJS)
 	@echo "LD $@"
-	@$(LD) $(LDFLAGS) $(ALL_OBJS) -o $@
+	@$(LD) $(LDFLAGS) $(ALL_OBJS) $(LIBGCC) -o $@
 
 # Create binary image
 $(KERNEL_IMG): $(KERNEL_ELF)
