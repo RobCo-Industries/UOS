@@ -18,6 +18,8 @@ def test_markers_in_order_alone(board, uos_image, need_mtools, tmp_path):
         assert (handoff["trusted"], handoff["prev"]) == ("0", "0"), handoff
         assert one(vm, "maint")["mini"] == "0"
         assert one(vm, "mbox")["rc"] == "0"
+        mmu = one(vm, "mmu")
+        assert (mmu["result"], mmu["rc"]) == ("on", "0"), mmu
         screen = one(vm, "screen")
         assert (screen["fb"], screen["console"], screen["scheme"], screen["source"]) == \
             ("0", "0", "0", "default"), screen
