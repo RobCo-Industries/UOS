@@ -4,6 +4,8 @@ changes, and the shutdown order of every service."""
 
 import re
 
+import pytest
+
 from test_dev import ALL, CFG, boot_card, dev_list, marks, record, wait_ready
 from test_vfs import entries, err, ok
 from uos import (IDLE, SERVICES, TIMEOUT, alone, answer, card, dump, dump_until, events, fs,
@@ -153,3 +155,48 @@ def test_panic_with_keyboard_open(board, hooks_image, need_mtools, tmp_path):
         assert vm.script("osk close", timeout=TIMEOUT).status == "err not ready"
         assert vm.script("readline - 5 X:", timeout=TIMEOUT).status == "err console down"
         assert answer(vm, "state")
+
+
+SHUTDOWN_ORDER = ["devices", "console", "vfs", "uptime"]
+
+
+def stop_lines(serial):
+    """The shutdown lines in serial order: ("shutdown", name), ("devsafe", name),
+    ("devdown", why) and the final reboot, halt or panic idle marker."""
+    out = []
+    for line in serial.splitlines():
+        m = re.match(r"@RC stage=uos ev=(shutdown|devsafe|devdown|reboot|halt|idle)\b(.*)$",
+                     line.rstrip("\r"))
+        if m:
+            fields = dict(f.split("=", 1) for f in m.group(2).split() if "=" in f)
+            out.append((m.group(1), fields.get("name", fields.get("why", ""))))
+    return out
+
+
+@pytest.mark.parametrize("how", ["reboot", "halt", "panic"])
+def test_shutdown_order(board, hooks_image, need_mtools, tmp_path, how):
+    """Services stop in reverse table order: the device service first, with
+    every output driven safe, before the console and the file system stop."""
+    assert SERVICES == ["uptime", "vfs", "console", "devices"]
+    with alone(hooks_image, board, boot_card(tmp_path, ALL)) as vm:
+        wait_ready(vm)
+        start = len(vm.serial)
+        if how == "reboot":
+            vm.send("reboot\n", port=1)
+            vm.wait_for(re.compile(r"(@RC stage=uos ev=ready [^\n]*\n[\s\S]*){2}"),
+                        timeout=TIMEOUT)
+        else:
+            answer(vm, how)
+            vm.wait_for(IDLE, timeout=TIMEOUT)
+        lines = stop_lines(vm.serial[start:])
+        downs = [n for k, n in lines if k == "shutdown"]
+        assert downs[:4] == SHUTDOWN_ORDER, lines
+        first = lines.index(("shutdown", "devices"))
+        safe = [i for i, (k, _) in enumerate(lines) if k == "devsafe"]
+        assert len(safe) == 8, lines                  # every output of ALL
+        end = lines.index(("devdown", how))
+        assert first < min(safe) and max(safe) < end < lines.index(("shutdown", "console")), \
+            lines
+        assert lines[:end + 1] == [("shutdown", "devices")] + \
+            [lines[i] for i in safe] + [("devdown", how)], lines
+
