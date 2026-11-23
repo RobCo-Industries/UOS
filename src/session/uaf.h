@@ -4,6 +4,8 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "uos_privs.h"
+
 #include "sha256.h"
 
 /*
@@ -39,11 +41,14 @@
 #define UAF_ITER_MAX        100000
 #define UAF_ITER_DEFAULT    2000
 
-#define UAF_PRIV_SYSTEM     (1u << 0)
-#define UAF_PRIV_OPER       (1u << 1)
-#define UAF_PRIV_SECURITY   (1u << 2)
-#define UAF_PRIV_READALL    (1u << 3)
-#define UAF_PRIV_ALL        0x0Fu
+#define UAF_PRIV_SYSTEM     UOS_PRIV_SYSTEM
+#define UAF_PRIV_OPER       UOS_PRIV_OPER
+#define UAF_PRIV_SECURITY   UOS_PRIV_SECURITY
+#define UAF_PRIV_READALL    UOS_PRIV_READALL
+#define UAF_PRIV_ALL        UOS_PRIV_ALL
+_Static_assert(UAF_PRIV_SYSTEM == (1u << 0) && UAF_PRIV_OPER == (1u << 1) &&
+               UAF_PRIV_SECURITY == (1u << 2) && UAF_PRIV_READALL == (1u << 3) &&
+               UAF_PRIV_ALL == 0x0Fu, "uaf privilege bits match uos_privs.h");
 #define UAF_PRIVS_TEXT_MAX  32          /* "SYSTEM,OPER,SECURITY,READALL" + NUL */
 
 #define UAF_FLAG_DISABLED   (1u << 0)

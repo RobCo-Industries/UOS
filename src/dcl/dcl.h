@@ -9,6 +9,8 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "uos_privs.h"
+
 /* Limits. */
 #define DCL_LINE_MAX     255  /* characters in a command line, continuations joined */
 #define DCL_TOKEN_MAX    127  /* characters in one word or quoted string, after processing */
@@ -20,10 +22,13 @@
 #define DCL_MSG_SIZE     256  /* a buffer this size holds any formatted message with a token */
 
 /* Privilege bits, as in SYSUAF.DAT. SYSTEM grants every other one. */
-#define DCL_PRIV_SYSTEM   (1u << 0)
-#define DCL_PRIV_OPER     (1u << 1)
-#define DCL_PRIV_SECURITY (1u << 2)
-#define DCL_PRIV_READALL  (1u << 3)
+#define DCL_PRIV_SYSTEM   UOS_PRIV_SYSTEM
+#define DCL_PRIV_OPER     UOS_PRIV_OPER
+#define DCL_PRIV_SECURITY UOS_PRIV_SECURITY
+#define DCL_PRIV_READALL  UOS_PRIV_READALL
+_Static_assert(DCL_PRIV_SYSTEM == (1u << 0) && DCL_PRIV_OPER == (1u << 1) &&
+               DCL_PRIV_SECURITY == (1u << 2) && DCL_PRIV_READALL == (1u << 3),
+               "dcl privilege bits match uos_privs.h");
 
 /* The message catalogue. Every status in this module is one of these. */
 typedef enum {

@@ -11,6 +11,8 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "uos_privs.h"
+
 /* Limits. */
 #define DV_MAX_DEVICES      16      /* devices kept from DEVICES.CFG */
 #define DV_NAME_MAX         8       /* characters in a device name */
@@ -24,8 +26,10 @@
 #define DV_STATUS_LINE_MAX  80      /* bytes of a status line, with the NUL */
 
 /* Privilege bits, as in SYSUAF.DAT. */
-#define DV_PRIV_SYSTEM      0x1u
-#define DV_PRIV_OPER        0x2u
+#define DV_PRIV_SYSTEM      UOS_PRIV_SYSTEM
+#define DV_PRIV_OPER        UOS_PRIV_OPER
+_Static_assert(DV_PRIV_SYSTEM == 0x1u && DV_PRIV_OPER == 0x2u,
+               "dev privilege bits match uos_privs.h");
 #define DV_PRIVS_DEFAULT    DV_PRIV_OPER
 
 /* Error codes. dv_strerror() gives the message text of each. */

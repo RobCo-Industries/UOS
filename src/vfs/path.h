@@ -10,6 +10,8 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "uos_privs.h"
+
 /* Limits. */
 #define VP_NAME_MAX   8    /* name and directory component, characters */
 #define VP_TYPE_MAX   3    /* type, characters */
@@ -115,10 +117,13 @@ typedef struct {
 
 /* Access operations and privilege bits (design section 5). */
 typedef enum { VP_OP_READ = 0, VP_OP_WRITE, VP_OP_DELETE, VP_OP_LIST } vp_op_t;
-#define VP_PRIV_SYSTEM   (1u << 0)
-#define VP_PRIV_OPER     (1u << 1)
-#define VP_PRIV_SECURITY (1u << 2)
-#define VP_PRIV_READALL  (1u << 3)
+#define VP_PRIV_SYSTEM   UOS_PRIV_SYSTEM
+#define VP_PRIV_OPER     UOS_PRIV_OPER
+#define VP_PRIV_SECURITY UOS_PRIV_SECURITY
+#define VP_PRIV_READALL  UOS_PRIV_READALL
+_Static_assert(VP_PRIV_SYSTEM == (1u << 0) && VP_PRIV_OPER == (1u << 1) &&
+               VP_PRIV_SECURITY == (1u << 2) && VP_PRIV_READALL == (1u << 3),
+               "vfs privilege bits match uos_privs.h");
 
 const char *vp_strerror(int err);
 

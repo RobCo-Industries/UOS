@@ -13,6 +13,8 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "uos_privs.h"
+
 #include <robco/input.h>
 
 /* ---- Limits ---- */
@@ -39,7 +41,8 @@
 #define TUI_LINES_MAX       TUI_ROWS /* lines tui_layout() can produce */
 
 /* Privilege bit 0 (SYSTEM) sees every entry. */
-#define TUI_PRIV_SYSTEM     0x1u
+#define TUI_PRIV_SYSTEM     UOS_PRIV_SYSTEM
+_Static_assert(TUI_PRIV_SYSTEM == 0x1u, "tui privilege bit matches uos_privs.h");
 
 /* ---- Entry types ---- */
 
