@@ -54,7 +54,15 @@ PURE_SRCS  := $(sort $(wildcard $(PURE_NAMED))) $(PURE_KERNEL)
 # makefiles of the module tasks: not part of this build.
 HOST_TEST_DIR := tests/host
 HOST_SRCS     := $(PURE_SRCS)
-HOST_INCLUDES := src $(patsubst %/,%,$(sort $(dir $(wildcard src/*/*.c src/*/*.h))))
+SRC_INCLUDES  := src $(patsubst %/,%,$(sort $(dir $(wildcard src/*/*.c src/*/*.h))))
+
+# Headers the host tests need that a tool generates: the session
+# module's hash vectors, from tests/vectors/uaf.json.
+HOST_GEN      := $(BUILD)/host/gen
+HOST_GEN_HDRS := $(HOST_GEN)/uaf_vectors.h
+HOST_INCLUDES := $(SRC_INCLUDES) $(HOST_GEN)
+# Tests run from the repository root and read the shipped card files.
+HOST_DEFINES  := UAF_CARD_PATH='"card/UOS/SYSUAF.DAT"'
 
 ifeq ($(wildcard $(ROBCO_CORE)/mk/robco.mk),)
 $(error $(ROBCO_CORE) is empty: run git submodule update --init)
@@ -71,8 +79,8 @@ SDIMAGE_FILES := $(BUILD)/UOS.SYS:ROBCO/UOS.SYS \
 include $(ROBCO_CORE)/mk/robco.mk
 include $(ROBCO_CORE)/mk/host.mk
 
-# The image sees the same include directories as the host tests.
-ROBCO_CFLAGS += $(addprefix -I,$(HOST_INCLUDES))
+# The image sees the source folders as include directories.
+ROBCO_CFLAGS += $(addprefix -I,$(SRC_INCLUDES))
 
 # Target tests boot the images built here; keep top-level targets serial.
 .NOTPARALLEL:
@@ -126,6 +134,13 @@ check-doc-links:
 
 # Host unit tests come from mk/host.mk. The pin check runs first.
 test-host: check-pins
+
+# Generated headers exist before any host test builds.
+$(HOST_TESTS): $(HOST_GEN_HDRS)
+
+$(HOST_GEN)/uaf_vectors.h: tests/vectors/uaf.json tools/mkuaf.py
+	@mkdir -p $(dir $@)
+	$(PYTHON) tools/mkuaf.py vectors-h $< -o $@
 
 # ---- Cards and QEMU -----------------------------------------------------
 
