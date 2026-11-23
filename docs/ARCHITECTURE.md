@@ -98,6 +98,8 @@ The banner lines are lore: in-world text, original to UOS.
 
 `uos_panic(fmt, ...)` and the exception hook for undefined instructions and aborts share one path. It masks IRQs, prints `ev=panic kind=<call|undef|pabt|dabt> reason=<words_joined_by_underscores>`, with the registers after an exception, clears the screen and shows the reason and the registers. Then it prints `ev=idle` and polls the maintenance port for good.
 
+The rule: from the moment a panic is possible, the maintenance port answers. The first way into the panic path is the exception hook, set at the `handoff` step. That comes before the mini UART and before `uos_maint_start()`. A failed tick also panics before `uos_maint_start()`. So when the port is not up yet, the panic path starts it itself, polled: `input_init()`, the command handler, `uart_mini_init()` if needed and `input_script_start()`. The script channel needs no tick and no IRQs. It prints `ev=port late=1 mini=<rc> script=<rc>` before `ev=idle`. `state` and `reboot` then answer. `dump` answers once the screen is up, else `err no screen`. No `uos_panic()` call comes before the tick step.
+
 ## The maintenance port
 
 The mini UART script channel. In QEMU it is the second serial port. On a Pi the mini UART reaches no pin. Each answer is complete lines that start with `| `, then `ok` or `err <reason>`.

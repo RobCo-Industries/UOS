@@ -50,6 +50,23 @@ def hooks_image(robco_build, build_dir):
 
 
 @pytest.fixture(scope="session")
+def tick_fail_image(robco_build, build_dir):
+    """A test build where tick_init() reports a failure. Never shipped."""
+    out = os.path.join(build_dir, "tickfail")
+    flags = (f"BUILD={out}", "EXTRA_CFLAGS=-DUOS_TEST_TICK_FAIL=1")
+    return robco_build(ROOT, flags=flags, image=os.path.join(out, "uos.img"))
+
+
+@pytest.fixture(scope="session")
+def early_fault_image(robco_build, build_dir):
+    """A test build with an undefined instruction just after the exception hook,
+    the first point where a panic can happen. Never shipped."""
+    out = os.path.join(build_dir, "earlyfault")
+    flags = (f"BUILD={out}", "EXTRA_CFLAGS=-DUOS_TEST_EARLY_FAULT=1")
+    return robco_build(ROOT, flags=flags, image=os.path.join(out, "uos.img"))
+
+
+@pytest.fixture(scope="session")
 def chain1_image(robco_build, build_dir):
     """RobCo-Core's examples/chain1 with a framebuffer and an amber console. It
     enters the image the harness puts at 0x00200000: a trampoline to UOS."""

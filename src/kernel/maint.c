@@ -27,6 +27,8 @@
 #include "uos.h"
 
 static input_script_reply_t *dump_reply;
+static int input_on;    /* input_init() ran and the handler is set */
+static int script_on;   /* the script channel answers */
 
 static void dump_char(char c)
 {
@@ -209,16 +211,44 @@ void uos_maint_start(void)
     input_init();
     serial = input_serial_start(INPUT_SERIAL_MAIN);
     input_script_set_handler(command, NULL);
+    input_on = 1;
     if (uart_mini_ready()) {
         script = input_script_start();
     }
+    script_on = script == 0;
     UOS_MARK("input serial=%d script=%d gpio=off", serial, script);
+}
+
+/*
+ * A panic can come before uos_maint_start(), from the exception hook or a
+ * failed tick. The port then starts here, polled: the script channel needs
+ * the mini UART and the input layer, not the tick or IRQs.
+ */
+static void late_start(void)
+{
+    int mini = 0, script;
+
+    if (script_on) {
+        return;
+    }
+    if (!input_on) {
+        input_init();
+        input_script_set_handler(command, NULL);
+        input_on = 1;
+    }
+    if (!uart_mini_ready()) {
+        mini = uart_mini_init(115200);
+    }
+    script = input_script_start();
+    script_on = script == 0;
+    UOS_MARK("port late=1 mini=%d script=%d", mini, script);
 }
 
 void uos_maint_idle(void)
 {
     input_event_t ev;
 
+    late_start();
     UOS_MARK("idle");
     for (;;) {
         /* IRQs are off: poll. Keys are dropped; script lines are answered. */

@@ -5,7 +5,8 @@ import os
 import re
 import subprocess
 
-from uos import IDLE, TIMEOUT, alone, answer, dump, one, state, uos_card, wait_ready
+from uos import (IDLE, TIMEOUT, alone, answer, dump, events, one, order, state, uos_card,
+                 wait_ready)
 from harness.env import minimal_env
 
 
@@ -16,12 +17,18 @@ def nm(image):
     return {line.split()[-1] for line in out.stdout.splitlines() if line.strip()}
 
 
-def test_shipped_image_has_no_test_hooks(uos_image, hooks_image):
+HOOKS = ("uos_test_fault", "uos_test_panic", "uos_test_tick_fail", "uos_test_early_fault")
+
+
+def test_shipped_image_has_no_test_hooks(uos_image, hooks_image, tick_fail_image,
+                                         early_fault_image):
     shipped = nm(uos_image)
+    assert not shipped & set(HOOKS), shipped & set(HOOKS)
+    # The same check sees each hook when it is built in.
     hooks = nm(hooks_image)
-    assert "uos_test_fault" not in shipped and "uos_test_panic" not in shipped
-    # The same check sees the hooks when they are built in.
     assert "uos_test_fault" in hooks and "uos_test_panic" in hooks
+    assert "uos_test_tick_fail" in nm(tick_fail_image)
+    assert "uos_test_early_fault" in nm(early_fault_image)
     assert "uos_panic" in shipped
 
 
@@ -88,3 +95,41 @@ def test_reboot(board, uos_image, need_mtools, tmp_path):
         assert one(vm, "reboot")["source"] == "maint"
         assert [m["ev"] for m in vm.markers() if m["ev"] in ("boot", "reboot")] == \
             ["boot", "reboot", "boot"], vm.serial
+
+
+def reboots(vm):
+    """`reboot` answers from the panic loop: the board boots a second time."""
+    vm.send("reboot\n", port=1)
+    vm.wait_for(re.compile(r"(@RC stage=uos ev=boot [^\n]*\n[\s\S]*){2}"), timeout=TIMEOUT)
+    assert one(vm, "reboot")["source"] == "maint"
+
+
+def test_tick_failure_keeps_the_port(board, tick_fail_image, need_mtools, tmp_path):
+    """A failed tick panics before the input layer starts: the panic path starts the port."""
+    with alone(tick_fail_image, board, uos_card(tmp_path)) as vm:
+        vm.wait_for(IDLE, timeout=TIMEOUT)
+        p = one(vm, "panic")
+        assert (p["kind"], p["reason"]) == ("call", "TICK_START_FAILED"), p
+        assert one(vm, "tick")["rc"] == "-1"
+        port = one(vm, "port")
+        assert (port["late"], port["script"]) == ("1", "0"), port
+        assert not events(vm, "input")
+        st = state(vm)
+        assert (st["phase"], st["screen"], st["error"]) == ("panic", "none", "panic"), st
+        assert "REASON: TICK START FAILED" in rows_text(vm)
+        reboots(vm)
+
+
+def test_earliest_fault_keeps_the_port(board, early_fault_image, need_mtools, tmp_path):
+    """The exception hook is the first way into the panic path, before the mini UART
+    and the screen: the port still answers."""
+    with alone(early_fault_image, board, uos_card(tmp_path)) as vm:
+        vm.wait_for(IDLE, timeout=TIMEOUT)
+        assert order(vm)[:3] == ["boot", "handoff", "panic"], vm.serial
+        assert one(vm, "panic")["kind"] == "undef"
+        port = one(vm, "port")
+        assert (port["late"], port["mini"], port["script"]) == ("1", "0", "0"), port
+        assert state(vm)["phase"] == "panic"
+        reply = vm.script("dump", timeout=TIMEOUT)
+        assert reply.status == "err no screen", reply
+        reboots(vm)

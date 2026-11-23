@@ -222,6 +222,23 @@ static void init_rtc(void)
     UOS_MARK("rtc present=%d rc=%d", uos.rtc, rc);
 }
 
+#if defined(UOS_TEST_EARLY_FAULT) && UOS_TEST_EARLY_FAULT
+/* Test builds only: an undefined instruction just after the exception hook. */
+__attribute__((noipa)) void uos_test_early_fault(void)
+{
+    __asm__ volatile(".word 0xe7f000f0");
+}
+#endif
+
+#if defined(UOS_TEST_TICK_FAIL) && UOS_TEST_TICK_FAIL
+/* Test builds only: tick_init() reports a failure. */
+__attribute__((noipa)) int uos_test_tick_fail(int rc)
+{
+    (void)rc;
+    return -1;
+}
+#endif
+
 void robco_main(void)
 {
     const robco_board_t *b;
@@ -250,6 +267,9 @@ void robco_main(void)
         bootinfo_copy_fw_blob(ROBCO_HANDOFF_FDT_ADDR, ROBCO_HANDOFF_FDT_MAX);
     }
     uos_panic_init();
+#if defined(UOS_TEST_EARLY_FAULT) && UOS_TEST_EARLY_FAULT
+    uos_test_early_fault();
+#endif
 
     mini = uart_mini_init(115200);
     UOS_MARK("maint mini=%d", mini);
@@ -266,6 +286,9 @@ void robco_main(void)
 
     irq_init();
     tick = tick_init(UOS_TICK_HZ);
+#if defined(UOS_TEST_TICK_FAIL) && UOS_TEST_TICK_FAIL
+    tick = uos_test_tick_fail(tick);
+#endif
     irq_cpu_enable();
     UOS_MARK("tick hz=%u rc=%d", UOS_TICK_HZ, tick);
     if (tick != 0) {
