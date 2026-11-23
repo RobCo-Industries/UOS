@@ -1,0 +1,72 @@
+[
+  {
+    "name": "ADMIN",
+    "password": "a",
+    "salt": "9b81f24dc1d7da319de70a8ae2bb62a6",
+    "iterations": 1,
+    "hash": "cd0a6bbccf1fc5f1a0096d64181bd315c6227bcf21485b5d724a7adea31420b6"
+  },
+  {
+    "name": "OPER",
+    "password": "a",
+    "salt": "3017dc82869e5e0c8cf3fe7533af5121",
+    "iterations": 2000,
+    "hash": "c3c19a69fce514aa765e7145d573868b3797b23bd53d38b8c9fe74bb7bd45436"
+  },
+  {
+    "name": "GUEST",
+    "password": "password",
+    "salt": "74b6fa0f21cb36267ba7ca13190b2653",
+    "iterations": 1,
+    "hash": "2e05fb758f94a5fe41abcecc66db4e1f4cc64d40416a2c4d1905f2311e3551f1"
+  },
+  {
+    "name": "USER1",
+    "password": "Pass word 7!",
+    "salt": "c68df5446f1858b2d72f09b37b402fcc",
+    "iterations": 2,
+    "hash": "2d29d2daab969d3b122e874b2b30a2de8300568ea61877b712a9b1de03425f4c"
+  },
+  {
+    "name": "SYS$MGR",
+    "password": "1234567",
+    "salt": "e8147e8b127878d97bfaa92667dff15e",
+    "iterations": 10,
+    "hash": "18c4cf8b19145eb6a275be89a7ba700740311bad80776b8598749649e74483de"
+  },
+  {
+    "name": "X",
+    "password": "12345678",
+    "salt": "685ab1d19d74bc3e186774dbf4cfe6a0",
+    "iterations": 10,
+    "hash": "82dbf8efc41fb789c15d009ad958fd9fe54da4b10e86aedd447149ef2a870090"
+  },
+  {
+    "name": "LONGNAME_16CHARS",
+    "password": "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~",
+    "salt": "b138017186bc06d7b537c081d87a2a89",
+    "iterations": 1,
+    "hash": "e33d0fe33a203fcc0415a99775791df40bb61437af4c0e0933fb631048189fbc"
+  },
+  {
+    "name": "MAX",
+    "password": "!\"#$%&'()*+,-./0123456789:;<=>?",
+    "salt": "4d1cc56186cc960be08ed6dd71be6efd",
+    "iterations": 2000,
+    "hash": "4333f2c0f9d7a00be30a8687b9de0f26b0bb68763e49f5c3729b35597f1e0fb7"
+  },
+  {
+    "name": "SPACE",
+    "password": " ",
+    "salt": "63dc02e9d4f40645e29be2eb6cf94bae",
+    "iterations": 3,
+    "hash": "34ba85b0f71691da59975c25d7437aaf6ecd2e8f51e352b27c30b28cc904a077"
+  },
+  {
+    "name": "MIXED",
+    "password": "AbCdEfGhIjKlMnOpQrStUvWxYz012345",
+    "salt": "0313733d11abf13fc93884bcdc87a371",
+    "iterations": 100,
+    "hash": "89a41a93fa7bfc174616159f71404488d5528821f6f007e2cae41ddd57b1e654"
+  }
+]
