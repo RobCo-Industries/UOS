@@ -355,7 +355,7 @@ def test_expander(board, uos_image, need_mtools, tmp_path):
         fail = one(vm, "devfail")
         assert (fail["name"], fail["op"], fail["why"]) == ("LAMP", "config", "NOEXPDRV"), fail
         rows = dev_list(vm)
-        assert rows["LAMP"].endswith("X0.3") and " OFF " in rows["LAMP"], rows
+        assert rows["LAMP"].endswith("X0.3 UNREACHABLE") and " OFF " in rows["LAMP"], rows
         assert pins(record(vm)) == [(12, 0)]
         for action in ("ON", "OFF", "TOGGLE"):
             assert dev_set(vm, "LAMP", action).status == msg
@@ -363,6 +363,35 @@ def test_expander(board, uos_image, need_mtools, tmp_path):
         assert len(marks(vm, "devfail", name="LAMP", op="write")) == 3
         assert pins(record(vm)) == [(12, 0)]
         assert dev_set(vm, "DOOR1", "OPEN").status == "ok"
+
+
+EXP_ARM = EXP_FILE + b"""
+[device ARM]
+type = relay
+gpio = 13
+initial = on
+"""
+
+
+def test_expander_holds_arm(board, uos_image, need_mtools, tmp_path):
+    """An expander output never reaches its level: ARM stays off at boot,
+    the status says why, and arming by hand says the output is unreachable."""
+    with alone(uos_image, board, boot_card(tmp_path, EXP_ARM)) as vm:
+        wait_ready(vm)
+        held = one(vm, "devarm")
+        assert (held["name"], held["result"], held["why"], held["count"]) == \
+            ("ARM", "held", "unreachable", "1"), held
+        # ARM's pin is written off, never on.
+        assert pins(record(vm)) == [(12, 0), (13, 0)], vm.serial
+        rows = dev_list(vm)
+        assert " OFF " in rows["ARM"] and rows["ARM"].endswith("GPIO 13 UNREACH=1"), rows
+        assert rows["LAMP"].endswith("X0.3 UNREACHABLE"), rows
+        # The operator may still arm by hand; the answer says why to care.
+        assert answer(vm, "dev set ARM ON") == ["dev name=ARM state=ON, 1 outputs unreachable"]
+        on = marks(vm, "devarm", result="on")
+        assert len(on) == 1 and (on[0]["why"], on[0]["count"]) == ("unreachable", "1"), on
+        assert pins(record(vm))[-1] == (13, 1)
+        assert " ON " in dev_list(vm)["ARM"]
 
 
 def test_no_devices(board, uos_image, need_mtools, tmp_path):

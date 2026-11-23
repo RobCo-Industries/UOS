@@ -319,7 +319,8 @@ static void boot(void)
     n = devs_boot_run(&set, &io, &rec, t, ev, &nev);
     for (k = 0; k < nev; k++) {
         if (ev[k].kind == DEVS_EV_ARMHELD) {
-            UOS_MARK("devarm name=%s result=held why=fault", set.dev[ev[k].dev].name);
+            UOS_MARK("devarm name=%s result=held why=unreachable count=%u",
+                     set.dev[ev[k].dev].name, devs_unreachable(&set));
             continue;
         }
         mark_fail(ev[k].dev, "config", ev[k].rc);
@@ -344,6 +345,25 @@ static void boot(void)
 }
 
 /* ---- The public calls ---------------------------------------------------- */
+
+/*
+ * An operator may switch ARM on by hand while an output is unreachable.
+ * The answer and a marker say so plainly.
+ */
+static void arm_warn(unsigned idx, const char **text)
+{
+    static char msg[48];
+    unsigned u = devs_unreachable(&set);
+
+    if ((int)idx != devs_arm_index(&set) || !set.st[idx].on || u == 0) {
+        return;
+    }
+    UOS_MARK("devarm name=%s result=on why=unreachable count=%u", set.dev[idx].name, u);
+    if (text != NULL) {
+        k_snprintf(msg, sizeof(msg), "%s, %u outputs unreachable", dv_state_word(&set, idx), u);
+        *text = msg;
+    }
+}
 
 int devs_command(const char *name, const char *action, uint32_t privs, const char *by,
                  const char **text)
@@ -373,6 +393,7 @@ int devs_command(const char *name, const char *action, uint32_t privs, const cha
                 if (text != NULL) {
                     *text = dv_state_word(&set, (unsigned)idx);
                 }
+                arm_warn((unsigned)idx, text);
                 return 0;
             }
         }
@@ -398,7 +419,7 @@ int devs_status_line(unsigned index, char *buf, size_t size)
     if (index >= set.count) {
         return set.count == 0 ? DEVS_ERR_DOWN : DV_ERR_NOSUCHDEV;
     }
-    return dv_status_line(&set, index, buf, size);
+    return devs_status(&set, index, buf, size);
 }
 
 const char *devs_message(int code)
@@ -414,7 +435,7 @@ static int hook_read(const char *name, char *buf, size_t size)
         return DEVS_ERR_DOWN;
     }
     idx = dv_find(&set, name);
-    return idx < 0 ? idx : dv_status_line(&set, (unsigned)idx, buf, size);
+    return idx < 0 ? idx : devs_status(&set, (unsigned)idx, buf, size);
 }
 
 static int is_blank(char c)
@@ -531,7 +552,7 @@ static int sub_list(void)
         uos_maint_reply("%s", line);
     }
     for (i = 0; i < set.count; i++) {
-        if (dv_status_line(&set, i, line, sizeof(line)) >= 0) {
+        if (devs_status(&set, i, line, sizeof(line)) >= 0) {
             uos_maint_reply("%s", line);
         }
     }

@@ -603,6 +603,124 @@ TEST(fault_boot_holds_arm_off)
     CHECK_EQ(g_set.st[1].on, 0);
 }
 
+/* An expander light first, then a Pi light, ARM last and initially on. */
+static const char *exp_arm =
+    "[expander 0]\naddr = 0x20\n"
+    "[device LAMP]\ntype = light\ngpio = X0.3\ninitial = on\n"
+    "[device DOOR1]\ntype = door\ngpio = 12\n"
+    "[device ARM]\ntype = relay\ngpio = 13\ninitial = on\n";
+
+/* Boots exp_arm; returns 1 when ARM was held off with LAMP unreachable. */
+static int boot_held(int exp_rc, int fail_pin)
+{
+    devs_ev_t ev[DV_MAX_DEVICES + 1];
+    unsigned nev = 0;
+
+    if (load(exp_arm) != DV_OK) {
+        return 0;
+    }
+    g_exp_rc = exp_rc;
+    g_fail_pin = fail_pin;
+    if (devs_boot_run(&g_set, &fake, &g_rec, 0, ev, &nev) != 3 || nev != 2) {
+        return 0;
+    }
+    return ev[1].kind == DEVS_EV_ARMHELD && ev[1].dev == 2 && g_set.st[2].on == 0 &&
+           g_log[g_n - 1].pin == 13 && g_log[g_n - 1].arg == 0 &&
+           devs_unreachable(&g_set) == 1;
+}
+
+TEST(boot_no_expander_driver_holds_arm)
+{
+    char line[DV_STATUS_LINE_MAX];
+
+    CHECK(boot_held(DEVS_ERR_NOEXP, -1));
+    /* No driver: no fault, nothing owed, but unreached and off. */
+    CHECK_EQ(g_set.st[0].fault, 0);
+    CHECK_EQ(g_set.st[0].unreached, 1);
+    CHECK_EQ(g_set.st[0].on, 0);
+    status(0, line);
+    CHECK(strstr(line, "X0.3 UNREACHABLE") != NULL);
+    CHECK(devs_status(&g_set, 2, line, sizeof(line)) > 0);
+    CHECK(strstr(line, " OFF ") != NULL);
+    CHECK(strstr(line, "GPIO 13 UNREACH=1") != NULL);
+    /* DOOR1 is fine: no mark on its line. */
+    CHECK(devs_status(&g_set, 1, line, sizeof(line)) > 0);
+    CHECK(strstr(line, "UNREACH") == NULL);
+}
+
+TEST(boot_absent_expander_holds_arm)
+{
+    /* A driver that finds no chip: a fault, retried. */
+    CHECK(boot_held(-7, -1));
+    CHECK_EQ(g_set.st[0].fault, 1);
+    CHECK_EQ(g_set.st[0].unreached, 0);
+}
+
+TEST(boot_refused_pin_holds_arm)
+{
+    /* The driver refuses the pin's argument: counted like any failure. */
+    CHECK(boot_held(DV_ERR_ARG, -1));
+}
+
+TEST(boot_pi_error_holds_arm)
+{
+    devs_ev_t ev[DV_MAX_DEVICES + 1];
+    unsigned nev = 0;
+
+    CHECK_EQ(load(exp_arm), DV_OK);
+    g_exp_rc = 0;
+    g_fail_pin = 12;                            /* DOOR1 */
+    CHECK_EQ(devs_boot_run(&g_set, &fake, &g_rec, 0, ev, &nev), 3);
+    CHECK_EQ(nev, 2);
+    CHECK_EQ(ev[0].kind, DEVS_EV_FAULT);
+    CHECK_EQ(ev[1].kind, DEVS_EV_ARMHELD);
+    CHECK_EQ(g_set.st[2].on, 0);
+    CHECK_EQ(devs_unreachable(&g_set), 1);
+    /* Everything reached: ARM on, nothing unreachable. */
+    reset_fake();
+    g_exp_rc = 0;
+    CHECK_EQ(devs_boot_run(&g_set, &fake, &g_rec, 0, ev, &nev), 3);
+    CHECK_EQ(nev, 0);
+    CHECK_EQ(g_set.st[2].on, 1);
+    CHECK_EQ(devs_unreachable(&g_set), 0);
+}
+
+TEST(arm_by_hand_while_unreachable)
+{
+    char line[DV_STATUS_LINE_MAX];
+
+    CHECK(boot_held(DEVS_ERR_NOEXP, -1));
+    /* The operator may still arm by hand; the count stays visible. */
+    CHECK_EQ(devs_cmd(&g_set, &fake, 2, DV_ACT_ON, DV_PRIV_SYSTEM, 0, &g_rec, 0), 0);
+    CHECK_EQ(g_set.st[2].on, 1);
+    CHECK(devs_status(&g_set, 2, line, sizeof(line)) > 0);
+    CHECK(strstr(line, " ON ") != NULL && strstr(line, "UNREACH=1") != NULL);
+    /* A write that reaches LAMP ends its mark. */
+    g_exp_rc = 0;
+    CHECK_EQ(devs_cmd(&g_set, &fake, 0, DV_ACT_OFF, DV_PRIV_SYSTEM, 0, &g_rec, 0), 0);
+    CHECK_EQ(g_set.st[0].unreached, 0);
+    CHECK_EQ(devs_unreachable(&g_set), 0);
+    CHECK(devs_status(&g_set, 2, line, sizeof(line)) > 0);
+    CHECK(strstr(line, "UNREACH") == NULL);
+}
+
+TEST(status_line_fits_every_mark)
+{
+    char line[DV_STATUS_LINE_MAX];
+
+    CHECK(boot_held(DEVS_ERR_NOEXP, -1));
+    g_set.st[2].fault = 1;
+    g_set.st[2].fails = 65535;
+    g_set.st[0].fault = 1;
+    g_set.st[0].fails = 65535;
+    g_set.count = 3;
+    CHECK(devs_status(&g_set, 0, line, sizeof(line)) > 0);
+    CHECK(strstr(line, "FAULT=65535 UNREACHABLE") != NULL);
+    CHECK(devs_status(&g_set, 2, line, sizeof(line)) > 0);
+    CHECK(strstr(line, "FAULT=65535 UNREACH=1") != NULL);
+    CHECK_EQ(devs_status(&g_set, 2, line, 70), DV_ERR_SPACE);
+}
+
 TEST(fault_safe_state_bounded_with_arm)
 {
     dv_op_t ops[DV_MAX_DEVICES];

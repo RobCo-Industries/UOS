@@ -316,11 +316,15 @@ int dv_status_line(const dv_set_t *set, unsigned idx, char *buf, size_t size)
         n = k_snprintf(buf, size, "%-8s %-6s %-31s %-8s GPIO %u", d->name, type, d->label,
                        dv_state_word(set, idx), (unsigned)d->pin);
     }
-    if (n < 0 || (size_t)n >= size || !set->st[idx].fault) {
-        return dv_fit(n, buf, size);
+    if (n >= 0 && (size_t)n < size && set->st[idx].fault) {
+        m = k_snprintf(buf + n, size - (size_t)n, " FAULT=%u", (unsigned)set->st[idx].fails);
+        n = m < 0 ? m : n + m;
     }
-    m = k_snprintf(buf + n, size - (size_t)n, " FAULT=%u", (unsigned)set->st[idx].fails);
-    return dv_fit(m < 0 ? m : n + m, buf, size);
+    if (n >= 0 && (size_t)n < size && set->st[idx].unreached) {
+        m = k_snprintf(buf + n, size - (size_t)n, " UNREACHABLE");
+        n = m < 0 ? m : n + m;
+    }
+    return dv_fit(n, buf, size);
 }
 
 const char *dv_strerror(int code)

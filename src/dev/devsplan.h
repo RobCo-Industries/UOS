@@ -138,7 +138,8 @@ typedef struct {
  * dv_tick(). A device in fault refuses it with DEVS_ERR_FAULT. When the
  * write fails, the device's state is put back as it was; if the write
  * went to the safe level, a fault starts and the code is DEVS_ERR_FAULT,
- * otherwise the failure's code. Returns 0 or a DV_ERR_* / DEVS_ERR_* code.
+ * otherwise the failure's code. A write that succeeds ends the device's
+ * unreached mark. Returns 0 or a DV_ERR_* / DEVS_ERR_* code.
  */
 int devs_cmd(dv_set_t *set, const devs_io_t *io, unsigned idx, dv_action_t act,
              uint32_t privs, uint32_t now_ms, dv_rec_t *rec, uint32_t tick);
@@ -156,11 +157,26 @@ int devs_tick(dv_set_t *set, const devs_io_t *io, uint32_t now_ms, dv_rec_t *rec
 
 /*
  * Boot: dv_reset(), then devs_boot_plan() applied. An output whose write
- * fails is off with a fault, its CONFIG_OUTPUT owed; when any output other
- * than ARM faulted, ARM is written off instead of its initial level.
+ * fails is off: with a fault and its CONFIG_OUTPUT owed, or, when the
+ * failure starts no fault (DEVS_ERR_NOEXP), marked unreached. ARM is
+ * switched on at boot only if every other output was written to its
+ * initial level; otherwise ARM is written off and an ARMHELD event added.
  * `ev` (DV_MAX_DEVICES + 1 entries) gets FAIL, FAULT and ARMHELD events;
  * `*nev` their count. Returns the count of operations or a DV_ERR_* code.
  */
+/*
+ * Outputs other than ARM that are not at a level the system chose: in
+ * fault, or unreached since boot. An operator may still switch ARM on by
+ * hand; the glue then says how many outputs are unreachable.
+ */
+unsigned devs_unreachable(const dv_set_t *set);
+
+/*
+ * dv_status_line(), then on ARM's line " UNREACH=<n>" while
+ * devs_unreachable() is not 0. Returns the length or a DV_ERR_* code.
+ */
+int devs_status(const dv_set_t *set, unsigned idx, char *buf, size_t size);
+
 int devs_boot_run(dv_set_t *set, const devs_io_t *io, dv_rec_t *rec, uint32_t tick,
                   devs_ev_t *ev, unsigned *nev);
 

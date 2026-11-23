@@ -273,7 +273,44 @@ int devs_cmd(dv_set_t *set, const devs_io_t *io, unsigned idx, dv_action_t act,
             return rc;
         }
     }
+    if (n > 0) {
+        set->st[idx].unreached = 0;
+    }
     return 0;
+}
+
+unsigned devs_unreachable(const dv_set_t *set)
+{
+    unsigned i, n = 0;
+    int arm = devs_arm_index(set);
+
+    if (set == NULL) {
+        return 0;
+    }
+    for (i = 0; i < set->count && i < DV_MAX_DEVICES; i++) {
+        if ((int)i != arm && set->dev[i].type != DV_TYPE_SENSOR &&
+            (set->st[i].fault || set->st[i].unreached)) {
+            n++;
+        }
+    }
+    return n;
+}
+
+int devs_status(const dv_set_t *set, unsigned idx, char *buf, size_t size)
+{
+    int n = dv_status_line(set, idx, buf, size);
+    unsigned u;
+    int m;
+
+    if (n < 0 || (int)idx != devs_arm_index(set) || (u = devs_unreachable(set)) == 0) {
+        return n;
+    }
+    m = k_snprintf(buf + n, size - (size_t)n, " UNREACH=%u", u);
+    if (m < 0 || (size_t)(n + m) >= size) {
+        buf[0] = '\0';
+        return DV_ERR_SPACE;
+    }
+    return n + m;
 }
 
 int devs_tick(dv_set_t *set, const devs_io_t *io, uint32_t now_ms, dv_rec_t *rec,
@@ -304,6 +341,7 @@ int devs_tick(dv_set_t *set, const devs_io_t *io, uint32_t now_ms, dv_rec_t *rec
             continue;
         }
         s->fault = 0;
+        s->unreached = 0;
         s->level = o.level;
         s->on = on_of(&set->dev[i], o.level);
         ev_put(ev, &nev, i, DEVS_EV_CLEARED, &o, 0);
@@ -351,7 +389,7 @@ int devs_boot_run(dv_set_t *set, const devs_io_t *io, dv_rec_t *rec, uint32_t ti
         dv_dstate_t *s = &set->st[d];
 
         if ((int)d == arm && faulted != 0 && s->on) {
-            /* ARM goes on last, and only when every other output holds. */
+            /* ARM goes on last, and only when every other output reached its level. */
             ops[i].level = (uint8_t)devs_safe_level(set, d);
             s->on = 0;
             s->level = ops[i].level;
@@ -361,13 +399,19 @@ int devs_boot_run(dv_set_t *set, const devs_io_t *io, dv_rec_t *rec, uint32_t ti
         if (rc == 0) {
             continue;
         }
-        if (ops[i].kind == DV_OP_CONFIG_OUTPUT && fault_start(set, &ops[i], rc)) {
-            /* Never configured: the pin drives nothing, the state is off. */
-            s->on = 0;
-            s->level = set->dev[d].active_high ? 0 : 1;
-            faulted += (int)d != arm;
+        if (ops[i].kind != DV_OP_CONFIG_OUTPUT) {
+            ev_put(ev, &k, d, DEVS_EV_FAIL, &ops[i], rc);
+            continue;
+        }
+        /* Never configured: the pin drives nothing, the state is off. Any
+         * failure counts, a retried fault or not: ARM stays off. */
+        s->on = 0;
+        s->level = set->dev[d].active_high ? 0 : 1;
+        faulted += (int)d != arm;
+        if (fault_start(set, &ops[i], rc)) {
             ev_put(ev, &k, d, DEVS_EV_FAULT, &ops[i], rc);
         } else {
+            s->unreached = 1;
             ev_put(ev, &k, d, DEVS_EV_FAIL, &ops[i], rc);
         }
     }
@@ -399,6 +443,7 @@ int devs_down_run(dv_set_t *set, const devs_io_t *io, dv_rec_t *rec, uint32_t ti
         if (rc == 0) {
             s->fault = 0;
             s->fails = 0;
+            s->unreached = 0;
             s->level = ops[i].level;
             s->on = on_of(&set->dev[d], ops[i].level);
         } else if (!s->fault) {
