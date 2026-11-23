@@ -33,6 +33,7 @@ static uos_first_t info;
 static int shown;               /* the placeholder is on screen */
 static char key_name[8];
 static uos_timer_id_t clock_id;
+static uint32_t banner_t0;      /* tick of enter(), for the ready marker */
 
 static unsigned probe_n;
 static uint32_t probe_t0;
@@ -132,7 +133,8 @@ static void show(void *arg)
         uart_puts(line);
         uart_putc('\n');
     }
-    UOS_MARK("ready screen=first card=%s rtc=%d", uos_card_name(uos.card), info.rtc);
+    UOS_MARK("ready screen=first card=%s rtc=%d banner=%u", uos_card_name(uos.card), info.rtc,
+             (unsigned)(uos_ticks() - banner_t0));
 }
 
 static void enter(uos_screen_t *s)
@@ -146,6 +148,7 @@ static void enter(uos_screen_t *s)
     info.keys = 0;
     info.last_key = NULL;
     shown = 0;
+    banner_t0 = uos_ticks();
     if (uos_timer_start(BANNER_TICKS, 0, show, NULL, &id) != 0) {
         show(NULL);
     }

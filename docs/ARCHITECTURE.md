@@ -56,18 +56,25 @@ A `UOS.CFG` scheme applies only when the boot info gave none. Bad values are ski
 
 One thread of control. `uos_loop_run()` repeats:
 
-1. Takes every input event. Key releases are dropped.
-2. Posts one `TICK` event for the ticks since the last one, and one `TIMER` event per timer due.
+1. Posts one `TICK` event for the ticks since the last one, and one `TIMER` event per timer expiry due.
+2. Takes input events while the queue has room. Key releases are dropped. The rest waits in the input layer.
 3. Delivers every queued event, drawing the top screen after each one when it is dirty.
 4. Sleeps in `wfi`, through `input_wait()`, until input or the next tick.
 
-Event types, `uos_event.h`: `KEY`, `CHAR`, `TICK`, `TIMER` and `CALL`. `uos_post(fn, arg)` queues a call from any context. The queue holds 32 events and counts drops.
+Event types, `uos_event.h`: `KEY`, `CHAR`, `TICK`, `TIMER` and `CALL`. `uos_post(fn, arg)` queues a call from any context. The queue holds 32 events. A full queue refuses an event and counts it in `uos_events_dropped()`: `uos_post()` then returns `UOS_EVQ_ERR_FULL`, and the call never runs unless the caller posts it again. A key that finds the queue full is dropped and counted. Under a flood the loop takes input only while there is room, so drops are rare; the PL011 console then stalls instead of dropping.
 
 ### Timers
 
 `uos_timer_start(delay, period, fn, arg, &id)` starts a timer in ticks: once when `period` is 0, else every `period` ticks. At expiry the loop runs `fn(arg)`, or, when `fn` is NULL, gives the screens a `TIMER` event. `uos_timer_cancel(id)` ends it. A timer never fires after its cancel returns, even when its expiry is already queued: the loop checks the id first. Deadlines compare by signed difference, so the tick counter may wrap. Delays and periods go up to `0x7fffffff` ticks. At most 16 timers live at once.
 
-A periodic timer fires on the first loop pass at or after its deadline. A late loop catches up one expiry per pass, so the count stays exact.
+Time goes into the queue before input. After a pass the queue holds at most one event, so the `TICK` and all 16 expiries fit. A timer fires on the first loop pass at or after its deadline, however much input waits.
+
+An expiry is never lost. `uos_tq_deliver()` in `timerq.c` queues one `TIMER` event per due expiry, most overdue first. It marks an expiry delivered only once its event is queued. An expiry that finds the queue full stays due and goes out on a later pass:
+
+- A one-shot timer fires once, as soon as there is room.
+- A periodic timer fires once per period, missed periods included. It does not coalesce: the count stays exact, and a callback that counts periods stays right.
+- A cancel ends the timer, pending expiry included. It never fires after the cancel returns.
+- A `TICK` that finds the queue full is retried with the ticks added up.
 
 ### Screens
 

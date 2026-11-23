@@ -3,6 +3,8 @@
 import re
 import time
 
+from harness.boot import SCRIPT_PORT
+
 from uos import TICK_HZ, TIMEOUT, alone, answer, dump, events, key, one, timers, uos_card, \
     wait_ready
 
@@ -20,6 +22,15 @@ HOST_ALLOWANCE_TICKS = 20
 # Wall-clock allowance for the whole probe on a loaded host, in seconds.
 HOST_ALLOWANCE_S = 10
 
+# The first screen's banner, BANNER_TICKS in src/kernel/first.c. The design
+# delivers its one-shot timer on the first loop pass at or after the
+# deadline, however much input waits: time goes into the queue first.
+BANNER_TICKS = 50
+# More characters than the event queue holds, UOS_EVQ_LEN in uos_event.h.
+EVQ_LEN = 32
+FLOOD_LINES = 1500
+
+INPUT_MARK = re.compile(r"@RC stage=uos ev=input [^\n]*\n")
 PROBE_DONE = re.compile(r"@RC stage=uos ev=timer name=probe done=1 [^\n]*\n")
 WITNESS = re.compile(r"@RC stage=uos ev=timer name=witness [^\n]*\n")
 
@@ -47,6 +58,22 @@ def test_type_sends_a_line(board, uos_image, need_mtools, tmp_path):
         vm.wait_for(re.compile(r"ev=key [^\n]*keys=5\r?\n"), timeout=TIMEOUT)
         names = [m["name"] for m in events(vm, "key")]
         assert names == ["'A'", "'B'", "0x20", "'C'", "select"], names
+
+
+def test_keys_flood_during_the_banner(board, uos_image, need_mtools, tmp_path):
+    """Bursts of keys bigger than the queue must not lose the banner timer."""
+    with alone(uos_image, board, uos_card(tmp_path)) as vm:
+        vm.wait_for(INPUT_MARK, timeout=TIMEOUT)
+        # One write of FLOOD_LINES `text` commands, each one queue of
+        # characters: the input layer refills as fast as the loop drains it.
+        line = "text " + "x" * EVQ_LEN + "\n"
+        vm.send(line * FLOOD_LINES, port=SCRIPT_PORT)
+        wait_ready(vm)
+        ready = one(vm, "ready")
+        assert ready["screen"] == "first", ready
+        banner = int(ready["banner"])
+        assert BANNER_TICKS <= banner <= BANNER_TICKS + LOOP_LATENCY_TICKS + \
+            HOST_ALLOWANCE_TICKS, ready
 
 
 def test_serial_console_keys(board, uos_image, need_mtools, tmp_path):
