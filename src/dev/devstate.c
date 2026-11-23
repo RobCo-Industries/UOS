@@ -298,6 +298,7 @@ int dv_status_line(const dv_set_t *set, unsigned idx, char *buf, size_t size)
     const dv_device_t *d;
     char type[8];
     unsigned i;
+    int n, m;
 
     if (set == NULL || buf == NULL || idx >= set->count) {
         return DV_ERR_ARG;
@@ -309,13 +310,17 @@ int dv_status_line(const dv_set_t *set, unsigned idx, char *buf, size_t size)
         type[i] = dv_upper(type[i]);
     }
     if (d->chip != DV_CHIP_PI) {
-        return dv_fit(k_snprintf(buf, size, "%-8s %-6s %-31s %-8s X%u.%u",
-                                 d->name, type, d->label, dv_state_word(set, idx),
-                                 (unsigned)d->chip, (unsigned)d->pin), buf, size);
+        n = k_snprintf(buf, size, "%-8s %-6s %-31s %-8s X%u.%u", d->name, type, d->label,
+                       dv_state_word(set, idx), (unsigned)d->chip, (unsigned)d->pin);
+    } else {
+        n = k_snprintf(buf, size, "%-8s %-6s %-31s %-8s GPIO %u", d->name, type, d->label,
+                       dv_state_word(set, idx), (unsigned)d->pin);
     }
-    return dv_fit(k_snprintf(buf, size, "%-8s %-6s %-31s %-8s GPIO %u",
-                             d->name, type, d->label, dv_state_word(set, idx),
-                             (unsigned)d->pin), buf, size);
+    if (n < 0 || (size_t)n >= size || !set->st[idx].fault) {
+        return dv_fit(n, buf, size);
+    }
+    m = k_snprintf(buf + n, size - (size_t)n, " FAULT=%u", (unsigned)set->st[idx].fails);
+    return dv_fit(m < 0 ? m : n + m, buf, size);
 }
 
 const char *dv_strerror(int code)

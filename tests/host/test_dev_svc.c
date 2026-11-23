@@ -21,6 +21,7 @@ static call_t g_log[LOG_MAX];
 static unsigned g_n;
 static int g_levels[64];
 static int g_fail_pin = -1;     /* a Pi call on this pin fails */
+static int g_fail_left = -1;    /* calls on g_fail_pin left to fail; -1 every one */
 static int g_exp_rc = DEVS_ERR_NOEXP;
 
 static int logc(char kind, unsigned pin, int arg)
@@ -31,7 +32,13 @@ static int logc(char kind, unsigned pin, int arg)
         g_log[g_n].arg = arg;
         g_n++;
     }
-    return (int)pin == g_fail_pin ? -1 : 0;
+    if ((int)pin != g_fail_pin || g_fail_left == 0) {
+        return 0;
+    }
+    if (g_fail_left > 0) {
+        g_fail_left--;
+    }
+    return -1;
 }
 
 static int f_write(unsigned pin, int level) { return logc('w', pin, level); }
@@ -72,6 +79,7 @@ static void reset_fake(void)
 {
     g_n = 0;
     g_fail_pin = -1;
+    g_fail_left = -1;
     g_exp_rc = DEVS_ERR_NOEXP;
     memset(g_levels, 0, sizeof(g_levels));
     dv_rec_init(&g_rec);
@@ -302,7 +310,7 @@ TEST(cmd_expander_fails_and_keeps_state)
 
 TEST(cmd_pulse_end_only_from_tick)
 {
-    uint8_t ended[DV_MAX_DEVICES];
+    devs_ev_t ended[DV_MAX_DEVICES];
 
     CHECK_EQ(load(with_arm), DV_OK);
     /* VAULT, index 4, pin 20: 2000 ms. */
@@ -314,7 +322,8 @@ TEST(cmd_pulse_end_only_from_tick)
     CHECK_EQ(g_n, 1);
     /* Late is fine: a tick far past the end still ends it, once. */
     CHECK_EQ(devs_tick(&g_set, &fake, 9000, &g_rec, 900, ended), 1);
-    CHECK_EQ(ended[0], 4);
+    CHECK_EQ(ended[0].dev, 4);
+    CHECK_EQ(ended[0].kind, DEVS_EV_ENDED);
     CHECK_EQ(g_n, 2);
     CHECK_EQ(g_log[1].arg, 0);
     CHECK_EQ(g_set.st[4].on, 0);
@@ -325,7 +334,7 @@ TEST(cmd_pulse_end_only_from_tick)
 
 TEST(cmd_pulse_end_across_wrap)
 {
-    uint8_t ended[DV_MAX_DEVICES];
+    devs_ev_t ended[DV_MAX_DEVICES];
 
     CHECK_EQ(load(with_arm), DV_OK);
     CHECK_EQ(devs_cmd(&g_set, &fake, 4, DV_ACT_PULSE, DV_PRIV_SYSTEM, 0xFFFFFF00u, &g_rec, 0), 0);
@@ -335,14 +344,14 @@ TEST(cmd_pulse_end_across_wrap)
 
 TEST(cmd_two_pulses_and_cancel)
 {
-    uint8_t ended[DV_MAX_DEVICES];
+    devs_ev_t ended[DV_MAX_DEVICES];
 
     CHECK_EQ(load("[device A]\ntype = lock\ngpio = 12\npulse_ms = 100\n"
                   "[device B]\ntype = door\ngpio = 13\npulse_ms = 300\n"), DV_OK);
     CHECK_EQ(devs_cmd(&g_set, &fake, 0, DV_ACT_PULSE, DV_PRIV_SYSTEM, 0, &g_rec, 0), 0);
     CHECK_EQ(devs_cmd(&g_set, &fake, 1, DV_ACT_PULSE, DV_PRIV_SYSTEM, 0, &g_rec, 0), 0);
     CHECK_EQ(devs_tick(&g_set, &fake, 100, &g_rec, 10, ended), 1);
-    CHECK_EQ(ended[0], 0);
+    CHECK_EQ(ended[0].dev, 0);
     /* A new command cancels B's end. */
     CHECK_EQ(devs_cmd(&g_set, &fake, 1, DV_ACT_ON, DV_PRIV_SYSTEM, 150, &g_rec, 15), 0);
     CHECK_EQ(devs_cmd(&g_set, &fake, 1, DV_ACT_OFF, DV_PRIV_SYSTEM, 160, &g_rec, 16), 0);
@@ -368,6 +377,276 @@ TEST(cmd_io_failure_restores_state)
     g_fail_pin = 12;
     CHECK_EQ(devs_cmd(&g_set, &fake, 0, DV_ACT_OPEN, DV_PRIV_SYSTEM, 0, &g_rec, 0), DEVS_ERR_IO);
     CHECK_EQ(g_set.st[0].on, 0);
+}
+
+/* ---- Pin faults ---- */
+
+static void status(unsigned idx, char *buf)
+{
+    CHECK(dv_status_line(&g_set, idx, buf, DV_STATUS_LINE_MAX) > 0);
+}
+
+TEST(fault_pulse_end_keeps_on_and_retries)
+{
+    devs_ev_t ev[DV_MAX_DEVICES];
+    char line[DV_STATUS_LINE_MAX];
+
+    CHECK_EQ(load(with_arm), DV_OK);
+    /* VAULT, index 4, pin 20, pulse 2000 ms. */
+    CHECK_EQ(devs_cmd(&g_set, &fake, 4, DV_ACT_UNLOCK, DV_PRIV_SYSTEM, 0, &g_rec, 0), 0);
+    g_fail_pin = 20;
+    g_fail_left = 1;
+    CHECK_EQ(devs_tick(&g_set, &fake, 2000, &g_rec, 200, ev), 1);
+    CHECK_EQ(ev[0].kind, DEVS_EV_FAULT);
+    CHECK_EQ(ev[0].dev, 4);
+    CHECK_EQ(ev[0].rc, DEVS_ERR_IO);
+    /* The pin is still high: the status must not say LOCKED. */
+    CHECK_EQ(g_set.st[4].on, 1);
+    CHECK_EQ(g_set.st[4].level, 1);
+    CHECK_EQ(g_set.st[4].fault, 1);
+    CHECK_STR(dv_state_word(&g_set, 4), "UNLOCKED");
+    status(4, line);
+    CHECK(strstr(line, "UNLOCKED") != NULL);
+    CHECK(strstr(line, " FAULT=1") != NULL);
+    CHECK_EQ(g_rec.count, 1);                   /* the failed write is not recorded */
+    /* The next tick retries the owed write, and it succeeds. */
+    g_n = 0;
+    CHECK_EQ(devs_tick(&g_set, &fake, 2010, &g_rec, 201, ev), 1);
+    CHECK_EQ(g_n, 1);
+    CHECK_EQ(g_log[0].kind, 'w');
+    CHECK_EQ(g_log[0].pin, 20);
+    CHECK_EQ(g_log[0].arg, 0);
+    CHECK_EQ(ev[0].kind, DEVS_EV_CLEARED);
+    CHECK_EQ(ev[0].fails, 1);
+    CHECK_EQ(g_set.st[4].on, 0);
+    CHECK_EQ(g_set.st[4].fault, 0);
+    status(4, line);
+    CHECK(strstr(line, "LOCKED") != NULL && strstr(line, "FAULT") == NULL);
+    CHECK_EQ(g_rec.count, 2);
+    /* Nothing more is owed. */
+    g_n = 0;
+    CHECK_EQ(devs_tick(&g_set, &fake, 2020, &g_rec, 202, ev), 0);
+    CHECK_EQ(g_n, 0);
+}
+
+TEST(fault_lasts_several_ticks_and_counts)
+{
+    devs_ev_t ev[DV_MAX_DEVICES];
+    char line[DV_STATUS_LINE_MAX];
+    unsigned t;
+
+    CHECK_EQ(load(with_arm), DV_OK);
+    CHECK_EQ(devs_cmd(&g_set, &fake, 4, DV_ACT_PULSE, DV_PRIV_SYSTEM, 0, &g_rec, 0), 0);
+    g_fail_pin = 20;
+    g_fail_left = 5;
+    CHECK_EQ(devs_tick(&g_set, &fake, 2000, &g_rec, 1, ev), 1);
+    CHECK_EQ(ev[0].kind, DEVS_EV_FAULT);
+    /* Four failing retries: no event, the count grows, one try per tick. */
+    for (t = 2; t <= 5; t++) {
+        g_n = 0;
+        CHECK_EQ(devs_tick(&g_set, &fake, 2000 + t * 10, &g_rec, t, ev), 0);
+        CHECK_EQ(g_n, 1);
+        CHECK_EQ(g_set.st[4].fails, t);
+        CHECK_EQ(g_set.st[4].on, 1);
+    }
+    status(4, line);
+    CHECK(strstr(line, " FAULT=5") != NULL);
+    /* A command is refused while the write is owed, and writes nothing. */
+    g_n = 0;
+    CHECK_EQ(devs_cmd(&g_set, &fake, 4, DV_ACT_LOCK, DV_PRIV_SYSTEM, 3000, &g_rec, 6),
+             DEVS_ERR_FAULT);
+    CHECK_EQ(devs_cmd(&g_set, &fake, 4, DV_ACT_UNLOCK, DV_PRIV_SYSTEM, 3000, &g_rec, 6),
+             DEVS_ERR_FAULT);
+    CHECK_EQ(g_n, 0);
+    CHECK_EQ(devs_tick(&g_set, &fake, 3000, &g_rec, 7, ev), 1);
+    CHECK_EQ(ev[0].kind, DEVS_EV_CLEARED);
+    CHECK_EQ(ev[0].fails, 5);
+    CHECK_EQ(g_set.st[4].fails, 0);
+    /* The device takes commands again. */
+    CHECK_EQ(devs_cmd(&g_set, &fake, 4, DV_ACT_LOCK, DV_PRIV_SYSTEM, 3010, &g_rec, 8), 0);
+}
+
+TEST(fault_count_stops_at_max)
+{
+    devs_ev_t ev[DV_MAX_DEVICES];
+    char line[DV_STATUS_LINE_MAX];
+
+    CHECK_EQ(load(with_arm), DV_OK);
+    CHECK_EQ(devs_cmd(&g_set, &fake, 4, DV_ACT_PULSE, DV_PRIV_SYSTEM, 0, &g_rec, 0), 0);
+    g_fail_pin = 20;
+    CHECK_EQ(devs_tick(&g_set, &fake, 2000, &g_rec, 1, ev), 1);
+    g_set.st[4].fails = 0xFFFEu;
+    CHECK_EQ(devs_tick(&g_set, &fake, 2010, &g_rec, 2, ev), 0);
+    CHECK_EQ(devs_tick(&g_set, &fake, 2020, &g_rec, 3, ev), 0);
+    CHECK_EQ(g_set.st[4].fails, 0xFFFFu);
+    CHECK_EQ(g_set.st[4].fault, 1);             /* it never gives up */
+    status(4, line);
+    CHECK(strstr(line, " FAULT=65535") != NULL);
+    CHECK(strlen(line) < DV_STATUS_LINE_MAX);
+}
+
+TEST(fault_pulse_start_failure_owes_nothing)
+{
+    devs_ev_t ev[DV_MAX_DEVICES];
+
+    CHECK_EQ(load(with_arm), DV_OK);
+    g_fail_pin = 20;
+    CHECK_EQ(devs_cmd(&g_set, &fake, 4, DV_ACT_UNLOCK, DV_PRIV_SYSTEM, 0, &g_rec, 0),
+             DEVS_ERR_IO);
+    CHECK_EQ(g_set.st[4].on, 0);
+    CHECK_EQ(g_set.st[4].pending, 0);
+    CHECK_EQ(g_set.st[4].fault, 0);
+    g_n = 0;
+    CHECK_EQ(devs_tick(&g_set, &fake, 5000, &g_rec, 1, ev), 0);
+    CHECK_EQ(g_n, 0);
+}
+
+TEST(fault_command_to_safe_level)
+{
+    devs_ev_t ev[DV_MAX_DEVICES];
+
+    CHECK_EQ(load(with_arm), DV_OK);
+    /* DOOR1, pin 12, initial off: OPEN fails toward active, nothing owed. */
+    CHECK_EQ(devs_cmd(&g_set, &fake, 0, DV_ACT_OPEN, DV_PRIV_SYSTEM, 0, &g_rec, 0), 0);
+    g_fail_pin = 12;
+    g_fail_left = 2;
+    /* CLOSE goes to the safe level: the fault starts, the state stays OPEN. */
+    CHECK_EQ(devs_cmd(&g_set, &fake, 0, DV_ACT_CLOSE, DV_PRIV_SYSTEM, 10, &g_rec, 1),
+             DEVS_ERR_FAULT);
+    CHECK_STR(dv_state_word(&g_set, 0), "OPEN");
+    CHECK_EQ(g_set.st[0].fault, 1);
+    CHECK_EQ(g_set.st[0].owed, 0);
+    CHECK_EQ(devs_tick(&g_set, &fake, 20, &g_rec, 2, ev), 0);
+    CHECK_EQ(devs_tick(&g_set, &fake, 30, &g_rec, 3, ev), 1);
+    CHECK_EQ(ev[0].kind, DEVS_EV_CLEARED);
+    CHECK_STR(dv_state_word(&g_set, 0), "CLOSED");
+    /* An OFF during a pulse that fails cancels the end and owes it. */
+    CHECK_EQ(devs_cmd(&g_set, &fake, 4, DV_ACT_UNLOCK, DV_PRIV_SYSTEM, 0, &g_rec, 4), 0);
+    g_fail_pin = 20;
+    g_fail_left = 1;
+    CHECK_EQ(devs_cmd(&g_set, &fake, 4, DV_ACT_LOCK, DV_PRIV_SYSTEM, 100, &g_rec, 5),
+             DEVS_ERR_FAULT);
+    CHECK_EQ(g_set.st[4].on, 1);
+    CHECK_EQ(g_set.st[4].pending, 0);
+    CHECK_EQ(devs_tick(&g_set, &fake, 110, &g_rec, 6, ev), 1);
+    CHECK_EQ(ev[0].kind, DEVS_EV_CLEARED);
+    CHECK_EQ(g_set.st[4].on, 0);
+    CHECK_STR(devs_strerror(DEVS_ERR_FAULT),
+              "%DEVICE-E-PINFAULT, a pin write failed and is retried; command refused");
+    CHECK_EQ(devs_vfs_code(DEVS_ERR_FAULT), VFS_E_WRITE);
+}
+
+TEST(fault_safe_level_of_arm_and_initial_on)
+{
+    CHECK_EQ(load(with_arm), DV_OK);
+    CHECK_EQ(devs_safe_level(&g_set, 1), 0);    /* ARM, initial on: off is safe */
+    CHECK_EQ(devs_safe_level(&g_set, 2), 0);    /* LIGHT1 on, active low */
+    CHECK_EQ(devs_safe_level(&g_set, 0), 0);
+    CHECK_EQ(devs_safe_level(&g_set, 9), DV_ERR_ARG);
+    /* LIGHT1's OFF goes away from its safe level: nothing owed. */
+    g_fail_pin = 25;
+    CHECK_EQ(devs_cmd(&g_set, &fake, 2, DV_ACT_OFF, DV_PRIV_SYSTEM, 0, &g_rec, 0), DEVS_ERR_IO);
+    CHECK_EQ(g_set.st[2].fault, 0);
+}
+
+TEST(fault_expander_without_driver_owes_nothing)
+{
+    CHECK_EQ(load(with_exp), DV_OK);
+    CHECK_EQ(devs_cmd(&g_set, &fake, 0, DV_ACT_OFF, DV_PRIV_SYSTEM, 0, &g_rec, 0),
+             DEVS_ERR_NOEXP);
+    CHECK_EQ(g_set.st[0].fault, 0);
+    /* A driver error is a fault like a Pi one. */
+    g_exp_rc = -7;
+    CHECK_EQ(devs_cmd(&g_set, &fake, 0, DV_ACT_OFF, DV_PRIV_SYSTEM, 0, &g_rec, 0),
+             DEVS_ERR_FAULT);
+    CHECK_EQ(g_set.st[0].fault, 1);
+}
+
+TEST(fault_boot_holds_arm_off)
+{
+    devs_ev_t ev[DV_MAX_DEVICES + 1];
+    unsigned nev = 0;
+
+    CHECK_EQ(load(with_arm), DV_OK);
+    g_fail_pin = 25;                            /* LIGHT1 */
+    g_fail_left = 1;
+    CHECK_EQ(devs_boot_run(&g_set, &fake, &g_rec, 0, ev, &nev), 5);
+    CHECK_EQ(nev, 2);
+    CHECK_EQ(ev[0].kind, DEVS_EV_FAULT);
+    CHECK_EQ(ev[0].dev, 2);
+    CHECK_EQ(ev[1].kind, DEVS_EV_ARMHELD);
+    CHECK_EQ(ev[1].dev, 1);
+    /* LIGHT1 was never configured: off, with its config owed. */
+    CHECK_EQ(g_set.st[2].on, 0);
+    CHECK_EQ(g_set.st[2].fault, 1);
+    CHECK_EQ(g_set.st[2].owed_kind, DV_OP_CONFIG_OUTPUT);
+    /* ARM written off, last. */
+    CHECK_EQ(g_log[g_n - 1].pin, 13);
+    CHECK_EQ(g_log[g_n - 1].arg, 0);
+    CHECK_EQ(g_set.st[1].on, 0);
+    /* The tick retries the config. */
+    CHECK_EQ(devs_tick(&g_set, &fake, 10, &g_rec, 1, ev), 1);
+    CHECK_EQ(g_log[g_n - 1].kind, 'o');
+    CHECK_EQ(g_set.st[2].on, 1);
+    /* A clean boot arms. */
+    reset_fake();
+    CHECK_EQ(devs_boot_run(&g_set, &fake, &g_rec, 0, ev, &nev), 5);
+    CHECK_EQ(nev, 0);
+    CHECK_EQ(g_set.st[1].on, 1);
+    CHECK_EQ(g_log[g_n - 1].arg, 1);
+    /* An ARM that fails itself holds nothing else. */
+    reset_fake();
+    g_fail_pin = 13;
+    CHECK_EQ(devs_boot_run(&g_set, &fake, &g_rec, 0, ev, &nev), 5);
+    CHECK_EQ(nev, 1);
+    CHECK_EQ(ev[0].kind, DEVS_EV_FAULT);
+    CHECK_EQ(g_set.st[1].on, 0);
+}
+
+TEST(fault_safe_state_bounded_with_arm)
+{
+    dv_op_t ops[DV_MAX_DEVICES];
+    devs_ev_t ev[DV_MAX_DEVICES];
+    static const unsigned pins[] = { 13, 20, 25, 12 };
+    unsigned i;
+
+    CHECK_EQ(load(with_arm), DV_OK);
+    CHECK_EQ(devs_cmd(&g_set, &fake, 0, DV_ACT_OPEN, DV_PRIV_SYSTEM, 0, &g_rec, 0), 0);
+    CHECK_EQ(devs_cmd(&g_set, &fake, 1, DV_ACT_ON, DV_PRIV_SYSTEM, 0, &g_rec, 0), 0);
+    CHECK_EQ(devs_cmd(&g_set, &fake, 4, DV_ACT_UNLOCK, DV_PRIV_SYSTEM, 0, &g_rec, 0), 0);
+    reset_fake();
+    g_fail_pin = 13;                            /* ARM's off write fails for good */
+    CHECK_EQ(devs_down_run(&g_set, &fake, &g_rec, 5, ops, ev), 4);
+    /* ARM: three tries, then the others still go safe, in order. */
+    CHECK_EQ(g_n, 3 + 3);
+    for (i = 0; i < 3; i++) {
+        CHECK_EQ(g_log[i].pin, 13);
+    }
+    CHECK_EQ(ev[0].rc, DEVS_ERR_IO);
+    CHECK_EQ(ev[0].tries, DEVS_SAFE_TRIES);
+    CHECK_EQ(ev[0].kind, DEVS_EV_SAFE);
+    for (i = 0; i < 4; i++) {
+        CHECK_EQ(ops[i].pin, pins[i]);
+    }
+    for (i = 1; i < 4; i++) {
+        CHECK_EQ(ev[i].rc, 0);
+        CHECK_EQ(ev[i].tries, 1);
+        CHECK_EQ(g_log[2 + i].pin, pins[i]);
+    }
+    /* The model keeps ARM on, as its pin is, and in fault. */
+    CHECK_EQ(g_set.st[1].on, 1);
+    CHECK_EQ(g_set.st[1].fault, 1);
+    CHECK_EQ(g_set.st[0].on, 0);
+    CHECK_EQ(g_set.st[4].on, 0);
+    CHECK_EQ(g_set.st[4].pending, 0);
+    /* A write that fails twice then works takes two retries. */
+    CHECK_EQ(load(with_arm), DV_OK);
+    g_fail_pin = 20;
+    g_fail_left = 2;
+    CHECK_EQ(devs_down_run(&g_set, &fake, &g_rec, 5, ops, ev), 4);
+    CHECK_EQ(ev[1].rc, 0);
+    CHECK_EQ(ev[1].tries, 3);
+    CHECK_EQ(g_set.st[4].fault, 0);
 }
 
 TEST(read_pi_pin)

@@ -185,6 +185,63 @@ int devs_read(const devs_io_t *io, const dv_set_t *set, unsigned idx)
     return rc < 0 ? rc : rc != 0;
 }
 
+int devs_safe_level(const dv_set_t *set, unsigned idx)
+{
+    const dv_device_t *d;
+    int on;
+
+    if (set == NULL || idx >= set->count) {
+        return DV_ERR_ARG;
+    }
+    d = &set->dev[idx];
+    on = (int)idx == devs_arm_index(set) ? 0 : d->initial_on != 0;
+    return (on != 0) == (d->active_high != 0);
+}
+
+static uint8_t on_of(const dv_device_t *d, unsigned level)
+{
+    return (uint8_t)((level != 0) == (d->active_high != 0));
+}
+
+/* Starts a fault for a failed `op`. 0 when `rc` starts none (no driver). */
+static int fault_start(dv_set_t *set, const dv_op_t *op, int rc)
+{
+    dv_dstate_t *s = &set->st[op->dev];
+
+    if (rc == DEVS_ERR_NOEXP) {
+        return 0;
+    }
+    s->pending = 0;
+    s->fault = 1;
+    s->owed = op->level;
+    s->owed_kind = op->kind;
+    s->fails = 1;
+    return 1;
+}
+
+static void ev_put(devs_ev_t *ev, unsigned *n, unsigned i, unsigned kind, const dv_op_t *op,
+                   int rc)
+{
+    if (ev != NULL) {
+        k_memset(&ev[*n], 0, sizeof(ev[*n]));
+        ev[*n].dev = (uint8_t)i;
+        ev[*n].kind = (uint8_t)kind;
+        ev[*n].level = op != NULL ? op->level : 0;
+        ev[*n].rc = rc;
+    }
+    (*n)++;
+}
+
+static void owed_op(const dv_set_t *set, unsigned i, dv_op_t *o)
+{
+    k_memset(o, 0, sizeof(*o));
+    o->kind = set->st[i].owed_kind;
+    o->chip = set->dev[i].chip;
+    o->pin = set->dev[i].pin;
+    o->level = set->st[i].owed;
+    o->dev = (uint8_t)i;
+}
+
 int devs_cmd(dv_set_t *set, const devs_io_t *io, unsigned idx, dv_action_t act,
              uint32_t privs, uint32_t now_ms, dv_rec_t *rec, uint32_t tick)
 {
@@ -194,6 +251,9 @@ int devs_cmd(dv_set_t *set, const devs_io_t *io, unsigned idx, dv_action_t act,
 
     if (set == NULL || io == NULL || idx >= set->count) {
         return DV_ERR_ARG;
+    }
+    if (set->st[idx].fault) {
+        return DEVS_ERR_FAULT;
     }
     saved = set->st[idx];
     n = dv_command(set, idx, act, privs, now_ms, ops, DV_CMD_OPS);
@@ -207,6 +267,9 @@ int devs_cmd(dv_set_t *set, const devs_io_t *io, unsigned idx, dv_action_t act,
         rc = devs_apply(io, set, &ops[i], rec, tick);
         if (rc < 0) {
             set->st[idx] = saved;
+            if (ops[i].level == devs_safe_level(set, idx) && fault_start(set, &ops[i], rc)) {
+                return DEVS_ERR_FAULT;
+            }
             return rc;
         }
     }
@@ -214,23 +277,140 @@ int devs_cmd(dv_set_t *set, const devs_io_t *io, unsigned idx, dv_action_t act,
 }
 
 int devs_tick(dv_set_t *set, const devs_io_t *io, uint32_t now_ms, dv_rec_t *rec,
-              uint32_t tick, uint8_t *ended)
+              uint32_t tick, devs_ev_t *ev)
 {
     dv_op_t ops[DV_MAX_DEVICES];
-    int n, i;
+    dv_dstate_t before[DV_MAX_DEVICES];
+    unsigned i, nev = 0;
+    int n, j, rc;
 
-    if (set == NULL || io == NULL) {
+    if (set == NULL || io == NULL || set->count > DV_MAX_DEVICES) {
         return 0;
     }
+    /* Owed writes first: a device in fault has no pulse pending. */
+    for (i = 0; i < set->count; i++) {
+        dv_dstate_t *s = &set->st[i];
+        dv_op_t o;
+
+        if (!s->fault) {
+            continue;
+        }
+        owed_op(set, i, &o);
+        rc = devs_apply(io, set, &o, rec, tick);
+        if (rc < 0) {
+            if (s->fails < 0xFFFFu) {
+                s->fails++;
+            }
+            continue;
+        }
+        s->fault = 0;
+        s->level = o.level;
+        s->on = on_of(&set->dev[i], o.level);
+        ev_put(ev, &nev, i, DEVS_EV_CLEARED, &o, 0);
+        if (ev != NULL) {
+            ev[nev - 1].fails = s->fails;
+        }
+        s->fails = 0;
+    }
+    k_memcpy(before, set->st, sizeof(before));
     n = dv_tick(set, now_ms, ops, DV_MAX_DEVICES);
-    for (i = 0; i < n; i++) {
-        /* The state is off already; a failed write leaves the pin as is. */
-        (void)devs_apply(io, set, &ops[i], rec, tick);
-        if (ended != NULL) {
-            ended[i] = ops[i].dev;
+    for (j = 0; j < n; j++) {
+        unsigned d = ops[j].dev;
+
+        rc = devs_apply(io, set, &ops[j], rec, tick);
+        if (rc == 0) {
+            ev_put(ev, &nev, d, DEVS_EV_ENDED, &ops[j], 0);
+        } else if (fault_start(set, &ops[j], rc)) {
+            /* The pin still holds the pulse's level: so does the state. */
+            set->st[d].on = before[d].on;
+            set->st[d].level = before[d].level;
+            ev_put(ev, &nev, d, DEVS_EV_FAULT, &ops[j], rc);
+        } else {
+            ev_put(ev, &nev, d, DEVS_EV_FAIL, &ops[j], rc);
         }
     }
-    return n < 0 ? 0 : n;
+    return (int)nev;
+}
+
+int devs_boot_run(dv_set_t *set, const devs_io_t *io, dv_rec_t *rec, uint32_t tick,
+                  devs_ev_t *ev, unsigned *nev)
+{
+    dv_op_t ops[DV_MAX_DEVICES];
+    unsigned k = 0, faulted = 0;
+    int arm, n, i, rc;
+
+    if (set == NULL || io == NULL || ev == NULL || nev == NULL) {
+        return DV_ERR_ARG;
+    }
+    *nev = 0;
+    dv_reset(set);
+    arm = devs_arm_index(set);
+    n = devs_boot_plan(set, ops, DV_MAX_DEVICES);
+    for (i = 0; i < n; i++) {
+        unsigned d = ops[i].dev;
+        dv_dstate_t *s = &set->st[d];
+
+        if ((int)d == arm && faulted != 0 && s->on) {
+            /* ARM goes on last, and only when every other output holds. */
+            ops[i].level = (uint8_t)devs_safe_level(set, d);
+            s->on = 0;
+            s->level = ops[i].level;
+            ev_put(ev, &k, d, DEVS_EV_ARMHELD, &ops[i], 0);
+        }
+        rc = devs_apply(io, set, &ops[i], rec, tick);
+        if (rc == 0) {
+            continue;
+        }
+        if (ops[i].kind == DV_OP_CONFIG_OUTPUT && fault_start(set, &ops[i], rc)) {
+            /* Never configured: the pin drives nothing, the state is off. */
+            s->on = 0;
+            s->level = set->dev[d].active_high ? 0 : 1;
+            faulted += (int)d != arm;
+            ev_put(ev, &k, d, DEVS_EV_FAULT, &ops[i], rc);
+        } else {
+            ev_put(ev, &k, d, DEVS_EV_FAIL, &ops[i], rc);
+        }
+    }
+    *nev = k;
+    return n;
+}
+
+int devs_down_run(dv_set_t *set, const devs_io_t *io, dv_rec_t *rec, uint32_t tick,
+                  dv_op_t *ops, devs_ev_t *ev)
+{
+    unsigned i, k = 0, t;
+    int n, rc = 0;
+
+    if (set == NULL || io == NULL || ops == NULL || ev == NULL) {
+        return DV_ERR_ARG;
+    }
+    n = devs_down_plan(set, ops, DV_MAX_DEVICES);
+    for (i = 0; n > 0 && i < (unsigned)n; i++) {
+        unsigned d = ops[i].dev;
+        dv_dstate_t *s = &set->st[d];
+
+        for (t = 1; t <= DEVS_SAFE_TRIES; t++) {
+            rc = devs_apply(io, set, &ops[i], rec, tick);
+            if (rc == 0) {
+                break;
+            }
+        }
+        s->pending = 0;
+        if (rc == 0) {
+            s->fault = 0;
+            s->fails = 0;
+            s->level = ops[i].level;
+            s->on = on_of(&set->dev[d], ops[i].level);
+        } else if (!s->fault) {
+            (void)fault_start(set, &ops[i], rc);
+        }
+        ev_put(ev, &k, d, DEVS_EV_SAFE, &ops[i], rc);
+        ev[k - 1].tries = (uint8_t)(rc == 0 ? t : DEVS_SAFE_TRIES);
+    }
+    for (i = 0; i < set->count; i++) {
+        set->st[i].pending = 0;
+    }
+    return n;
 }
 
 int devs_vfs_code(int code)
@@ -247,6 +427,7 @@ int devs_vfs_code(int code)
         return VFS_E_TOOBIG;
     case DEVS_ERR_IO:
     case DEVS_ERR_NOEXP:
+    case DEVS_ERR_FAULT:
         return VFS_E_WRITE;
     default:
         return code >= 0 ? code : VFS_E_ARG;
@@ -262,6 +443,8 @@ const char *devs_strerror(int code)
         return "%DEVICE-E-IOERR, the GPIO layer refused the operation";
     case DEVS_ERR_DOWN:
         return "%DEVICE-E-NODEVICES, no devices are configured";
+    case DEVS_ERR_FAULT:
+        return "%DEVICE-E-PINFAULT, a pin write failed and is retried; command refused";
     default:
         return dv_strerror(code);
     }

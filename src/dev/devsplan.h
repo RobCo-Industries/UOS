@@ -17,6 +17,10 @@
 #define DEVS_ERR_NOEXP      (-40)   /* expander pin: no driver in this build */
 #define DEVS_ERR_IO         (-41)   /* the GPIO layer refused the call */
 #define DEVS_ERR_DOWN       (-42)   /* the service has no device table */
+#define DEVS_ERR_FAULT      (-43)   /* a write to the safe level is owed */
+
+/* Tries of each safe-state write at shutdown before the next device. */
+#define DEVS_SAFE_TRIES     3u
 
 /* Sensor polling: one read every DEVS_POLL_MS, a change after
  * DEVS_DEBOUNCE_READS equal reads in a row, so 150 ms at most. */
@@ -98,21 +102,78 @@ int devs_apply(const devs_io_t *io, const dv_set_t *set, const dv_op_t *op, dv_r
 int devs_read(const devs_io_t *io, const dv_set_t *set, unsigned idx);
 
 /*
+ * Pin faults. A write toward a device's safe level that fails leaves the
+ * device in fault: the state stays the last one written, the write is
+ * owed, devs_tick() retries it every tick until it succeeds, and every
+ * command to the device is refused with DEVS_ERR_FAULT. The safe level is
+ * the `initial` level, and off for ARM. DEVS_ERR_NOEXP never starts a
+ * fault: with no expander driver the pin was never driven.
+ */
+
+/* The pin level device `idx` rests at when safe. */
+int devs_safe_level(const dv_set_t *set, unsigned idx);
+
+/* What happened to a device, for the glue's markers. */
+typedef enum {
+    DEVS_EV_ENDED = 0,  /* a pulse end was written */
+    DEVS_EV_FAIL,       /* an operation failed, nothing is owed */
+    DEVS_EV_FAULT,      /* an operation failed, a fault started */
+    DEVS_EV_CLEARED,    /* an owed write succeeded, the fault is over */
+    DEVS_EV_ARMHELD,    /* boot: ARM stays off, another output faulted */
+    DEVS_EV_SAFE,       /* shutdown: one safe-state write, rc 0 or not */
+} devs_ev_kind_t;
+
+typedef struct {
+    uint8_t dev;        /* device index */
+    uint8_t kind;       /* devs_ev_kind_t */
+    uint8_t tries;      /* DEVS_EV_SAFE: calls made, 1 to DEVS_SAFE_TRIES */
+    uint8_t level;      /* the level written or owed */
+    uint16_t fails;     /* DEVS_EV_CLEARED: failed tries before it */
+    int rc;             /* 0, or the code of the last failure */
+} devs_ev_t;
+
+/*
  * A command on device `idx`: dv_command() at `now_ms`, then the
  * operations due now (after_ms 0) through `io`. The pulse end is left to
- * dv_tick(). When an operation fails, the device's state is put back as
- * it was and the code returned. Returns 0 or a DV_ERR_* / DEVS_ERR_* code.
+ * dv_tick(). A device in fault refuses it with DEVS_ERR_FAULT. When the
+ * write fails, the device's state is put back as it was; if the write
+ * went to the safe level, a fault starts and the code is DEVS_ERR_FAULT,
+ * otherwise the failure's code. Returns 0 or a DV_ERR_* / DEVS_ERR_* code.
  */
 int devs_cmd(dv_set_t *set, const devs_io_t *io, unsigned idx, dv_action_t act,
              uint32_t privs, uint32_t now_ms, dv_rec_t *rec, uint32_t tick);
 
 /*
- * Ends the pulses due at `now_ms` through dv_tick() and applies them.
- * `ended` (DV_MAX_DEVICES entries, may be NULL) gets the device indexes.
- * Returns the count of ends.
+ * One tick: retries each owed write first, then ends the pulses due at
+ * `now_ms` through dv_tick() and writes them. A failed pulse end starts
+ * a fault: the device stays on, as its pin is. `ev` (DV_MAX_DEVICES
+ * entries, may be NULL) gets one event per device that ended (ENDED),
+ * started a fault (FAULT) or left one (CLEARED); a retry that fails again
+ * adds to `fails` only. Returns the count of events.
  */
 int devs_tick(dv_set_t *set, const devs_io_t *io, uint32_t now_ms, dv_rec_t *rec,
-              uint32_t tick, uint8_t *ended);
+              uint32_t tick, devs_ev_t *ev);
+
+/*
+ * Boot: dv_reset(), then devs_boot_plan() applied. An output whose write
+ * fails is off with a fault, its CONFIG_OUTPUT owed; when any output other
+ * than ARM faulted, ARM is written off instead of its initial level.
+ * `ev` (DV_MAX_DEVICES + 1 entries) gets FAIL, FAULT and ARMHELD events;
+ * `*nev` their count. Returns the count of operations or a DV_ERR_* code.
+ */
+int devs_boot_run(dv_set_t *set, const devs_io_t *io, dv_rec_t *rec, uint32_t tick,
+                  devs_ev_t *ev, unsigned *nev);
+
+/*
+ * Shutdown: devs_down_plan() applied, each write tried up to
+ * DEVS_SAFE_TRIES times, then the next device, whatever the result. A
+ * write that succeeds sets the state and ends any fault; one that fails
+ * leaves the state and the device in fault. Clears every pending pulse.
+ * `ops` and `ev` (DV_MAX_DEVICES entries each) get the plan and one SAFE
+ * event per write. Returns the count or a DV_ERR_* code.
+ */
+int devs_down_run(dv_set_t *set, const devs_io_t *io, dv_rec_t *rec, uint32_t tick,
+                  dv_op_t *ops, devs_ev_t *ev);
 
 /*
  * The file system's VFS_E_* code for a DV_ERR_* or DEVS_ERR_* code, for the

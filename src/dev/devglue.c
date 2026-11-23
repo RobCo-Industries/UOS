@@ -10,7 +10,10 @@
  *   - boot: every output at its initial level in file order, ARM last;
  *   - shutdown (reboot, halt, panic, watchdog): ARM off first, then every
  *     other output at its initial level in reverse file order, with direct
- *     GPIO writes only: no timers, no allocation, IRQs on or off;
+ *     GPIO writes only: no timers, no allocation, IRQs on or off; each
+ *     write tried DEVS_SAFE_TRIES times, then the next device;
+ *   - a failed write to the safe level is owed and retried every tick;
+ *     the state stays the one last written (devsplan.h, "Pin faults");
  *   - pulse ends come from dv_tick() with the tick value, so a late tick
  *     ends a pulse late, never not at all.
  */
@@ -51,17 +54,39 @@ static volatile int wd_fired;
 #if defined(UOS_TEST_HOOKS) && UOS_TEST_HOOKS
 /* `dev sense`: a level per sensor that replaces the pin read, or -1. */
 static int8_t forced[DV_MAX_DEVICES];
+/* `dev fail`: the next `fail_left` writes to Pi pin `fail_pin` fail. */
+static volatile int fail_pin = -1;
+static volatile uint32_t fail_left;
+
+static int fail_now(unsigned pin)
+{
+    if ((int)pin != fail_pin || fail_left == 0) {
+        return 0;
+    }
+    fail_left--;
+    return 1;
+}
 #endif
 
 /* ---- The calls behind the operations ------------------------------------- */
 
 static int pi_write(unsigned pin, int level)
 {
+#if defined(UOS_TEST_HOOKS) && UOS_TEST_HOOKS
+    if (fail_now(pin)) {
+        return -1;
+    }
+#endif
     return gpio_write(pin, level);
 }
 
 static int pi_config_output(unsigned pin, int level)
 {
+#if defined(UOS_TEST_HOOKS) && UOS_TEST_HOOKS
+    if (fail_now(pin)) {
+        return -1;
+    }
+#endif
     return gpio_config_output(pin, level);
 }
 
@@ -127,6 +152,15 @@ static void mark_fail(unsigned idx, const char *op, int rc)
              ident(rc, w, sizeof(w)));
 }
 
+/* A fault starts: "ev=devfault name= result=failing op= owed= rc= why=". */
+static void mark_fault(unsigned idx, const char *op, unsigned level, int rc)
+{
+    char w[24];
+
+    UOS_MARK("devfault name=%s result=failing op=%s owed=%u rc=%d why=%s", set.dev[idx].name,
+             op, level, rc, ident(rc, w, sizeof(w)));
+}
+
 static void mark_state(unsigned idx, const char *by)
 {
     UOS_MARK("dev name=%s state=%s by=%s", set.dev[idx].name, dv_state_word(&set, idx), by);
@@ -141,31 +175,25 @@ static uint32_t now_ms(uint32_t tick)
 
 /*
  * Every output to its safe state: ARM off first, then the others at their
- * initial level, last device first. Direct GPIO writes, no timers, no
- * allocation: any context, IRQs on or off. Runs once per boot.
+ * initial level, last device first. Each write is tried DEVS_SAFE_TRIES
+ * times, then the next device comes, so one bad pin keeps no other one
+ * active. Direct GPIO writes, no timers, no allocation: any context, IRQs
+ * on or off. Runs once per boot.
  */
 static void drive_safe(const char *why)
 {
     dv_op_t ops[DV_MAX_DEVICES];
-    uint32_t t = uos_ticks();
-    int n, i, rc;
+    devs_ev_t ev[DV_MAX_DEVICES];
+    int n, i;
 
     if (down_done) {
         return;
     }
     down_done = 1;
-    n = devs_down_plan(&set, ops, DV_MAX_DEVICES);
+    n = devs_down_run(&set, &io, &rec, uos_ticks(), ops, ev);
     for (i = 0; i < n; i++) {
-        unsigned d = ops[i].dev;
-
-        rc = devs_apply(&io, &set, &ops[i], &rec, t);
-        set.st[d].pending = 0;
-        if (rc == 0) {
-            set.st[d].level = ops[i].level;
-            set.st[d].on = (uint8_t)((ops[i].level != 0) == (set.dev[d].active_high != 0));
-        }
-        UOS_MARK("devsafe name=%s pin=%u level=%u rc=%d", set.dev[d].name, ops[i].pin,
-                 ops[i].level, rc);
+        UOS_MARK("devsafe name=%s pin=%u level=%u rc=%d tries=%u", set.dev[ev[i].dev].name,
+                 ops[i].pin, ops[i].level, ev[i].rc, ev[i].tries);
     }
     UOS_MARK("devdown why=%s count=%d", why, n < 0 ? 0 : n);
 }
@@ -282,17 +310,21 @@ static int sense_level(unsigned i)
 
 static void boot(void)
 {
-    dv_op_t ops[DV_MAX_DEVICES];
+    devs_ev_t ev[DV_MAX_DEVICES + 1];
     uint32_t t = uos_ticks();
     int arm = devs_arm_index(&set);
+    unsigned k, nev = 0;
     int n, i, rc;
 
-    dv_reset(&set);
-    n = devs_boot_plan(&set, ops, DV_MAX_DEVICES);
-    for (i = 0; i < n; i++) {
-        rc = devs_apply(&io, &set, &ops[i], &rec, t);
-        if (rc < 0) {
-            mark_fail(ops[i].dev, "config", rc);
+    n = devs_boot_run(&set, &io, &rec, t, ev, &nev);
+    for (k = 0; k < nev; k++) {
+        if (ev[k].kind == DEVS_EV_ARMHELD) {
+            UOS_MARK("devarm name=%s result=held why=fault", set.dev[ev[k].dev].name);
+            continue;
+        }
+        mark_fail(ev[k].dev, "config", ev[k].rc);
+        if (ev[k].kind == DEVS_EV_FAULT) {
+            mark_fault(ev[k].dev, "config", ev[k].level, ev[k].rc);
         }
     }
     for (i = 0; i < (int)set.count; i++) {
@@ -317,7 +349,7 @@ int devs_command(const char *name, const char *action, uint32_t privs, const cha
                  const char **text)
 {
     uint32_t t = uos_ticks();
-    int idx, rc;
+    int idx, rc, was;
 
     if (set.count == 0) {
         rc = DEVS_ERR_DOWN;
@@ -326,10 +358,15 @@ int devs_command(const char *name, const char *action, uint32_t privs, const cha
     } else {
         rc = idx = dv_find(&set, name);
         if (idx >= 0) {
+            was = set.st[idx].fault;
             rc = devs_cmd(&set, &io, (unsigned)idx, dv_action_parse(action), privs, now_ms(t),
                           &rec, t);
             if (rc == DEVS_ERR_NOEXP || rc == DEVS_ERR_IO) {
                 mark_fail((unsigned)idx, "write", rc);
+            }
+            if (rc == DEVS_ERR_FAULT && !was) {
+                /* This command's write failed: the fault starts now. */
+                mark_fault((unsigned)idx, "write", set.st[idx].owed, DEVS_ERR_IO);
             }
             if (rc == 0) {
                 mark_state((unsigned)idx, by != NULL ? by : "none");
@@ -556,6 +593,28 @@ static int sub_sense(int argc, char **argv)
     return 0;
 }
 
+static int sub_fail(int argc, char **argv)
+{
+    uint32_t n = 0;
+    int idx;
+
+    if (argc != 3 || parse_u32(argv[2], &n) != 0) {
+        return uos_maint_fail("usage: dev fail <name> <writes>");
+    }
+    idx = dv_find(&set, argv[1]);
+    if (idx < 0) {
+        return uos_maint_fail(devs_strerror(idx));
+    }
+    if (set.dev[idx].chip != DV_CHIP_PI) {
+        return uos_maint_fail("not a Pi pin");
+    }
+    fail_left = 0;
+    fail_pin = set.dev[idx].pin;
+    fail_left = n;
+    uos_maint_reply("dev name=%s fail=%u", set.dev[idx].name, (unsigned)n);
+    return 0;
+}
+
 static int sub_hang(void)
 {
     if (!wd_armed) {
@@ -607,6 +666,9 @@ static int cmd_dev(int argc, char **argv)
     if (argc >= 1 && k_strcmp(argv[0], "sense") == 0) {
         return sub_sense(argc, argv);
     }
+    if (argc >= 1 && k_strcmp(argv[0], "fail") == 0) {
+        return sub_fail(argc, argv);
+    }
     if (argc == 1 && k_strcmp(argv[0], "hang") == 0) {
         return sub_hang();
     }
@@ -637,7 +699,7 @@ static int devs_init(void)
 
 static void devs_tick_fn(uint32_t now)
 {
-    uint8_t ended[DV_MAX_DEVICES];
+    devs_ev_t ev[DV_MAX_DEVICES];
     unsigned i;
     int n;
 
@@ -647,9 +709,20 @@ static void devs_tick_fn(uint32_t now)
     if (set.count == 0 || down_done) {
         return;
     }
-    n = devs_tick(&set, &io, now_ms(now), &rec, now, ended);
+    n = devs_tick(&set, &io, now_ms(now), &rec, now, ev);
     for (i = 0; i < (unsigned)n; i++) {
-        mark_state(ended[i], "pulse");
+        unsigned d = ev[i].dev;
+
+        if (ev[i].kind == DEVS_EV_ENDED) {
+            mark_state(d, "pulse");
+        } else if (ev[i].kind == DEVS_EV_FAULT) {
+            mark_fault(d, "pulse", ev[i].level, ev[i].rc);
+        } else if (ev[i].kind == DEVS_EV_CLEARED) {
+            UOS_MARK("devfault name=%s result=cleared fails=%u state=%s", set.dev[d].name,
+                     (unsigned)ev[i].fails, dv_state_word(&set, d));
+        } else {
+            mark_fail(d, "pulse", ev[i].rc);
+        }
     }
     if (now - last_poll < POLL_TICKS) {
         return;
