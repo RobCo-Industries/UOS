@@ -14,6 +14,7 @@
 #include <robco/uart.h>
 
 #include "uos.h"
+#include "uos_service.h"
 
 #define REASON_MAX 64
 
@@ -73,6 +74,7 @@ static void stop(const char *kind, const exc_frame_t *f)
         UOS_MARK("panic kind=%s reason=%s", kind, word);
     }
     uos_set_error("panic");
+    uos_services_shutdown(UOS_SHUTDOWN_PANIC);
     if (uos.fb_ok) {
         console_set_attr(CONSOLE_ATTR_NORMAL);
         console_clear();

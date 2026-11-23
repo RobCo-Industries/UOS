@@ -26,8 +26,11 @@ SYS = "/ROBCO/UOS.SYS"
 TICK_HZ = 100
 
 # Bring-up markers in order, docs/ARCHITECTURE.md.
-BOOT_ORDER = ["boot", "handoff", "maint", "board", "mbox", "screen", "tick", "heap", "input",
-              "selfcheck", "mount", "config", "rtc", "ready"]
+# One "service" marker per service of src/kernel/services.c, in table order.
+SERVICES = ["uptime"]
+BOOT_ORDER = ["boot", "handoff", "maint", "board", "mbox", "mmu", "screen", "tick", "heap",
+              "input", "selfcheck", "mount", "config", "rtc"] + ["service"] * len(SERVICES) + \
+             ["ready"]
 
 READY = re.compile(r"@RC stage=uos ev=ready [^\n]*\n")
 PANIC = re.compile(r"@RC stage=uos ev=panic [^\n]*\n")

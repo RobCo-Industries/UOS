@@ -10,6 +10,7 @@
 #include <robco/tick.h>
 
 #include "uos.h"
+#include "uos_service.h"
 
 static uos_evq_t evq;
 static uos_timerq_t tq;
@@ -140,6 +141,10 @@ static void dispatch(uos_event_t *ev)
         } else {
             (void)uos_ss_event(&ss, ev);
         }
+        break;
+    case UOS_EV_TICK:
+        uos_services_tick(tick_count());
+        (void)uos_ss_event(&ss, ev);
         break;
     default:
         (void)uos_ss_event(&ss, ev);
