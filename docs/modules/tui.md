@@ -205,7 +205,7 @@ Errors: `PG_E_ARG` (-1), `PG_E_SPACE` (-2), `PG_E_RANGE` (-3, no such line).
 
 ## Example content
 
-`card/UOS/HOME/ADMIN`, `OPER` and `GUEST` each hold a `TERMINAL.CFG` with sub-menus, text files and device entries for `DOOR1`, `LIGHT1`, `LOCK1` and `SENSOR1`.
+`card/UOS/HOME/ADMIN`, `OPER` and `GUEST` each hold a `TERMINAL.CFG` with sub-menus, text files and device entries for `DOOR1`, `LIGHT1` and `VAULT`, the devices of the shipped `DEVICES.CFG`. The motion sensor `MOTION1` takes no command, so `CONTROL.CFG` reads it with the command `TYPE DEV:MOTION1`. `tests/host/test_card_menus.c` checks every device entry against `DEVICES.CFG` and `dv_command()`.
 
 ## Tests
 
