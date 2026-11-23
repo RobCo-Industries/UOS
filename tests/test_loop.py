@@ -149,6 +149,20 @@ def test_cancelled_timer_never_fires(board, uos_image, need_mtools, tmp_path):
         assert not [m for m in events(vm, "timer") if m["name"] == "victim"], vm.serial
 
 
+def test_double_f2_is_one_probe(board, uos_image, need_mtools, tmp_path):
+    """F2 again while the cancel probe runs is ignored: one probe, no false failure."""
+    with alone(uos_image, board, uos_card(tmp_path)) as vm:
+        wait_ready(vm)
+        key(vm, "f2")
+        key(vm, "f2")
+        vm.wait_for(WITNESS, timeout=TIMEOUT)
+        names = [m["name"] for m in events(vm, "timer")]
+        assert names.count("cancel") == 1 and names.count("witness") == 1, vm.serial
+        assert "victim" not in names, vm.serial
+        assert [m for m in events(vm, "timer") if m["name"] == "cancel"][0]["rc"] == "0"
+        assert len([m for m in events(vm, "key") if m["name"] == "f2"]) == 2, vm.serial
+
+
 def test_timers_listing(board, uos_image, need_mtools, tmp_path):
     with alone(uos_image, board, uos_card(tmp_path)) as vm:
         wait_ready(vm)

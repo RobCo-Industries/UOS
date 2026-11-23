@@ -21,7 +21,7 @@ Every test runs on the host or in QEMU. Nothing is validated on real hardware.
 |---|---|
 | `test_entry.py` | Every bring-up marker in order; the trust rule after `examples/chain1`, with a good and a broken boot info; the whole chain |
 | `test_card.py` | No card, no `/UOS` folder, no `UOS.CFG`, a syntax error, bad and clamped values, the scheme and the name |
-| `test_loop.py` | Keys from the port and the serial console reach the screen; a periodic timer fires the right number of times in its bound; a cancelled timer never fires; the timer listing; a key flood during the banner still shows the first screen in its bound; `type` with 1, 15, 30 and 31 characters |
+| `test_loop.py` | Keys from the port and the serial console reach the screen; a periodic timer fires the right number of times in its bound; a cancelled timer never fires; F2 twice runs one cancel probe; the timer listing; a key flood during the banner still shows the first screen in its bound; `type` with 1, 15, 30 and 31 characters |
 | `test_panic.py` | The panic path for an undefined instruction, a prefetch abort and a `uos_panic()` call; a failed tick and a fault right after the exception hook, both before the input layer starts, with `state`, `dump` and `reboot` answering; `reboot`; an `nm` check that the shipped image has no test hooks |
 | `test_first.py` | A golden of the first screen's text and screenshots |
 | `test_env_hygiene.py` | No test copies the host environment |
