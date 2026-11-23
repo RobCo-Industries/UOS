@@ -105,7 +105,7 @@ static void run_cat(int crc)
     char extra[FS_LINE_SHOW + 48];
     char *buf = NULL;
     size_t len = 0, i;
-    int rc = vfs_read_all(&ctx, privs, req.a, NULL, crc ? FS_READ_MAX : req.n, &buf, &len);
+    int rc = vfs_read_all(&ctx, privs, req.a, "TXT", crc ? FS_READ_MAX : req.n, &buf, &len);
 
     if (rc != VFS_OK) {
         done(rc, "");

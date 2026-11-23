@@ -274,6 +274,12 @@ int vfs_read_all(const vp_ctx_t *ctx, uint32_t privs, const char *spec, const ch
     }
     rc = resolve(ctx, spec, deftype, VP_R_NEED_NAME, &r);
     if (rc == VFS_OK) {
+        rc = norm_dir(&r);
+    }
+    if (rc == VFS_OK && r.is_dir) {
+        rc = VFS_E_ISDIR;
+    }
+    if (rc == VFS_OK) {
         rc = check_access(ctx, privs, &r, VP_OP_READ);
     }
     if (rc != VFS_OK) {
@@ -295,6 +301,9 @@ int vfs_write_all(const vp_ctx_t *ctx, uint32_t privs, const char *spec, const c
         return VFS_E_ARG;
     }
     rc = resolve(ctx, spec, deftype, VP_R_NEED_NAME, &r);
+    if (rc == VFS_OK && r.tree != VP_TREE_DEV && k_strcmp(r.type, "DIR") == 0) {
+        rc = VFS_E_SPEC;   /* "X.DIR" names a folder, never a file */
+    }
     if (rc == VFS_OK) {
         rc = check_access(ctx, privs, &r, VP_OP_WRITE);
     }
@@ -683,6 +692,12 @@ int vfs_iter_begin(vfs_iter_t *it, const vp_ctx_t *ctx, uint32_t privs, const ch
     rc = resolve(ctx, spec, NULL, VP_R_WILD_OK | VP_R_NEED_NAME, &r);
     if (rc == VFS_OK && r.tree == VP_TREE_DEV) {
         rc = VFS_E_NOPRIV;
+    }
+    if (rc == VFS_OK) {
+        rc = norm_dir(&r);
+    }
+    if (rc == VFS_OK && r.is_dir) {
+        rc = VFS_E_ISDIR;
     }
     if (rc == VFS_OK) {
         rc = check_access(ctx, privs, &r, op);
