@@ -1,24 +1,5 @@
-# Build artifacts
 build/
-*.o
-*.elf
-*.img
-*.bin
-*.list
-*.map
-*.asm
-
-# Editor files
-*.swp
-*.swo
-*~
-.vscode/
-.idea/
-
-# OS files
+.venv/
+__pycache__/
+*.pyc
 .DS_Store
-Thumbs.db
-
-# Temporary files
-*.tmp
-/tmp/
