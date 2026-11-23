@@ -28,3 +28,4 @@ All notable changes to UOS are recorded here. The format follows [Keep a Changel
 - `uos_halt()`, and `uos_reboot()` that shuts the services down first. The panic path shuts them down too.
 - The MMU and the caches are on from early boot, with an `ev=mmu` marker.
 - Test builds: `halt`, `bench uaf <n>` and a failing service for the tests.
+- The console service: an event-driven line editor with history and masked input, the on-screen keyboard on a line read, a pager screen, and shared output helpers.
