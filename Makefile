@@ -40,6 +40,10 @@ PURE_NAMED := src/dcl/*.c \
               src/vfs/path.c
 PURE_KERNEL := \
               src/kernel/bootlines.c \
+              src/kernel/event.c \
+              src/kernel/screen.c \
+              src/kernel/settings.c \
+              src/kernel/timerq.c \
 
 
 PURE_SRCS  := $(sort $(wildcard $(PURE_NAMED))) $(PURE_KERNEL)
@@ -66,6 +70,9 @@ SDIMAGE_FILES := $(BUILD)/UOS.SYS:ROBCO/UOS.SYS \
 .DEFAULT_GOAL := all
 include $(ROBCO_CORE)/mk/robco.mk
 include $(ROBCO_CORE)/mk/host.mk
+
+# The image sees the same include directories as the host tests.
+ROBCO_CFLAGS += $(addprefix -I,$(HOST_INCLUDES))
 
 # Target tests boot the images built here; keep top-level targets serial.
 .NOTPARALLEL:
