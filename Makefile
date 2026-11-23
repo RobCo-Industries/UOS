@@ -1,158 +1,152 @@
+# UOS, the third stage of the terminal chain. Built with the RobCo-Core
+# library in external/robco-core.
 #
-# UOS Makefile
-# Unified Operating System Build System
-# Copyright 2075-2077 RobCo Industries
-#
+#   make                      build/UOS.SYS, the sealed image
+#   make test                 host tests, then target tests on every board
+#   make test BOARD=raspi0    the same, target tests on one board
+#   make test-host            host unit tests of the pure files and the pin check
+#   make test-target          QEMU target tests (BOARD=all by default).
+#                             MFBOOT_SYS=<MFBOOT.SYS> RETROS_IMG=<RETROS.IMG>
+#                             add the whole-chain tests
+#   make test-tools           pytest over tests/tools/
+#   make sdimage              build/sd.img: UOS.SYS and the card/ tree.
+#                             CHAIN=1 RETROS_IMG=... MFBOOT_SYS=... adds the
+#                             first two stages and their config
+#   make run BOARD=raspi2b    boot build/sd.img in QEMU on this terminal
+#                             (WINDOW=1 also opens the display window)
+#   make check-pins           CI workflow pins and doc links match the submodule
+#   make clean
 
-# Target platform (bcm2835, bcm2836, bcm2837)
-PLATFORM ?= bcm2837
+ROBCO_CORE := external/robco-core
+IMAGE      := uos
+LINK_ADDR  := 0x00400000
+CONFIG_H   := src/kernel/robco_config.h
+BUILD      ?= build
+PYTHON     ?= python3
 
-# Toolchain
-CROSS_COMPILE ?= arm-none-eabi-
-CC = $(CROSS_COMPILE)gcc
-AS = $(CROSS_COMPILE)as
-LD = $(CROSS_COMPILE)ld
-OBJCOPY = $(CROSS_COMPILE)objcopy
-OBJDUMP = $(CROSS_COMPILE)objdump
+# Every src/<dir>/*.c builds into the image.
+SRCS       := $(sort $(wildcard src/*/*.c src/*/*.S))
 
-# Directories
-BUILD_DIR = build
-SRC_KERNEL = kernel
-SRC_DRIVERS = drivers
-SRC_SERVICES = services
-SRC_USERSPACE = userspace
-INCLUDE_DIR = include
+# Pure files: no hardware access. The host tests link all of them. Two
+# lists: the pure files the design names, picked up when they exist, and
+# the kernel's own pure files, one per line and sorted.
+PURE_NAMED := src/dcl/*.c \
+              src/dev/devcfg.c src/dev/devstate.c \
+              src/hack/hack.c \
+              src/holo/holofmt.c \
+              src/osk/osk.c \
+              src/session/lockout.c src/session/sha256.c src/session/uaf.c \
+              src/tui/tui.c \
+              src/vfs/path.c
+PURE_KERNEL := \
+              src/kernel/bootlines.c \
 
-# Platform-specific settings
-ifeq ($(PLATFORM),bcm2835)
-    ARCH_FLAGS = -mcpu=arm1176jzf-s -mfpu=vfp -mfloat-abi=hard
-    PERIPHERAL_BASE = 0x20000000
+
+PURE_SRCS  := $(sort $(wildcard $(PURE_NAMED))) $(PURE_KERNEL)
+
+# Host unit tests: every tests/host/test_*.c links every pure file. Each
+# source folder is an include directory, so a test includes "uos_timer.h"
+# or "kernel/uos_timer.h" alike. tests/host/*.mk are the standalone
+# makefiles of the module tasks: not part of this build.
+HOST_TEST_DIR := tests/host
+HOST_SRCS     := $(PURE_SRCS)
+HOST_INCLUDES := src $(patsubst %/,%,$(sort $(dir $(wildcard src/*/*.c src/*/*.h))))
+
+ifeq ($(wildcard $(ROBCO_CORE)/mk/robco.mk),)
+$(error $(ROBCO_CORE) is empty: run git submodule update --init)
 endif
 
-ifeq ($(PLATFORM),bcm2836)
-    ARCH_FLAGS = -mcpu=cortex-a7 -mfpu=neon-vfpv4 -mfloat-abi=hard
-    PERIPHERAL_BASE = 0x3F000000
+# `make sdimage`. Set before the include: robco.mk reads them.
+SDIMAGE_MIB   ?= 64
+SDIMAGE_DEPS  := $(BUILD)/UOS.SYS
+SDIMAGE_DIR   := card
+SDIMAGE_FILES := $(BUILD)/UOS.SYS:ROBCO/UOS.SYS \
+                 $(if $(filter 1,$(CHAIN)),$(MFBOOT_SYS):ROBCO/MFBOOT.SYS)
+
+.DEFAULT_GOAL := all
+include $(ROBCO_CORE)/mk/robco.mk
+include $(ROBCO_CORE)/mk/host.mk
+
+# Target tests boot the images built here; keep top-level targets serial.
+.NOTPARALLEL:
+
+# The card name of the image.
+all: $(BUILD)/UOS.SYS
+
+$(BUILD)/UOS.SYS: $(BUILD)/$(IMAGE).img
+	cp $< $@
+
+# ---- Python environment for the target tests --------------------------
+
+VENV := .venv
+
+.PHONY: venv
+venv: $(VENV)/.installed
+
+$(VENV)/.installed: $(ROBCO_CORE)/tests/requirements.txt
+	$(PYTHON) -m venv $(VENV)
+	$(VENV)/bin/pip install -q -r $<
+	touch $@
+
+# ---- Tests ------------------------------------------------------------
+
+BOARD ?= all
+
+.PHONY: test test-target test-tools check-pins check-doc-links
+test: test-host
+	$(MAKE) test-target
+
+test-target: all venv
+	$(VENV)/bin/pytest tests -v --ignore=tests/tools --ignore=tests/host \
+	    --board $(BOARD) --build-dir $(BUILD) \
+	    $(if $(RETROS_IMG),--retros-img $(abspath $(RETROS_IMG))) \
+	    $(if $(MFBOOT_SYS),--mfboot-sys $(abspath $(MFBOOT_SYS)))
+
+# pytest exits 5 when it collects nothing: no tool has tests yet.
+test-tools: venv
+	@if ls tests/tools/test_*.py >/dev/null 2>&1; then \
+	  $(VENV)/bin/pytest tests/tools -q -p no:cacheprovider; \
+	else echo "test-tools: no tests/tools/test_*.py"; fi
+
+# DOC_ROOT: the tree whose Markdown links check-doc-links reads.
+DOC_ROOT ?= .
+
+check-pins: check-doc-links
+	$(ROBCO_CORE)/tools/check_pins.sh .github/workflows/ci.yml
+
+check-doc-links:
+	$(ROBCO_CORE)/tools/check_doc_links.sh $(DOC_ROOT) external/robco-core
+
+# Host unit tests come from mk/host.mk. The pin check runs first.
+test-host: check-pins
+
+# ---- Cards and QEMU -----------------------------------------------------
+
+# CHAIN=1 puts RETROS-BIOS on the card as the first stage, with its
+# config.txt, MFBootAgent as /ROBCO/MFBOOT.SYS and a BOOT.CFG that boots
+# UOS, so the card boots the whole chain.
+CHAIN_CFG := [boot]\ndefault = UOS\ntimeout = 3\n\n[entry UOS]\npath = /ROBCO/UOS.SYS\n
+
+sdimage-stage::
+ifeq ($(CHAIN),1)
+	$(if $(RETROS_IMG),,$(error CHAIN=1 needs RETROS_IMG=<RETROS.IMG>))
+	$(if $(MFBOOT_SYS),,$(error CHAIN=1 needs MFBOOT_SYS=<MFBOOT.SYS>))
+	$(ROBCO_CORE)/tools/mkbootdir.sh $(RETROS_IMG) $(SDIMAGE_STAGE) \
+	    --kernel-name RETROS.IMG --no-firmware
+	printf '$(CHAIN_CFG)' > $(SDIMAGE_STAGE)/ROBCO/BOOT.CFG
 endif
 
-ifeq ($(PLATFORM),bcm2837)
-    ARCH_FLAGS = -mcpu=cortex-a53 -mfpu=neon-fp-armv8 -mfloat-abi=hard
-    PERIPHERAL_BASE = 0x3F000000
-endif
+# Alone, a two-word image at 0x8000 jumps to UOS at its link address.
+$(BUILD)/tramp.img:
+	@mkdir -p $(dir $@)
+	$(PYTHON) -c "import struct, sys; open(sys.argv[1], 'wb').write(struct.pack('<II', 0xE51FF004, $(LINK_ADDR)))" $@
 
-# Compiler flags
-CFLAGS = -Wall -Wextra -Werror -O2 -std=gnu11 -nostdlib -nostartfiles -ffreestanding
-CFLAGS += -fno-tree-loop-distribute-patterns
-CFLAGS += $(ARCH_FLAGS)
-CFLAGS += -I$(INCLUDE_DIR) -I$(INCLUDE_DIR)/kernel -I$(INCLUDE_DIR)/drivers
-CFLAGS += -I$(INCLUDE_DIR)/services -I$(INCLUDE_DIR)/userspace
-CFLAGS += -DPLATFORM_$(shell echo $(PLATFORM) | tr a-z A-Z)
-CFLAGS += -DPERIPHERAL_BASE=$(PERIPHERAL_BASE)
-
-# Assembler flags
-ASFLAGS = $(ARCH_FLAGS)
-
-# Linker flags
-LDFLAGS = -T linker.ld -nostdlib
-LIBGCC = $(shell $(CC) $(ARCH_FLAGS) -print-libgcc-file-name)
-
-# Source files
-KERNEL_SOURCES = $(wildcard $(SRC_KERNEL)/*/*.c) $(wildcard $(SRC_KERNEL)/*/*/*.c)
-KERNEL_ASM = $(wildcard $(SRC_KERNEL)/*/*.S)
-DRIVER_SOURCES = $(wildcard $(SRC_DRIVERS)/*/*.c)
-SERVICE_SOURCES = $(wildcard $(SRC_SERVICES)/*/*.c)
-USERSPACE_SOURCES = $(wildcard $(SRC_USERSPACE)/*/*.c)
-
-# Object files
-KERNEL_OBJS = $(patsubst %.c,$(BUILD_DIR)/%.o,$(KERNEL_SOURCES))
-KERNEL_OBJS += $(patsubst %.S,$(BUILD_DIR)/%.o,$(KERNEL_ASM))
-DRIVER_OBJS = $(patsubst %.c,$(BUILD_DIR)/%.o,$(DRIVER_SOURCES))
-SERVICE_OBJS = $(patsubst %.c,$(BUILD_DIR)/%.o,$(SERVICE_SOURCES))
-USERSPACE_OBJS = $(patsubst %.c,$(BUILD_DIR)/%.o,$(USERSPACE_SOURCES))
-
-ALL_OBJS = $(KERNEL_OBJS) $(DRIVER_OBJS) $(SERVICE_OBJS) $(USERSPACE_OBJS)
-
-# Target kernel image
-KERNEL_ELF = $(BUILD_DIR)/uos.elf
-KERNEL_IMG = $(BUILD_DIR)/kernel8.img
-
-# Default target
-all: $(KERNEL_IMG)
-
-# Create build directories
-$(BUILD_DIR):
-	@mkdir -p $(BUILD_DIR)
-	@mkdir -p $(BUILD_DIR)/$(SRC_KERNEL)/arch
-	@mkdir -p $(BUILD_DIR)/$(SRC_KERNEL)/core
-	@mkdir -p $(BUILD_DIR)/$(SRC_KERNEL)/memory
-	@mkdir -p $(BUILD_DIR)/$(SRC_KERNEL)/process
-	@mkdir -p $(BUILD_DIR)/$(SRC_DRIVERS)/uart
-	@mkdir -p $(BUILD_DIR)/$(SRC_DRIVERS)/framebuffer
-	@mkdir -p $(BUILD_DIR)/$(SRC_DRIVERS)/timer
-	@mkdir -p $(BUILD_DIR)/$(SRC_DRIVERS)/gpio
-	@mkdir -p $(BUILD_DIR)/$(SRC_DRIVERS)/mmc
-	@mkdir -p $(BUILD_DIR)/$(SRC_SERVICES)/terminal
-	@mkdir -p $(BUILD_DIR)/$(SRC_SERVICES)/filesystem
-	@mkdir -p $(BUILD_DIR)/$(SRC_SERVICES)/network
-	@mkdir -p $(BUILD_DIR)/$(SRC_SERVICES)/security
-	@mkdir -p $(BUILD_DIR)/$(SRC_USERSPACE)/shell
-	@mkdir -p $(BUILD_DIR)/$(SRC_USERSPACE)/commands
-	@mkdir -p $(BUILD_DIR)/$(SRC_USERSPACE)/utilities
-
-# Compile C files
-$(BUILD_DIR)/%.o: %.c | $(BUILD_DIR)
-	@echo "CC $<"
-	@$(CC) $(CFLAGS) -c $< -o $@
-
-# Compile assembly files
-$(BUILD_DIR)/%.o: %.S | $(BUILD_DIR)
-	@echo "AS $<"
-	@$(CC) $(ASFLAGS) -c $< -o $@
-
-# Link kernel
-$(KERNEL_ELF): $(ALL_OBJS)
-	@echo "LD $@"
-	@$(LD) $(LDFLAGS) $(ALL_OBJS) $(LIBGCC) -o $@
-
-# Create binary image
-$(KERNEL_IMG): $(KERNEL_ELF)
-	@echo "OBJCOPY $@"
-	@$(OBJCOPY) -O binary $< $@
-	@echo "Build complete: $@"
-	@echo "Target: $(PLATFORM)"
-	@ls -lh $@
-
-# Disassembly for debugging
-$(BUILD_DIR)/uos.asm: $(KERNEL_ELF)
-	@$(OBJDUMP) -D $< > $@
-
-# Clean build artifacts
-clean:
-	rm -rf $(BUILD_DIR)
-
-# Platform-specific builds
-bcm2835:
-	$(MAKE) PLATFORM=bcm2835
-
-bcm2836:
-	$(MAKE) PLATFORM=bcm2836
-
-bcm2837:
-	$(MAKE) PLATFORM=bcm2837
-
-# Help target
-help:
-	@echo "UOS Build System"
-	@echo "================"
-	@echo "Targets:"
-	@echo "  all         - Build kernel image (default)"
-	@echo "  bcm2835     - Build for Raspberry Pi 0/1"
-	@echo "  bcm2836     - Build for Raspberry Pi 2"
-	@echo "  bcm2837     - Build for Raspberry Pi 3/4"
-	@echo "  clean       - Remove build artifacts"
-	@echo "  help        - Show this message"
-	@echo ""
-	@echo "Variables:"
-	@echo "  PLATFORM    - Target platform (default: bcm2837)"
-	@echo "  CROSS_COMPILE - Toolchain prefix (default: arm-none-eabi-)"
-
-.PHONY: all clean bcm2835 bcm2836 bcm2837 help
+.PHONY: run
+comma := ,
+RUN_ALONE := $(BUILD)/tramp.img --qemu-arg=-device \
+             --qemu-arg=loader$(comma)file=$(BUILD)/$(IMAGE).img$(comma)addr=$(LINK_ADDR)$(comma)force-raw=on
+RUN_BOARD := $(if $(filter all,$(BOARD)),raspi2b,$(BOARD))
+run: sdimage $(BUILD)/tramp.img
+	PYTHONPATH=$(ROBCO_CORE)/tests $(PYTHON) -m harness.run \
+	    $(if $(filter 1,$(CHAIN)),$(RETROS_IMG),$(RUN_ALONE)) \
+	    --board $(RUN_BOARD) --sd $(BUILD)/sd.img --serial2 pty $(if $(filter 1,$(WINDOW)),--window)

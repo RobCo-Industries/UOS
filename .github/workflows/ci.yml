@@ -1,29 +1,22 @@
-name: CI
+name: ci
 
 on:
   push:
     branches: [master]
   pull_request:
-    branches: [master]
 
 permissions:
   contents: read
+  packages: read
 
 jobs:
-  build:
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        target: [bcm2835, bcm2836, bcm2837]
-    steps:
-      - uses: actions/checkout@v4
-      - name: Install toolchain
-        run: sudo apt-get update && sudo apt-get install -y gcc-arm-none-eabi
-      - name: Build
-        run: make clean && make ${{ matrix.target }}
-      - uses: actions/upload-artifact@v4
-        with:
-          name: kernel-${{ matrix.target }}
-          path: build/kernel8.img
-          if-no-files-found: error
+  ci:
+    # The commit and the image tag must match the external/robco-core
+    # submodule and its ci/IMAGE_TAG. `make check-pins` checks both.
+    uses: RobCo-Industries/RobCo-Core/.github/workflows/robco-ci.yml@f5bba36132a0b10940898c681dde50b453bfffad
+    with:
+      image-tag: ba6372158e4b
+      make-targets: all test-host
+      test-targets: test-target
+      boards: '["raspi0","raspi1ap","raspi2b","raspi3b"]'
+      artifact-path: build/UOS.SYS
