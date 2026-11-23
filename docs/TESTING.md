@@ -51,10 +51,10 @@ The tests run from the repository root, so the ones that read the default card o
 |---|---|
 | `test_entry.py` | Every bring-up marker in order; the trust rule after `examples/chain1`, with a good and a broken boot info; the whole chain |
 | `test_card.py` | No card, no `/UOS` folder, no `UOS.CFG`, a syntax error, bad and clamped values, the scheme and the name |
-| `test_loop.py` | Keys from the port and the serial console reach the screen; a periodic timer fires the right number of times in its bound; a cancelled timer never fires; F2 twice runs one cancel probe; the timer listing; a key flood during the banner still shows the first screen in its bound; `type` with 1, 15, 30 and 31 characters |
-| `test_panic.py` | The panic path for an undefined instruction, a prefetch abort and a `uos_panic()` call; a failed tick and a fault right after the exception hook, both before the input layer starts, with `state`, `dump` and `reboot` answering; `reboot`; an `nm` check that the shipped image has no test hooks |
+| `test_loop.py` | Keys from the port and the serial console reach the screen; a periodic timer fires the right number of times in its bound; a cancelled timer never fires; F2 twice runs one cancel probe; the timer listing; a key flood during the banner still shows the first screen in its bound, and the services tick through it; `type` with 1, 15, 30 and 31 characters |
+| `test_panic.py` | The panic path for an undefined instruction, a prefetch abort and a `uos_panic()` call; a failed tick and a fault right after the exception hook, both before the input layer starts, with `state`, `dump` and `reboot` answering; in both, `help` lists exactly the base commands, `timers` answers and `type` answers `err not ready`; `reboot`; an `nm` check that the shipped image has no test hooks |
 | `test_first.py` | A golden of the first screen's text and screenshots |
-| `test_services.py` | The `ev=service` markers and `services`; `uptime`; shutdown markers in reverse order on `reboot`, halt and panic; a failing service in test builds; `help`, unknown commands and quotes; the `bench uaf` figure |
+| `test_services.py` | The `ev=service` markers and `services`; `uptime`; shutdown markers in reverse order on `reboot`, halt and panic; a fault after the services started: one shutdown each with `why=panic`, none again on the reboot, and `help` lists every command; a failing service in test builds; `help`, unknown commands and quotes; the `bench uaf` figure |
 | `test_env_hygiene.py` | No test copies the host environment |
 
 ### How the tests start UOS
@@ -71,7 +71,7 @@ The tests run from the repository root, so the ones that read the default card o
 
 The timer probe runs 10 periods of 10 ticks. It must end after at least 100 ticks and at most 100 ticks plus 1 tick of loop latency plus `HOST_ALLOWANCE_TICKS`, 20 ticks. The allowance covers a loaded test host. The count must be exact.
 
-The key flood sends 1500 `text` lines of 32 characters in one write while the banner runs. The `ready` marker reports `banner=<ticks>` since the screen was entered. It must be at least 50 ticks and at most 50 ticks plus 1 tick of loop latency plus `HOST_ALLOWANCE_TICKS`.
+The key flood sends 1500 `text` lines of 32 characters in one write while the banner runs. The `ready` marker reports `banner=<ticks>` since the screen was entered. It must be at least 50 ticks and at most 50 ticks plus 1 tick of loop latency plus `HOST_ALLOWANCE_TICKS`. Once the port has answered the whole flood, `uptime` must show a service tick at least 50 ticks after the services started.
 
 ### The hash bench
 

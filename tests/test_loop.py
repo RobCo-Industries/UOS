@@ -3,10 +3,10 @@
 import re
 import time
 
-from harness.boot import SCRIPT_PORT
+from harness.boot import SCRIPT_PORT, is_script_status
 
-from uos import TICK_HZ, TIMEOUT, alone, answer, dump, events, key, one, timers, uos_card, \
-    wait_ready
+from uos import SERVICES, TICK_HZ, TIMEOUT, alone, answer, dump, events, key, one, timers, \
+    uos_card, wait_ready
 
 # The probe on the first screen, src/kernel/first.c.
 PROBE_PERIOD = 10
@@ -78,6 +78,17 @@ def test_keys_flood_during_the_banner(board, uos_image, need_mtools, tmp_path):
         banner = int(ready["banner"])
         assert BANNER_TICKS <= banner <= BANNER_TICKS + LOOP_LATENCY_TICKS + \
             HOST_ALLOWANCE_TICKS, ready
+        # The services started and kept ticking through the flood. The flood's
+        # replies come first: `uptime` goes out once all of them are in.
+        deadline = time.monotonic() + TIMEOUT
+        while sum(map(is_script_status, vm.lines(SCRIPT_PORT))) < FLOOD_LINES:
+            assert time.monotonic() < deadline, "the flood was not answered"
+            time.sleep(0.1)
+        assert [m["rc"] for m in events(vm, "service")] == ["0"] * len(SERVICES), vm.serial
+        up = dict(f.split("=", 1) for f in answer(vm, "uptime")[0].split()[1:])
+        # The last service tick came after the banner deadline.
+        assert int(up["last"]) - int(up["start"]) >= BANNER_TICKS, up
+        assert int(up["last"]) <= int(up["ticks"]), up
 
 
 def type_line(vm, n):

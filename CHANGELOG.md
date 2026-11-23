@@ -28,3 +28,5 @@ All notable changes to UOS are recorded here. The format follows [Keep a Changel
 - `uos_halt()`, and `uos_reboot()` that shuts the services down first. The panic path shuts them down too.
 - The MMU and the caches are on from early boot, with an `ev=mmu` marker.
 - Test builds: `halt`, `bench uaf <n>` and a failing service for the tests.
+- The panic path starts the maintenance port when a panic comes before it, with the base commands in the registry.
+- `uptime` reports `last=`, the tick of its last service tick.

@@ -164,7 +164,7 @@ The base commands enter the table on the first use of the registry: `uos_maint_s
 | `timers` | `timers count=<n> expired=<n>`, then `timer id=<id> due=<ticks> period=<ticks>` per live timer |
 | `reboot` | Shuts the services down, `ev=reboot source=maint`, then a watchdog reset |
 | `services` | `service name=<n> rc=<rc>` per service, in table order |
-| `uptime` | `uptime s=<seconds> ticks=<ticks> start=<tick>`: the time since the tick started, and the tick at which the uptime service started |
+| `uptime` | `uptime s=<seconds> ticks=<ticks> start=<tick> last=<tick>`: the time since the tick started, the tick at which the uptime service started, and the tick of its last `tick` call |
 | `fault undef`, `fault pabt`, `panic`, `halt` | Test builds only. They post the fault, `uos_panic()` or `uos_halt()` to the loop. |
 | `bench uaf <n>` | Test builds only. Posts `uaf_hash()` over `n` iterations, 1 to 100000, on a fixed salt and password to the loop, which prints `ev=bench name=uaf iterations=<n> rc=<rc> ticks=<ticks> us=<us>` |
 
@@ -189,7 +189,7 @@ typedef struct uos_service {
 
 Markers: `ev=service name=<n> rc=<rc>` after each init, `ev=shutdown name=<n> why=<reboot|halt|panic>` before each shutdown.
 
-The first service is `uptime`, in `src/kernel/svc_uptime.c`. Its init records the start tick and registers the `uptime` command. Test builds put a service named `testfail` first, whose init returns -5, so the tests see the failure policy.
+The first service is `uptime`, in `src/kernel/svc_uptime.c`. Its init records the start tick and registers the `uptime` command. Its `tick` records the last tick it got. Test builds put a service named `testfail` first, whose init returns -5, so the tests see the failure policy.
 
 ### How to add a service
 

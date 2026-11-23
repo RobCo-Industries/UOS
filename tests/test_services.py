@@ -154,3 +154,29 @@ def test_failing_service(board, hooks_image, need_mtools, tmp_path):
         vm.wait_for(IDLE, timeout=TIMEOUT)
         assert [m["name"] for m in events(vm, "shutdown")] == list(reversed(SERVICES)), \
             vm.serial
+
+
+def test_panic_after_services(board, hooks_image, need_mtools, tmp_path):
+    """A fault after the services started: each started service gets one shutdown with
+    why=panic, then the port answers every registered command, test ones included."""
+    with alone(hooks_image, board, uos_card(tmp_path)) as vm:
+        wait_ready(vm)
+        answer(vm, "fault undef")
+        vm.wait_for(IDLE, timeout=TIMEOUT)
+        down = events(vm, "shutdown")
+        assert [(m["name"], m["why"]) for m in down] == \
+            [(n, "panic") for n in reversed(SERVICES)], vm.serial
+        names = [line.split()[0] for line in answer(vm, "help")]
+        assert names == sorted(["help", "state", "dump", "type", "timers", "reboot", "services",
+                                "fault", "panic", "halt", "bench"] + SERVICES), names
+        assert state(vm)["phase"] == "panic"
+        assert answer(vm, "uptime")
+        assert answer(vm, "services")[0] == "service name=testfail rc=-5"
+        # A second panic command is refused: no loop takes it, no second shutdown.
+        assert vm.script("panic", timeout=TIMEOUT).status == "err unknown command"
+        vm.send("reboot\n", port=1)
+        vm.wait_for(REBOOTED, timeout=TIMEOUT)
+        # The reboot from the panic loop shuts nothing down again: once per boot.
+        assert [m["why"] for m in events(vm, "shutdown")] == ["panic"] * len(SERVICES), \
+            vm.serial
+        assert one(vm, "reboot")["source"] == "maint"
