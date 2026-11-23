@@ -6,6 +6,26 @@ Every test runs on the host or in QEMU. Nothing is validated on real hardware.
 
 `make test-host` builds each `tests/host/test_*.c` with the host compiler, `-Werror` and the address and undefined behaviour sanitizers. Each test links every pure file. It also compiles the tests and the pure files with the cross GCC, to catch warnings only GCC reports. `make all` compiles every module source with the target flags and `-Werror`.
 
+### The cross GCC check
+
+On a Mac the host compiler is clang, and CI's host compiler is GCC. GCC reports warnings clang does not, such as `-Wformat-truncation`. Two targets compile with the cross GCC and the macOS SDK headers to catch them before a push. `make test-host` runs both.
+
+- `test-host-gccwarn` comes from the library. It uses `-O2` and drops the sanitizer flags.
+- `test-host-gccwarn-ci` is local. It uses the CI host flags: `-O1`, `-Wall -Wextra -Werror` and the sanitizers. It compiles every C file in `tests/host/` and every pure file. UBSan's checks hide loop bounds from GCC, so some truncation warnings appear only with these flags.
+
+Both skip with one line when the host compiler is GCC, the cross GCC is missing or no host headers are found. Set `HOST_GCCWARN_INC` to the headers if needed. The macOS headers are not glibc's, so a few results can differ from CI, for example the size of `struct dirent`'s `d_name`.
+
+### The CI build in a container
+
+`make ci-local` runs the CI build job, `make CI=1 all test-host`, in the robco-ci image. It copies the tree to `build/ci-local/src` and runs the container as your user. It needs Docker. A first run takes about two minutes on an Apple silicon Mac. A later run reuses the copy's build and takes about ten seconds.
+
+The image is `ghcr.io/robco-industries/robco-ci:<tag>`, with the tag from `external/robco-core/ci/IMAGE_TAG`. Pulling it needs a GitHub token with `read:packages`. Without one, build it locally once:
+
+    docker build -f external/robco-core/ci/Dockerfile \
+      -t robco-ci:$(cat external/robco-core/ci/IMAGE_TAG) external/robco-core/ci
+
+`ci-local` uses the local tag when it exists. To run other targets, call the script: `tools/ci_local.sh -k all test-host` or `tools/ci_local.sh test-target BOARD=raspi0`.
+
 The tests run from the repository root, so the ones that read the default card open `card/UOS/...` by a relative path. Before they build, `tools/mkuaf.py vectors-h` writes `build/host/gen/uaf_vectors.h` from `tests/vectors/uaf.json`.
 
 | File | Covers |
