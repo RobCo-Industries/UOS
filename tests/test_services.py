@@ -4,8 +4,8 @@ the shutdown order on reboot, halt and panic, `help`, quoting, and the hash benc
 import re
 import time
 
-from uos import (IDLE, SERVICES, TIMEOUT, TICK_HZ, alone, answer, events, one, state,
-                 uos_card, wait_ready)
+from uos import (IDLE, SERVICE_COMMANDS, SERVICES, TIMEOUT, TICK_HZ, alone, answer, events,
+                 one, state, uos_card, wait_ready)
 
 # Seconds a loaded test host may add between the host clock and the guest's.
 HOST_ALLOWANCE_S = 10
@@ -168,7 +168,8 @@ def test_panic_after_services(board, hooks_image, need_mtools, tmp_path):
             [(n, "panic") for n in reversed(SERVICES)], vm.serial
         names = [line.split()[0] for line in answer(vm, "help")]
         assert names == sorted(["help", "state", "dump", "type", "timers", "reboot", "services",
-                                "fault", "panic", "halt", "bench"] + SERVICES), names
+                                "fault", "panic", "halt", "bench"] +
+                               [c for n in SERVICES for c in SERVICE_COMMANDS[n]]), names
         assert state(vm)["phase"] == "panic"
         assert answer(vm, "uptime")
         assert answer(vm, "services")[0] == "service name=testfail rc=-5"
