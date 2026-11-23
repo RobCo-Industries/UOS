@@ -284,6 +284,47 @@ Maintenance commands, for tests and operators:
 | `page <short\|long\|empty\|big>` | A built-in test text. `ev=page top=<n> shown=<n> lines=<n>` on show and on each move, `ev=page result=done` when left. `err busy` while a pager runs. |
 | `osk <open\|close\|state>` | `open` and `close` act on the active read, else `err no line`. `state` answers `osk open= layer= row= col= line= reading=`. The keyboard marks `ev=osk state=open` and `ev=osk state=closed`. |
 
+### Devices
+
+The `devices` service, in `src/dev/devglue.c`, applies `/UOS/DEVICES.CFG` to the GPIO pins. Its rules are pure, in `devcfg.c`, `devstate.c` and `devsplan.c`. Other services call `src/dev/devs.h`, prefix `devs_`. Nothing here is validated on real hardware.
+
+Init reads the file with `fs_read_file()` into an 8 KiB heap buffer, as the kernel reads `UOS.CFG`. It parses it with `DV_REFUSED_UOS`. The library cannot say which pins its input layer claimed. When the input layer's GPIO backend runs, the service also refuses every button and dial pin; today that backend is off. Init then sets every pin and starts the watchdog. Its markers:
+
+| Marker | Meaning |
+|---|---|
+| `devcfg result=<ok\|syntax\|missing\|bad\|skipped> loaded=...` | The file and the parse summary. `missing`, `bad` and `skipped` load no device and the system stays up. |
+| `deverr name= line= why=<IDENT>` | One per skipped device or bad expander, up to 8 |
+| `devwarn name= line= why=PULLUP` | One per warning, up to 8 |
+| `devboot count= arm=<name\|none>` | The boot operations ran |
+| `devfail name= op=<config\|write\|read> rc= why=` | An operation failed, such as `NOEXPDRV` on an expander pin |
+| `wdog result=<on\|off\|expired> timeout_ms=15000` | The watchdog |
+| `dev name= state= by=<source>` | A state change: `maint`, `dev`, a caller's word, `pulse` or `sensor` |
+| `devsafe name= pin= level= rc=`, `devdown why= count=` | The safe state at shutdown |
+
+The init markers come after `ev=service name=uptime` and before `ev=service name=devices`.
+
+The `dev` maintenance command: `dev list` gives `dev count=N`, the header and one status line per device. `dev set <name> <action> [privs]` runs a command with the privilege bits given, `SYSTEM` by default, and answers `dev name= state=` or `err <message>`. `dev rec` gives `rec count= total=`, then the pin record, oldest first. Test builds add `dev sense <name> <0|1>`, which replaces a sensor's pin read, `dev hang`, which stops the watchdog kicks, and `dev stall <ticks>`, which keeps the loop busy. QEMU cannot drive a Pi GPIO input from outside, and the library's harness has no way to inject a GPIO level, so the sensor tests use `dev sense`.
+
+#### Ticks, pulses and sensors
+
+The service's `tick` passes `ticks * 10` as milliseconds to `dv_tick()` and applies every pulse end due. A command applies only its operations with `after_ms` 0. The pulse end always comes from `dv_tick()`, driven by the tick value. A late tick ends a pulse late but never loses it, even when the event queue dropped a `TICK` event. Pulse ends have a 10 ms resolution and the loop adds up to one tick.
+
+Sensors are read every 50 ms. A change counts after 3 equal reads in a row, so it shows within 150 ms of a stable level.
+
+#### Safety rules
+
+- The safe state of an output is its `initial` state from the file. A lock with `initial = off` is locked.
+- At boot every output is set to its initial level, in file order, with `gpio_config_output()`, which sets the level before the pin becomes an output.
+- A relay named `ARM` switches the supply of every load. It is set last at boot, after every other output holds its initial level. It goes off first at shutdown. No other name or type gets special treatment.
+- Shutdown on reboot, halt and panic, and the watchdog, drive `ARM` off, then every other output to its initial level in reverse file order. They use direct GPIO writes only: no timers, no allocation, safe with IRQs off.
+- An expander device loads and is listed. Every operation on it fails with `%DEVICE-E-NOEXPDRV, expander not available in this build`. The library has no expander driver yet. `exp_write`, `exp_config` and `exp_read` in `devglue.c` are the three functions a driver replaces.
+
+#### The watchdog
+
+The library has no watchdog start or kick call: `power.h` only resets. QEMU resets at once on a write of the watchdog's reset register, so a hardware watchdog could not be tested there either. The service runs a software watchdog instead. When at least one output is configured, init adds a tick callback. The loop kicks it from the service's `tick`. When no kick comes for 15 s, the callback, in IRQ context, drives the outputs safe and calls `power_reboot()`. The callback needs IRQs, so it does not reset the system after a panic or a halt, which run with IRQs off. Shutdown stops the kicks after it drives the outputs safe. A hardware watchdog that also covers those cases waits on a library feature.
+
+QEMU's reset says nothing about the level of a real Pi's pins during and after a reset. Keeping loads off then is the board's job: pull-downs on the outputs and a load supply switched by the `ARM` relay, off while its pin is low or floating.
+
 ## Memory
 
 | Range | Use |
@@ -305,4 +346,5 @@ These wait on RobCo-Core changes and a pin bump.
 
 - `ini_parse_sections()`. `ini_parse()` reports keys only. A section with no keys is never seen, and a repeated section header is not reported. `src/dev/devcfg.c` and `src/tui/tuicfg.c` will switch to `ini_parse_sections()` so an empty or repeated section is a counted error. Both files carry a note marked `PENDING LIBRARY FEATURE`. Nothing works around it now.
 - Data tapes in `rimg`. `rimg_validate()` cannot accept a data tape, subtype 2, because it looks up a slot first and subtype 2 has none. `tools/rimg.py seal` and `pack` refuse subtype 2 for the same reason. The holo module works around both: `holofmt.c` checks the slot rules itself, and `tools/mkholo.py` writes the header itself. See [holo](modules/holo.md).
-- The I2C expander driver. `DEVICES.CFG` already names expander pins, see [dev](modules/dev.md#expander-pins). No glue applies expander operations until the library has the driver.
+- The I2C expander driver. `DEVICES.CFG` already names expander pins, see [dev](modules/dev.md#expander-pins). The device service fails every expander operation until the library has the driver.
+- A watchdog start and kick call. The device service runs a software watchdog on the tick until then, see [The watchdog](#the-watchdog).

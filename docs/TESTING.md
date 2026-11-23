@@ -27,6 +27,7 @@ The tests run from the repository root, so the ones that read the default card o
 | `test_session_lockout.c` | The login lockout: counts, the lock time, the tick wrap |
 | `test_osk.c` | The on-screen keyboard: both layers, moves with wrap, every key, emitted events, the row text |
 | `test_dev.c` | `DEVICES.CFG`: every key and error, the refused pin masks, the pull-up warning, expander pins; commands, pulses, the tick wrap, status lines, the pin record, the default card's file |
+| `test_dev_svc.c` | The device service's rules: debounce, `ARM` last at boot and first at shutdown, the reverse safe order, operations mapped to calls through a fake GPIO layer, expander failures, pulse ends from the tick only, late and across the wrap |
 | `test_tui.c` | The menu model: moves, every action, sub-menus to eight levels, scrolling, headers, privileges, the layout |
 | `test_tui_cfg.c` | `TERMINAL.CFG`: every key, target and error; the menus of the default card |
 | `test_tui_pager.c` | The pager: line ends, wrapping, moves and keys, a 64 KiB text |
@@ -60,6 +61,7 @@ The tests run from the repository root, so the ones that read the default card o
 | `test_services.py` | The `ev=service` markers and `services`; `uptime`; shutdown markers in reverse order on `reboot`, halt and panic; a fault after the services started: one shutdown each with `why=panic`, none again on the reboot, and `help` lists every command; a failing service in test builds; `help`, unknown commands and quotes; the `bench uaf` figure |
 | `test_vfs.py` | The vfs service through `fs`: every specification form, the read limit, missing files and folders, a folder read as a file; listings with wildcards, an empty folder and more entries than the maximum; write, overwrite, must-not-exist, mkdir, rename, copy of a small and a 1 MiB file with CRCs, wildcard delete, files kept across a reboot with no work file left; cells of the access table; a full card keeps the old file; no card and no `/UOS`; the `DEV:` hook with a fake and with none |
 | `test_console.py` | Reading a line with edit keys, history, cancel and the maximum; a masked read; the on-screen keyboard typing a word over both layers and leaving the screen below intact; the pager over each test text; goldens of the open keyboard and the long text's first page; command errors and a second read refused |
+| `test_dev.py` | The device service: the shipped `DEVICES.CFG`, the boot record with `ARM` last, `dev set` for every action, privileges, pulse timing, two pulses, cancel, a stalled loop, sensor debounce, bad files, expander pins, no file, no card, the safe state on reboot and panic, the watchdog reset. Pulses must end within their length plus 1 tick plus `HOST_ALLOWANCE_TICKS`, 20. |
 | `test_env_hygiene.py` | No test copies the host environment |
 
 ### How the tests start UOS

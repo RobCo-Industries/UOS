@@ -33,7 +33,7 @@ SRCS       := $(sort $(wildcard src/*/*.c src/*/*.S))
 PURE_NAMED := src/console/conview.c \
               src/console/lineedit.c \
               src/dcl/*.c \
-              src/dev/devcfg.c src/dev/devstate.c \
+              src/dev/devcfg.c src/dev/devsplan.c src/dev/devstate.c \
               src/hack/hack.c \
               src/holo/holofmt.c src/holo/holoread.c \
               src/osk/osk.c \
