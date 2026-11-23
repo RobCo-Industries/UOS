@@ -388,25 +388,40 @@ static int hk_plant_ok(const hk_board_t *b, unsigned i)
            hk_bracket_kind(hk_open, c1) < 0 && hk_bracket_kind(hk_close, c1) < 0;
 }
 
+unsigned hk_column_free(unsigned w, unsigned len)
+{
+    return w == 0 ? HK_COL_CHARS : HK_COL_CHARS - w * len - (w - 1);
+}
+
+void hk_column_place(unsigned w, unsigned len, const uint8_t *gap, uint16_t *pos)
+{
+    unsigned i, at = gap[0];
+
+    for (i = 0; i < w; i++) {
+        pos[i] = (uint16_t)at;
+        at += len + 1 + gap[i + 1];
+    }
+}
+
 static void hk_place_column(hk_board_t *b, const hk_pick_t *p, unsigned col,
                             unsigned first, unsigned w, hk_rng_t *r)
 {
     uint8_t gap[HK_WORDS_MAX + 1];
-    unsigned free_units, i, pos;
+    uint16_t pos[HK_WORDS_MAX];
+    unsigned free_units, i;
 
     if (w == 0) {
         return;
     }
     k_memset(gap, 0, sizeof(gap));
-    free_units = HK_COL_CHARS - w * p->len - (w - 1);
+    free_units = hk_column_free(w, p->len);
     for (i = 0; i < free_units; i++) {
         gap[hk_rng_below(r, w + 1)]++;
     }
-    pos = col * HK_COL_CHARS + gap[0];
+    hk_column_place(w, p->len, gap, pos);
     for (i = 0; i < w; i++) {
-        b->word_pos[first + i] = (uint16_t)pos;
-        k_memcpy(&b->cell[pos], p->word[first + i], p->len);
-        pos += p->len + 1 + gap[i + 1];
+        b->word_pos[first + i] = (uint16_t)(col * HK_COL_CHARS + pos[i]);
+        k_memcpy(&b->cell[b->word_pos[first + i]], p->word[first + i], p->len);
     }
 }
 

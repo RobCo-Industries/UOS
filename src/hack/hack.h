@@ -185,6 +185,18 @@ int hk_pick(hk_list_t *list, hk_difficulty_t d, hk_rng_t *r, hk_pick_t *out);
 
 /* Builds the board from a candidate set. */
 int hk_board_build(hk_board_t *b, const hk_pick_t *p, hk_rng_t *r);
+
+/*
+ * One column's word layout, used by hk_board_build(). Words keep at least
+ * one junk character between them. hk_column_free() gives the junk
+ * characters left over for the random gaps once `w` words of `len`
+ * letters and their w - 1 separators are in. hk_column_place() writes
+ * the column offset of each word into pos[0..w-1] from gap[0..w], the
+ * extra junk before each word (gap[w] trails the last word). The caller
+ * keeps the sum of gap[] at hk_column_free(w, len).
+ */
+unsigned hk_column_free(unsigned w, unsigned len);
+void hk_column_place(unsigned w, unsigned len, const uint8_t *gap, uint16_t *pos);
 uint16_t hk_board_address(const hk_board_t *b, unsigned col, unsigned row);
 /* Writes "0x" and four upper-case hex digits. HK_ERR_ARG if size < 7. */
 int hk_format_address(uint16_t addr, char *buf, size_t size);

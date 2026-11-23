@@ -56,7 +56,7 @@ When `b < ceil(k / 3)` the bands are too small. The rule then takes `k` distinct
 - Two columns of 16 rows of 12 characters: 384 cells in `cell[]`. Cell index is `col * 192 + row * 12 + x`. A column reads as one run of 192 characters, so a word may wrap from one row to the next inside a column.
 - Addresses: the start is `0x1000 + rng_below(0xEE80)`, so the last cell stays at or below `0xFFFF` and every address has four hex digits. Row `r` of column `c` has address `start + (c * 16 + r) * 12`. `hk_format_address` writes `0xF964` style text and needs 7 bytes.
 - Junk is drawn from ``!"#$%&'()*+,-./:;<=>?@[\]^_{|}``.
-- Words: the left column takes `ceil(n / 2)` words, the right column the rest, in the order of the candidate set. In a column, each pair of neighbour words has at least one junk character between them. The spare junk is spread at random over the gaps before, between and after the words. No word crosses from the left column to the right.
+- Words: the left column takes `ceil(n / 2)` words, the right column the rest, in the order of the candidate set. In a column, each pair of neighbour words has at least one junk character between them. The spare junk is spread at random over the gaps before, between and after the words. `test_hack.c` checks the one-junk rule with all gaps at zero, since random boards almost never draw a zero gap. No word crosses from the left column to the right.
 - Bracket pairs: an opening bracket pairs with the first closing bracket of its kind to its right on the same row, if no letter lies between. Other junk, other brackets included, may lie between. Two openers may share one closer. Pairs are found once when the board is built, so dots from a removed dud never create new pairs.
 - At least 4 usable pairs exist on every board. When the random junk holds fewer, the builder writes an opener and its closer into two neighbour cells on one row that hold junk but no bracket. That never breaks an existing pair. It tries 64 random spots, then scans from cell 0.
 
@@ -107,6 +107,7 @@ Once the game leaves `HK_PLAYING`, `hk_select` does nothing.
 | `hk_list_parse` | parse and validate one list |
 | `hk_pick` | choose the candidate set |
 | `hk_board_build` | build the board |
+| `hk_column_free`, `hk_column_place` | one column's word layout: the spare junk, and each word's offset from the gaps |
 | `hk_board_address`, `hk_format_address` | row addresses and their text |
 | `hk_board_word_at`, `hk_board_pair_count` | board queries |
 | `hk_game_init` | start a game: validates settings, builds the board |

@@ -414,6 +414,45 @@ TEST(board_invariants_1000_seeds)
     }
 }
 
+/*
+ * The gap rule, constructed: with no random gap at all, words sit exactly
+ * one junk character apart, and a full column of the largest words fits
+ * with every left-over unit at the end. Random boards almost never draw
+ * a zero gap, so board_invariants_1000_seeds alone does not catch a
+ * missing separator.
+ */
+TEST(board_one_junk_between_words)
+{
+    uint8_t gap[HK_WORDS_MAX + 1];
+    uint16_t pos[HK_WORDS_MAX];
+    unsigned w, len, i, end;
+
+    for (len = HK_WORD_MIN; len <= HK_WORD_MAX; len++) {
+        for (w = 1; w <= HK_WORDS_MAX / 2; w++) {
+            memset(gap, 0, sizeof(gap));
+            CHECK_EQ(hk_column_free(w, len), HK_COL_CHARS - w * len - (w - 1));
+            hk_column_place(w, len, gap, pos);
+            CHECK_EQ(pos[0], 0);
+            for (i = 1; i < w; i++) {
+                CHECK_EQ(pos[i] - (pos[i - 1] + len), 1);
+            }
+            /* Every free unit after the last word: the column is exactly full. */
+            gap[w] = (uint8_t)hk_column_free(w, len);
+            hk_column_place(w, len, gap, pos);
+            end = pos[w - 1] + len + gap[w];
+            CHECK_EQ(end, HK_COL_CHARS);
+        }
+    }
+    /* Gaps add to the one separator, never replace it. */
+    memset(gap, 0, sizeof(gap));
+    gap[0] = 3;
+    gap[2] = 5;
+    hk_column_place(3, 6, gap, pos);
+    CHECK_EQ(pos[0], 3);
+    CHECK_EQ(pos[1], 3 + 6 + 1);
+    CHECK_EQ(pos[2], 3 + 6 + 1 + 6 + 1 + 5);
+}
+
 TEST(board_addresses)
 {
     static hk_board_t b;
