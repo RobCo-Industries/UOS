@@ -10,6 +10,11 @@
  *
  * Every function that draws does nothing on the screen when there is no
  * framebuffer console; reading and paging still work and still call back.
+ *
+ * The read screen and the pager are screens on the kernel's stack. A read
+ * may start while the pager is shown, and a pager while a line is read:
+ * the newer screen takes the keys until it pops, then the one below has
+ * them again with its state kept.
  */
 #ifndef UOS_CON_H
 #define UOS_CON_H
@@ -22,7 +27,7 @@
 
 /* Errors. */
 #define CON_ERR_ARG     (-1)    /* NULL, empty, or a number out of range */
-#define CON_ERR_BUSY    (-2)    /* a line read or a pager is already active */
+#define CON_ERR_BUSY    (-2)    /* a read while a read is active, or a pager while a pager is */
 #define CON_ERR_DOWN    (-3)    /* the service did not start */
 #define CON_ERR_SCREEN  (-4)    /* the screen stack is full */
 #define CON_ERR_MEM     (-5)    /* the kernel heap refused a buffer */
