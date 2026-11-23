@@ -37,7 +37,8 @@ PURE_NAMED := src/dcl/*.c \
               src/osk/osk.c \
               src/session/lockout.c src/session/sha256.c src/session/uaf.c \
               src/tui/pager.c src/tui/tui.c src/tui/tuicfg.c \
-              src/vfs/path.c
+              src/vfs/path.c \
+              src/vfs/vfsrules.c
 PURE_KERNEL := \
               src/kernel/bootlines.c \
               src/kernel/event.c \

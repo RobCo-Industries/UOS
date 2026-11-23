@@ -27,7 +27,7 @@ TICK_HZ = 100
 
 # Bring-up markers in order, docs/ARCHITECTURE.md.
 # One "service" marker per service of src/kernel/services.c, in table order.
-SERVICES = ["uptime"]
+SERVICES = ["uptime", "vfs"]
 BOOT_ORDER = ["boot", "handoff", "maint", "board", "mbox", "mmu", "screen", "tick", "heap",
               "input", "selfcheck", "mount", "config", "rtc"] + ["service"] * len(SERVICES) + \
              ["ready"]
@@ -178,3 +178,67 @@ def check_golden(rows, name):
             f.write(text)
     with open(path, encoding="ascii") as f:
         assert f.read() == text, f"screen differs from {path}:\n{text}"
+
+
+# ---- File system service helpers -------------------------------------------
+
+FS_FINAL = re.compile(r"@RC stage=uos ev=fs op=(\w+) rc=")
+
+
+def fs(vm, command, timeout=TIMEOUT):
+    """Runs `fs <command>` on the maintenance port, then waits for the
+    "ev=fs op=<op> rc=..." marker that ends it. Returns (final, items):
+    the final marker and the "ev=fs" markers before it, such as listing
+    entries or files deleted."""
+    import time
+    op = command.split()[0]
+    start = len(vm.serial)
+    answer(vm, "fs " + command)
+    deadline = time.monotonic() + timeout
+    while True:
+        marks = [m for m in parse_markers(vm.serial[start:]) if m.get("ev") == "fs"]
+        for i, m in enumerate(marks):
+            if "rc" in m and m.get("op") == op:
+                return m, [x for x in marks[:i] if "rc" not in x]
+        assert time.monotonic() < deadline, f"no fs {op} result:\n{vm.serial[start:]}"
+        time.sleep(0.05)
+
+
+def card_tree(extra=None):
+    """The default card/ tree as card() files, plus `extra`."""
+    files = {}
+    base = os.path.join(ROOT, "card")
+    for dirpath, _, names in os.walk(base):
+        for n in names:
+            path = os.path.join(dirpath, n)
+            with open(path, "rb") as f:
+                files["/" + os.path.relpath(path, base).replace(os.sep, "/")] = f.read()
+    files.update(extra or {})
+    return files
+
+
+def _mtools(sd, *args):
+    env = minimal_env(MTOOLS_SKIP_CHECK="1")
+    img = f"{os.fspath(sd)}@@{2048 * 512}"
+    return subprocess.run([args[0], "-i", img] + list(args[1:]), check=True, env=env,
+                          capture_output=True, text=True).stdout
+
+
+def card_free(sd):
+    """Free bytes on the card's FAT volume, from mtools."""
+    m = re.search(r"([\d ]+) bytes free", _mtools(sd, "mdir", "::/"))
+    return int(m.group(1).replace(" ", ""))
+
+
+def card_put(sd, name, data, tmp_path):
+    """Copies `data` to `name` ("UOS/X.BIN") on the card with mtools."""
+    src = tmp_path / "put.bin"
+    src.write_bytes(data)
+    _mtools(sd, "mcopy", "-o", os.fspath(src), "::/" + name)
+
+
+def card_names(sd, folder):
+    """The short names in one folder of the card, upper-case, with "." between parts."""
+    out = _mtools(sd, "mdir", "-b", "::/" + folder)
+    return sorted(line.rstrip("/").rsplit("/", 1)[-1].upper() for line in out.splitlines()
+                  if line.strip())

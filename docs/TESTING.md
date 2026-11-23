@@ -21,6 +21,7 @@ The tests run from the repository root, so the ones that read the default card o
 | `test_dcl_msg.c` | The text of every system message |
 | `test_dcl_table.c` | The UOS command table: every verb and keyword, the table check |
 | `test_vfs_path.c` | File specifications: parse, resolve, format, logical names, wildcards, listing order, the access table |
+| `test_vfs_rules.c` | The vfs service's rules: error words, the message map, library and path codes, the date format, work names, wildcard targets, parent and entry paths, the listing filter, the bounded sorted insert |
 | `test_session_sha256.c` | SHA-256: the standard short and long messages, a million `a` streamed, block boundaries, length carry |
 | `test_session_uaf.c` | `SYSUAF.DAT`: layout, every validation check, the hash vectors shared with `mkuaf.py`, verify with equal work, edits, privilege names, the default card's file |
 | `test_session_lockout.c` | The login lockout: counts, the lock time, the tick wrap |
@@ -55,6 +56,7 @@ The tests run from the repository root, so the ones that read the default card o
 | `test_panic.py` | The panic path for an undefined instruction, a prefetch abort and a `uos_panic()` call; a failed tick and a fault right after the exception hook, both before the input layer starts, with `state`, `dump` and `reboot` answering; in both, `help` lists exactly the base commands, `timers` answers and `type` answers `err not ready`; `reboot`; an `nm` check that the shipped image has no test hooks |
 | `test_first.py` | A golden of the first screen's text and screenshots |
 | `test_services.py` | The `ev=service` markers and `services`; `uptime`; shutdown markers in reverse order on `reboot`, halt and panic; a fault after the services started: one shutdown each with `why=panic`, none again on the reboot, and `help` lists every command; a failing service in test builds; `help`, unknown commands and quotes; the `bench uaf` figure |
+| `test_vfs.py` | The vfs service through `fs`: every specification form, the read limit, missing files and folders, a folder read as a file; listings with wildcards, an empty folder and more entries than the maximum; write, overwrite, must-not-exist, mkdir, rename, copy of a small and a 1 MiB file with CRCs, wildcard delete, files kept across a reboot with no work file left; cells of the access table; a full card keeps the old file; no card and no `/UOS`; the `DEV:` hook with a fake and with none |
 | `test_env_hygiene.py` | No test copies the host environment |
 
 ### How the tests start UOS
@@ -65,7 +67,7 @@ The tests run from the repository root, so the ones that read the default card o
 
 ### Test builds
 
-`UOS_TEST_HOOKS=1` adds the `fault`, `panic`, `halt` and `bench` maintenance commands, and a service named `testfail` whose init returns -5, first in the table. The tests build it in `build/testhooks/`. `UOS_TEST_TICK_FAIL=1` makes `tick_init()` report a failure, in `build/tickfail/`. `UOS_TEST_EARLY_FAULT=1` runs an undefined instruction just after the exception hook, in `build/earlyfault/`. None is shipped: `test_panic.py` checks with `nm` that the shipped image has none of their symbols.
+`UOS_TEST_HOOKS=1` adds the `fault`, `panic`, `halt` and `bench` maintenance commands, `fs pattern` and `fs fakedev`, and a service named `testfail` whose init returns -5, first in the table. The tests build it in `build/testhooks/`. `UOS_TEST_TICK_FAIL=1` makes `tick_init()` report a failure, in `build/tickfail/`. `UOS_TEST_EARLY_FAULT=1` runs an undefined instruction just after the exception hook, in `build/earlyfault/`. None is shipped: `test_panic.py` checks with `nm` that the shipped image has none of their symbols.
 
 ### Timing bound
 
@@ -87,6 +89,10 @@ Measured in QEMU on the test host, two runs per board, 2000 iterations:
 | `raspi3b` | 10.0 and 12.0 ms | 11.6 and 11.7 ms |
 
 The MMU off figures come from a local build with `mmu_enable()` left out. QEMU does not model caches, so the two columns are the same within noise. These figures say nothing about a real Pi, where the caches should matter much more. Nothing is validated on real hardware.
+
+### The copy step bound
+
+`test_vfs.py` copies 1 MiB with `fs copy`, one 16 KiB step per loop pass. The slowest step took 2 ticks on `raspi0`, `raspi1ap` and `raspi2b`, and 14 to 25 ticks on `raspi3b`, over a few runs. The bound is `COPY_STEP_BOUND_TICKS`, 50 ticks: about twice the worst figure for a loaded host. A copy in one step, 64 times the work, breaks it on every board.
 
 ### Goldens and screenshots
 
