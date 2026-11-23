@@ -17,7 +17,6 @@ All notable changes to UOS are recorded here. The format follows [Keep a Changel
 - The `UOS.CFG` reader with clamps, defaults and counts of bad values.
 - The maintenance port: `state`, `dump`, `type`, `timers` and `reboot`.
 - A first screen with the boot banner and a placeholder for the login.
-- The `devices` service: `DEVICES.CFG` on the GPIO pins, the `dev` maintenance command, safe outputs at shutdown and a software watchdog.
 - Eight pure modules with host tests, not yet wired into the system: `dcl`, `vfs` path, `session`, `osk`, `dev`, `tui`, `hack` and `holo`.
 - One set of privilege bits for every module, in `src/kernel/uos_privs.h`.
 - Devices: the refused pin mask is a parameter, UOS frees the dial's pins, up to 24 devices, a warning for an active-high output on a pin pulled up at reset, and expander pins as `X<chip>.<pin>` with `[expander N]` sections.
@@ -33,3 +32,12 @@ All notable changes to UOS are recorded here. The format follows [Keep a Changel
 - `uptime` reports `last=`, the tick of its last service tick.
 - The `vfs` service: file specifications to card files with access checks, safe writes, listings, wildcards, stepped copies, a `DEV:` hook and the `fs` maintenance command.
 - The console service: an event-driven line editor with history and masked input, the on-screen keyboard on a line read, a pager screen, and shared output helpers.
+- The `devices` service: `DEVICES.CFG` on the GPIO pins, the `dev` maintenance command, safe outputs at shutdown and a software watchdog.
+- The services work together: `DEV:` names reach the device service through the file system, the device service reads `DEVICES.CFG` through it, and shutdown stops the devices first.
+- The console echoes the line being read on the PL011, with `*` for a masked line.
+- File system errors have their own messages: `WRITLCK`, `PROTECT`, `TOOBIG` and `INSFMEM`.
+
+### Fixed
+
+- The loop runs only the events queued before each pass, so a stepped copy no longer holds off input and the tick until it ends.
+- `vp_access()` no longer reads a home folder name past the depth of a file directly in `HOME`.

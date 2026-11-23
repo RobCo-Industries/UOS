@@ -18,23 +18,23 @@ The tests run from the repository root, so the ones that read the default card o
 | `test_service.c` | The service rules with fake services: inits in order, a failure does not stop the next, ticks only for started services, shutdown in reverse order and once, nothing before init, the table limit |
 | `test_privs.c` | Every module's privilege names equal the shared bits of `uos_privs.h`; the `SYSUAF.DAT` names of each bit |
 | `test_dcl.c` | The DCL tokeniser, continuation, numbers, the abbreviation rule, qualifiers and parameters, prompts, privileges |
-| `test_dcl_msg.c` | The text of every system message |
+| `test_dcl_msg.c` | The text of every system message, the file messages `WRITLCK`, `PROTECT`, `TOOBIG` and `INSFMEM` included |
 | `test_dcl_table.c` | The UOS command table: every verb and keyword, the table check |
-| `test_vfs_path.c` | File specifications: parse, resolve, format, logical names, wildcards, listing order, the access table |
-| `test_vfs_rules.c` | The vfs service's rules: error words, the message map, library and path codes, the date format, work names, wildcard targets, parent and entry paths, the listing filter, the bounded sorted insert |
+| `test_vfs_path.c` | File specifications: parse, resolve, format, logical names, wildcards, listing order, the access table; a file directly in `HOME` with a stale name past its depth |
+| `test_vfs_rules.c` | The vfs service's rules: error words, the message map with its read-only, protected, too-large and memory messages, library and path codes, the date format, work names, wildcard targets, parent and entry paths, the listing filter, the bounded sorted insert |
 | `test_session_sha256.c` | SHA-256: the standard short and long messages, a million `a` streamed, block boundaries, length carry |
 | `test_session_uaf.c` | `SYSUAF.DAT`: layout, every validation check, the hash vectors shared with `mkuaf.py`, verify with equal work, edits, privilege names, the default card's file |
 | `test_session_lockout.c` | The login lockout: counts, the lock time, the tick wrap |
 | `test_osk.c` | The on-screen keyboard: both layers, moves with wrap, every key, emitted events, the row text |
 | `test_dev.c` | `DEVICES.CFG`: every key and error, the refused pin masks, the pull-up warning, expander pins; commands, pulses, the tick wrap, status lines, the pin record, the default card's file |
-| `test_dev_svc.c` | The device service's rules: debounce, `ARM` last at boot and first at shutdown, the reverse safe order, operations mapped to calls through a fake GPIO layer, expander failures, pulse ends from the tick only, late and across the wrap |
+| `test_dev_svc.c` | The device service's rules: debounce, `ARM` last at boot and first at shutdown, the reverse safe order, operations mapped to calls through a fake GPIO layer, expander failures, pulse ends from the tick only, late and across the wrap; the device codes mapped to file system codes for `DEV:` |
 | `test_tui.c` | The menu model: moves, every action, sub-menus to eight levels, scrolling, headers, privileges, the layout |
 | `test_tui_cfg.c` | `TERMINAL.CFG`: every key, target and error; the menus of the default card |
 | `test_tui_pager.c` | The pager: line ends, wrapping, moves and keys, a 64 KiB text |
 | `test_card_menus.c` | Each device entry in the default card's menus names a device of its `DEVICES.CFG` and a word that device takes |
 | `test_hack.c` | Word lists, candidate picks, 1000 boards per difficulty, the one-junk gap, the cursor, brackets, the game and its lockout, the default card's lists |
 | `test_holo.c` | Tape validation step by step, every error, limits, the reader model |
-| `test_console_lineedit.c` | The line editor: every key, insert in the middle, the 255 and per-call limits, a full line, history from empty to 17 lines, recalled edits, masked lines, the scroll window, repeats, redraw results |
+| `test_console_lineedit.c` | The line editor: every key, insert in the middle, the 255 and per-call limits, a full line, history from empty to 17 lines, recalled edits, masked lines, the scroll window, repeats, redraw results; the exact serial bytes of each redraw, masked, scrolled and at the largest size |
 | `test_console_view.c` | The console's decisions: the input row under the keyboard, when the keyboard opens, line widths, the pager status row, the byte filter, marker quoting, command words |
 
 ## Tool tests
@@ -60,8 +60,9 @@ The tests run from the repository root, so the ones that read the default card o
 | `test_first.py` | A golden of the first screen's text and screenshots |
 | `test_services.py` | The `ev=service` markers and `services`; `uptime`; shutdown markers in reverse order on `reboot`, halt and panic; a fault after the services started: one shutdown each with `why=panic`, none again on the reboot, and `help` lists every command; a failing service in test builds; `help`, unknown commands and quotes; the `bench uaf` figure |
 | `test_vfs.py` | The vfs service through `fs`: every specification form, the read limit, missing files and folders, a folder read as a file; listings with wildcards, an empty folder and more entries than the maximum; write, overwrite, must-not-exist, mkdir, rename, copy of a small and a 1 MiB file with CRCs, wildcard delete, files kept across a reboot with no work file left; cells of the access table; a full card keeps the old file; no card and no `/UOS`; the `DEV:` hook with a fake and with none |
-| `test_console.py` | Reading a line with edit keys, history, cancel and the maximum; a masked read; the on-screen keyboard typing a word over both layers and leaving the screen below intact; the pager over each test text; goldens of the open keyboard and the long text's first page; command errors and a second read refused |
+| `test_console.py` | Reading a line with edit keys, history, cancel and the maximum; a masked read; the on-screen keyboard typing a word over both layers and leaving the screen below intact; the pager over each test text; goldens of the open keyboard and the long text's first page; command errors and a second read refused; the exact PL011 echo of a typed and edited line and of a masked one |
 | `test_dev.py` | The device service: the shipped `DEVICES.CFG`, the boot record with `ARM` last, `dev set` for every action, privileges, pulse timing, two pulses, cancel, a stalled loop, sensor debounce, bad files, expander pins, no file, no card, the safe state on reboot and panic, the watchdog reset. Pulses must end within their length plus 1 tick plus `HOST_ALLOWANCE_TICKS`, 20. |
+| `test_link.py` | The services together. `DEV:` through `fs`: `cat`, `ls`, writes refused and allowed by each device's own mask, a bad word, a sensor. `DEVICES.CFG` through the file system: a folder, a file over 8 KiB, no file. A read over the pager and the pager over a read. A pulse end and a sensor change during a read. A panic with the on-screen keyboard open. The shutdown order on reboot, halt and panic, with every `devsafe` line before the console stops. A reboot during a stepped copy keeps the old file. After a panic and a halt the pin record does not change for 4 s, `STILL_S`, with a pulse running. |
 | `test_env_hygiene.py` | No test copies the host environment |
 
 ### How the tests start UOS
@@ -97,7 +98,7 @@ The MMU off figures come from a local build with `mmu_enable()` left out. QEMU d
 
 ### The copy step bound
 
-`test_vfs.py` copies 1 MiB with `fs copy`, one 16 KiB step per loop pass. The slowest step took 2 ticks on `raspi0`, `raspi1ap` and `raspi2b`, and 14 to 25 ticks on `raspi3b`, over a few runs. The bound is `COPY_STEP_BOUND_TICKS`, 50 ticks: about twice the worst figure for a loaded host. A copy in one step, 64 times the work, breaks it on every board.
+`test_vfs.py` copies 1 MiB with `fs copy`, one 16 KiB step per loop pass. The loop runs only the events queued before each pass, so input and the tick get their turn between two steps. The slowest step took 2 ticks on `raspi0`, `raspi1ap` and `raspi2b`, and 14 to 25 ticks on `raspi3b`, over a few runs. The bound is `COPY_STEP_BOUND_TICKS`, 50 ticks: about twice the worst figure for a loaded host. A copy in one step, 64 times the work, breaks it on every board.
 
 ### Goldens and screenshots
 

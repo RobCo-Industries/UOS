@@ -36,7 +36,7 @@ The modules below are pure too. The image links them, but no kernel code calls t
 
 ## Modules
 
-Each module has a reference page in `docs/modules/`. The on-card formats are gathered in [FORMATS.md](FORMATS.md). No login, shell or screen uses a module yet.
+Each module has a reference page in `docs/modules/`. The on-card formats are gathered in [FORMATS.md](FORMATS.md). The services of [Services](#services) use `dcl`, `vfs path`, `osk`, `dev` and the pager of `tui`. No login, shell or screen uses a module yet.
 
 Every module that tests privileges uses the bits of `src/kernel/uos_privs.h`: `SYSTEM` bit 0, `OPER` bit 1, `SECURITY` bit 2, `READALL` bit 3. Each module keeps its own names, such as `DCL_PRIV_OPER` or `UAF_PRIV_OPER`, as aliases, and static asserts check them.
 
@@ -91,8 +91,8 @@ One thread of control. `uos_loop_run()` repeats:
 
 1. Posts one `TICK` event for the ticks since the last one, and one `TIMER` event per timer expiry due.
 2. Takes input events while the queue has room. Key releases are dropped. The rest waits in the input layer.
-3. Delivers every queued event, drawing the top screen after each one when it is dirty.
-4. Sleeps in `wfi`, through `input_wait()`, until input or the next tick.
+3. Delivers the events queued before this step, drawing the top screen after each one when it is dirty. An event posted meanwhile waits for the next pass, so a call that posts itself again, such as a copy step, runs once per pass and time and input get their turn between two steps.
+4. Sleeps in `wfi`, through `input_wait()`, until input or the next tick. A pass that left events queued skips the sleep.
 
 Each `TICK` event first calls the `tick` function of every started service, then goes to the screens.
 
@@ -189,7 +189,42 @@ typedef struct uos_service {
 
 Markers: `ev=service name=<n> rc=<rc>` after each init, `ev=shutdown name=<n> why=<reboot|halt|panic>` before each shutdown.
 
-The first service is `uptime`, in `src/kernel/svc_uptime.c`. Its init records the start tick and registers the `uptime` command. Its `tick` records the last tick it got. Test builds put a service named `testfail` first, whose init returns -5, so the tests see the failure policy.
+Test builds put a service named `testfail` first, whose init returns -5, so the tests see the failure policy.
+
+### Start and stop order
+
+| Start | Service | Header | Uses |
+|---|---|---|---|
+| 1 | `uptime` | none | nothing |
+| 2 | `vfs` | `src/vfs/vfs.h` | the card the kernel mounted |
+| 3 | `console` | `src/console/con.h` | the screen stack |
+| 4 | `devices` | `src/dev/devs.h` | `vfs` for `DEVICES.CFG` and `DEV:` |
+
+Shutdown runs in reverse: `devices`, `console`, `vfs`, `uptime`. So on a reboot, a halt and a panic the device service drives every output safe before anything else stops. Its `devsafe` lines and `devdown` come right after `ev=shutdown name=devices` and before `ev=shutdown name=console`. `test_link.py` checks this order for all three causes.
+
+A file write cannot be cut by a reboot. `vfs_write_all()` runs in one loop pass, and the `reboot` command waits for the next one. A stepped copy can be cut between two steps. Its new content sits in a work file, and the target keeps its whole old content. The next read of the target removes the work file. `test_link.py` reboots during a 1 MiB copy over a file and checks both. A power cut during a write is not tested: the library's atomic write states that guarantee.
+
+### Interfaces between services
+
+- `DEV:` names. The device service's init calls `vfs_dev_register()` with its `read`, `write` and `list` hooks. The prototypes of `devs_hooks_t` and `vfs_dev_hooks_t` match field by field, but the codes do not: `DV_ERR_NOPRIV` is -15, and -15 is `VFS_E_NOMEM`. So `devglue.c` registers three small wrappers that pass each code through `devs_vfs_code()`, a pure function with host tests. An unknown device or an empty device table is `VFS_E_NODEV`, a missing privilege `VFS_E_NOPRIV`, a command to a sensor `VFS_E_READONLY`, a bad action word `VFS_E_ARG`. `fs cat DEV:DOOR1` shows a device's status line, `fs write DEV:DOOR1 OPEN` runs a command with the caller's privilege bits against the device's own mask, and `fs ls DEV:` lists the devices.
+- `DEVICES.CFG`. The device service reads it with `vfs_sys_read_all()`. A missing file and a card with no `/UOS` folder are `missing`; a folder, a file over 8 KiB and a read error are `bad` with `why=` the `vfs_strerror()` word.
+- Screens. The read screen and the pager are screens on the kernel's stack. A read may start while the pager is shown, and the pager while a line is read. The newer screen takes the keys until it pops. A device change does not touch the screens: a pulse end or a sensor change during a read leaves the line as typed. A panic while the on-screen keyboard is open replaces every row with the panic screen, and the read never calls back.
+- Serial lines. The read screen echoes the line on the PL011 without a line end. `uos_serial_break()` ends that partial line before any marker, `uos_say()` line or `con_print()` line, so each starts on a line of its own.
+
+### Maintenance commands
+
+Every command each service registers. The `fs`, `readline`, `page` and `osk` commands post their work to the loop and report it with markers.
+
+| Command | Service | Does |
+|---|---|---|
+| `uptime` | `uptime` | Seconds and ticks since start, the start tick and the last tick |
+| `fs who\|default\|ls\|cat\|crc\|write\|new\|del\|ren\|copy\|mkdir\|stat\|free` | `vfs` | File calls as a test user, see [vfs](#vfs) |
+| `fs pattern`, `fs fakedev` | `vfs` | Test builds only |
+| `readline <flags> <max> [prompt]` | `console` | Reads a line, see [console](#console) |
+| `page <short\|long\|empty\|big>` | `console` | Pages a built-in test text |
+| `osk <open\|close\|state>` | `console` | The on-screen keyboard of the active read |
+| `dev list\|set\|rec` | `devices` | Devices, commands, the pin record, see [Devices](#devices) |
+| `dev sense`, `dev hang`, `dev stall` | `devices` | Test builds only |
 
 ### How to add a service
 
@@ -217,6 +252,10 @@ static int cmd_mail(int argc, char **argv)
 
 A command function runs inside the input layer's script handler. That is in the loop between two events, or after a panic or a halt in the idle poll with IRQs off. It must not block, wait for ticks or do anything that can fault. It posts such work to the loop with `uos_post()`, after it checks that `uos.phase` is `UOS_PHASE_READY`, and the posted call reports its result with a marker. `uos_maint.h` states the same rules.
 
+### uptime
+
+The first service, in `src/kernel/svc_uptime.c`, is the model of a service. Its init records the start tick and registers the `uptime` command. Its `tick` records the last tick it got.
+
 ### vfs
 
 The file system service, `src/vfs/vfs.h`, prefix `vfs_`. Commands and screens reach card files through it with file specifications. Each call resolves the specification with the caller's `vp_ctx_t`, checks access with `vp_access()`, acts through the library's FatFs glue and returns 0 or a negative `VFS_E_*` code. `vfs_msg()` maps a code to the command language's message, so every command prints the same message for the same failure. A read-only volume gives `WRITLCK`, a protected file `PROTECT`, a file over the limit `TOOBIG` and a full heap `INSFMEM`.
@@ -228,7 +267,7 @@ Every call that touches the card runs from the loop only. The service reads `uos
 - `vfs_list()` returns the first `max` entries in the path module's order, and the total. It hides work files, names that are not 8.3 and entries the access table hides from the caller. Dates are FAT dates, shown as `DD-MMM-YYYY HH:MM:SS`.
 - `vfs_iter_begin()` resolves a wildcard to at most 128 files and checks access per file. DELETE, RENAME and COPY use it.
 - `vfs_copy_begin()` and `vfs_copy_step()` copy in steps of 16 KiB. The new file is written as `~NAME` and moved into place through `#NAME`, the library's recovery names. `vfs_copy()` runs every step in one call, for small files.
-- `vfs_dev_register()` takes the device service's `read`, `write` and `list` hooks for `DEV:` names. Without hooks, `DEV:` calls return `VFS_E_NODEV`.
+- `vfs_dev_register()` takes the device service's `read`, `write` and `list` hooks for `DEV:` names. Without hooks, `DEV:` calls return `VFS_E_NODEV`. A `list` hook that fails on index 0 makes the listing `VFS_E_NODEV` too.
 - `vfs_sys_read_all()` and `vfs_sys_write_all()` skip the access check, for system files such as `/UOS/SYSUAF.DAT`.
 
 The decisions are pure, in `src/vfs/vfsrules.c`, with host tests.
@@ -245,7 +284,7 @@ The `fs` maintenance command acts as a test user. `fs who <home|-> <privs>` and 
 | `fs copy <from> <to>` | One `file=` marker per file, then `files=`, `skipped=`, `steps=` and `maxticks=` |
 | `fs mkdir <spec>`, `fs stat <spec>`, `fs free` | `stat` adds `exists=`, the entry fields; `free` adds `total=` and `free=` |
 
-Test builds add `fs pattern <spec> <bytes>` and `fs fakedev on|off`, a fake device service with `DOOR1` and `LAMP2`.
+Test builds add `fs pattern <spec> <bytes>` and `fs fakedev on|off`. `on` replaces the device service's hooks with a fake one with `DOOR1` and `LAMP2`; `off` removes every hook until the next boot.
 
 ### console
 
@@ -274,7 +313,9 @@ The on-screen keyboard opens on F4 or on any GPIO button event while a line is r
 
 `con_page_text(title, text, len, cb, ctx)` pushes a full-screen pager: a title row, 28 rows of body at 78 columns and a status row `line A to B of N` with the keys. It copies the text into the kernel heap with every byte outside printable ASCII as `.`, and allocates the pager's index there. It frees both when the person leaves. Texts up to 1 MiB are accepted; a 64 KiB text wraps in one loop pass. An empty text shows `(no text)`. One pager runs at a time.
 
-`out.c` holds `con_print()`, `con_message()` for `%FAC-S-IDENT, text` lines from `dcl_format_message()`, `con_clear_rows()`, a status row at the bottom (`con_status_set()`, `con_status_clear()`, `con_status_redraw()`) and `con_pause()`, a "press a key" screen. `con_print()` cuts a line at the screen width and also sends it to the PL011. The line being edited is not mirrored on the PL011.
+`out.c` holds `con_print()`, `con_message()` for `%FAC-S-IDENT, text` lines from `dcl_format_message()`, `con_clear_rows()`, a status row at the bottom (`con_status_set()`, `con_status_clear()`, `con_status_redraw()`) and `con_pause()`, a "press a key" screen. `con_print()` cuts a line at the screen width and also sends it to the PL011.
+
+The read screen echoes the line on the PL011 for a person on a serial terminal. `le_serial()`, pure, turns each redraw the line editor asks for into bytes: a carriage return, the prompt, the window as the screen shows it, then `ESC [ K` to erase the rest of the line. When the cursor is not at the end, a second carriage return, the prompt and the text up to the cursor put it back in place. A cursor move sends only that second part. The echo assumes a terminal that knows carriage return and `ESC [ K`, as every terminal program does, and nothing else. A masked read shows `*`. The on-screen keyboard's rows are never echoed. The line ends with the read.
 
 Maintenance commands, for tests and operators:
 
@@ -288,7 +329,7 @@ Maintenance commands, for tests and operators:
 
 The `devices` service, in `src/dev/devglue.c`, applies `/UOS/DEVICES.CFG` to the GPIO pins. Its rules are pure, in `devcfg.c`, `devstate.c` and `devsplan.c`. Other services call `src/dev/devs.h`, prefix `devs_`. Nothing here is validated on real hardware.
 
-Init reads the file with `fs_read_file()` into an 8 KiB heap buffer, as the kernel reads `UOS.CFG`. It parses it with `DV_REFUSED_UOS`. The library cannot say which pins its input layer claimed. When the input layer's GPIO backend runs, the service also refuses every button and dial pin; today that backend is off. Init then sets every pin and starts the watchdog. Its markers:
+Init registers the `DEV:` hooks with the file system, then reads the file with `vfs_sys_read_all()`, at most 8 KiB. It parses it with `DV_REFUSED_UOS`. The library cannot say which pins its input layer claimed. When the input layer's GPIO backend runs, the service also refuses every button and dial pin; today that backend is off. Init then sets every pin and starts the watchdog. Its markers:
 
 | Marker | Meaning |
 |---|---|
@@ -301,7 +342,7 @@ Init reads the file with `fs_read_file()` into an 8 KiB heap buffer, as the kern
 | `dev name= state= by=<source>` | A state change: `maint`, `dev`, a caller's word, `pulse` or `sensor` |
 | `devsafe name= pin= level= rc=`, `devdown why= count=` | The safe state at shutdown |
 
-The init markers come after `ev=service name=uptime` and before `ev=service name=devices`.
+The init markers come after `ev=service name=console` and before `ev=service name=devices`.
 
 The `dev` maintenance command: `dev list` gives `dev count=N`, the header and one status line per device. `dev set <name> <action> [privs]` runs a command with the privilege bits given, `SYSTEM` by default, and answers `dev name= state=` or `err <message>`. `dev rec` gives `rec count= total=`, then the pin record, oldest first. Test builds add `dev sense <name> <0|1>`, which replaces a sensor's pin read, `dev hang`, which stops the watchdog kicks, and `dev stall <ticks>`, which keeps the loop busy. QEMU cannot drive a Pi GPIO input from outside, and the library's harness has no way to inject a GPIO level, so the sensor tests use `dev sense`.
 
