@@ -36,6 +36,7 @@ All notable changes to UOS are recorded here. The format follows [Keep a Changel
 - The services work together: `DEV:` names reach the device service through the file system, the device service reads `DEVICES.CFG` through it, and shutdown stops the devices first.
 - The console echoes the line being read on the PL011, with `*` for a masked line.
 - File system errors have their own messages: `WRITLCK`, `PROTECT`, `TOOBIG` and `INSFMEM`.
+- Devices: a failed write to an output's safe level is retried every tick and shown as a fault, so the status never says a state the pin does not have.
 
 ### Fixed
 

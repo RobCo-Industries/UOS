@@ -337,14 +337,17 @@ Init registers the `DEV:` hooks with the file system, then reads the file with `
 | `deverr name= line= why=<IDENT>` | One per skipped device or bad expander, up to 8 |
 | `devwarn name= line= why=PULLUP` | One per warning, up to 8 |
 | `devboot count= arm=<name\|none>` | The boot operations ran |
-| `devfail name= op=<config\|write\|read> rc= why=` | An operation failed, such as `NOEXPDRV` on an expander pin |
+| `devfail name= op=<config\|write\|read\|pulse> rc= why=` | An operation failed, such as `NOEXPDRV` on an expander pin |
+| `devfault name= result=failing op=<config\|write\|pulse> owed= rc= why=` | A write to the safe level failed: a fault starts |
+| `devfault name= result=cleared fails= state=` | The owed write succeeded after `fails` failed tries |
+| `devarm name= result=held why=fault` | Boot: `ARM` stays off because another output faulted |
 | `wdog result=<on\|off\|expired> timeout_ms=15000` | The watchdog |
 | `dev name= state= by=<source>` | A state change: `maint`, `dev`, a caller's word, `pulse` or `sensor` |
-| `devsafe name= pin= level= rc=`, `devdown why= count=` | The safe state at shutdown |
+| `devsafe name= pin= level= rc= tries=`, `devdown why= count=` | The safe state at shutdown, one `devsafe` per write |
 
 The init markers come after `ev=service name=console` and before `ev=service name=devices`.
 
-The `dev` maintenance command: `dev list` gives `dev count=N`, the header and one status line per device. `dev set <name> <action> [privs]` runs a command with the privilege bits given, `SYSTEM` by default, and answers `dev name= state=` or `err <message>`. `dev rec` gives `rec count= total=`, then the pin record, oldest first. Test builds add `dev sense <name> <0|1>`, which replaces a sensor's pin read, `dev hang`, which stops the watchdog kicks, and `dev stall <ticks>`, which keeps the loop busy. QEMU cannot drive a Pi GPIO input from outside, and the library's harness has no way to inject a GPIO level, so the sensor tests use `dev sense`.
+The `dev` maintenance command: `dev list` gives `dev count=N`, the header and one status line per device. `dev set <name> <action> [privs]` runs a command with the privilege bits given, `SYSTEM` by default, and answers `dev name= state=` or `err <message>`. `dev rec` gives `rec count= total=`, then the pin record, oldest first. Test builds add `dev sense <name> <0|1>`, which replaces a sensor's pin read, `dev fail <name> <writes>`, which makes the next writes to a Pi pin fail, `dev hang`, which stops the watchdog kicks, and `dev stall <ticks>`, which keeps the loop busy. QEMU cannot drive a Pi GPIO input from outside, and the library's harness has no way to inject a GPIO level, so the sensor tests use `dev sense`.
 
 #### Ticks, pulses and sensors
 
@@ -358,7 +361,35 @@ Sensors are read every 50 ms. A change counts after 3 equal reads in a row, so i
 - At boot every output is set to its initial level, in file order, with `gpio_config_output()`, which sets the level before the pin becomes an output.
 - A relay named `ARM` switches the supply of every load. It is set last at boot, after every other output holds its initial level. It goes off first at shutdown. No other name or type gets special treatment.
 - Shutdown on reboot, halt and panic, and the watchdog, drive `ARM` off, then every other output to its initial level in reverse file order. They use direct GPIO writes only: no timers, no allocation, safe with IRQs off.
+- A failed pin write never leaves the model saying a state the pin does not have. See "Pin faults".
 - An expander device loads and is listed. Every operation on it fails with `%DEVICE-E-NOEXPDRV, expander not available in this build`. The library has no expander driver yet. `exp_write`, `exp_config` and `exp_read` in `devglue.c` are the three functions a driver replaces.
+
+#### Pin faults
+
+A GPIO or expander write can fail. The rule: after a failed write, the model never says a state the pin does not have. The pure parts in `devsplan.c` hold it.
+
+- The safe level of an output is its `initial` level, and off for `ARM`.
+- A failed write toward the safe level starts a fault. The device keeps the state last written to its pin. The write is owed.
+- Every tick retries each owed write once, before the pulse ends. The retry never gives up while the system runs. When it succeeds, the device takes the owed state and the fault ends.
+- A fault gives one `devfault result=failing` marker when it starts and one `devfault result=cleared` when it ends. Failed retries add to a count and print nothing. The count stops at 65535.
+- `SHOW DEVICES`, `dev list` and `DEV:` reads show ` FAULT=<count>` after the pin while the fault lasts.
+- A device in fault refuses every command with `%DEVICE-E-PINFAULT, a pin write failed and is retried; command refused`. A queued command could fire long after the operator gave it, so none is kept.
+- A failed write away from the safe level starts no fault. The command fails with its code, `%DEVICE-E-IOERR` for a Pi pin, and the state stays as it was.
+- `NOEXPDRV` starts no fault: without an expander driver, the pin was never driven.
+
+Each write site:
+
+| Site | On a failed write |
+|---|---|
+| Pulse end, in the tick | Fault. The device stays on, as its pin is. |
+| Command to the safe level, such as `LOCK` | Fault, `PINFAULT` to the caller. A pending pulse end is cancelled: the fault owes the same write. |
+| Command away from the safe level, such as `UNLOCK` | `IOERR` to the caller, state unchanged, nothing owed. |
+| Pulse start | As the command away from the safe level. No pulse end is set. |
+| Boot, `DEVICES.CFG` loaded | `devfail op=config`. The output is off with a fault, its `CONFIG_OUTPUT` owed. |
+| Boot, `ARM` | If any other output faulted, `ARM` is written off instead of its initial level, with a `devarm` marker. An operator may switch it on later. |
+| Shutdown on reboot, halt and panic | Each write is tried 3 times, then the next device comes. Each write gives one `devsafe` marker with its `rc` and `tries`. |
+| Shutdown, `ARM` off fails | The other outputs still go to their initial level. That level is safe with or without the supply. |
+| The watchdog | It runs the shutdown sequence, so the same bound applies. |
 
 #### The watchdog
 
