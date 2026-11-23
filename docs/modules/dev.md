@@ -75,7 +75,7 @@ Rules:
 - Two devices may not share one expander pin. The same pin number on another chip, or on the Pi, is fine.
 - Refused pins and the pull-up warning apply to Pi pins only.
 
-Each device and each pin operation has a `chip` field: `DV_CHIP_PI` for a Pi pin, or 0 to 3. `dv_set_t.exp[chip]` holds the chip's address. The status line shows `X1.0` in place of `GPIO n`. The expander driver is not in the library yet, so no glue applies expander operations. The pin record ring keeps the pin number only.
+Each device and each pin operation has a `chip` field: `DV_CHIP_PI` for a Pi pin, or 0 to 3. `dv_set_t.exp[chip]` holds the chip's address. The status line shows `X1.0` in place of `GPIO n`. The glue in `src/dev/devglue.c` routes expander operations to `exp_write()`, `exp_config()` and `exp_read()`. Until the library's expander driver is pinned, these refuse every operation with `DEVS_ERR_NOEXP`, `%DEVICE-E-NOEXPDRV`. The pin record ring keeps the pin number only.
 
 ## Refused pins
 
