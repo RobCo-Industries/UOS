@@ -3,12 +3,13 @@ device service, screens of the console on the kernel's stack beside device
 changes, and the shutdown order of every service."""
 
 import re
+import zlib
 
 import pytest
 
 from test_dev import ALL, CFG, boot_card, dev_list, marks, record, wait_ready
-from test_vfs import entries, err, ok
-from uos import (IDLE, SERVICES, TIMEOUT, alone, answer, card, dump, dump_until, events, fs,
+from test_vfs import entries, err, home_card, ok
+from uos import (IDLE, SERVICES, TIMEOUT, alone, answer, card, card_names, dump, dump_until, events, fs,
                  key, one, uos_card, wait_marker)
 
 # The keyboard covers the bottom 5 rows of the 30-row console, src/osk/osk.h.
@@ -200,3 +201,25 @@ def test_shutdown_order(board, hooks_image, need_mtools, tmp_path, how):
         assert lines[:end + 1] == [("shutdown", "devices")] + \
             [lines[i] for i in safe] + [("devdown", how)], lines
 
+
+def test_reboot_during_a_copy(board, hooks_image, need_mtools, tmp_path):
+    """A reboot asked while a stepped copy replaces a file: the copy stops
+    between two steps, and after the reboot the target holds its whole old
+    content and no work file is left once the target is read again. A
+    single write cannot be cut: it runs in one loop pass and the reboot
+    command waits for the next one."""
+    old = b"old content\n"
+    big = bytes((i * 31 + 7) & 0xFF for i in range(1 << 20))
+    sd = home_card(tmp_path, {"/UOS/HOME/ADMIN/BIG.BIN": big, "/UOS/HOME/ADMIN/T.BIN": old})
+    with alone(hooks_image, board, sd) as vm:
+        wait_ready(vm)
+        answer(vm, "fs who ADMIN 0")
+        answer(vm, "fs copy BIG.BIN T.BIN")
+        vm.send("reboot\n", port=1)
+        vm.wait_for(re.compile(r"(@RC stage=uos ev=ready [^\n]*\n[\s\S]*){2}"), timeout=TIMEOUT)
+        first_boot = vm.serial[:vm.serial.index("ev=reboot")]
+        assert not re.search(r"ev=fs op=copy rc=", first_boot), "the copy ended before the reboot"
+        answer(vm, "fs who ADMIN 0")
+        ok(fs(vm, "crc T.BIN")[0], len=len(old), crc=f"0x{zlib.crc32(old):08x}")
+    names = card_names(sd, "UOS/HOME/ADMIN")
+    assert not [n for n in names if n[0] in "~#"], names

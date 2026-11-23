@@ -171,6 +171,7 @@ void uos_loop_run(void)
     last_tick = tick_count();
     for (;;) {
         uint32_t s;
+        unsigned n;
         int got;
 
         /* Time first: the queue holds at most the one event input_wait()
@@ -179,7 +180,13 @@ void uos_loop_run(void)
         while (evq_room() && input_poll(&in)) {
             take_input(&in);
         }
-        for (;;) {
+        /* Only the events queued before this pass: a call that posts
+         * itself again, such as a stepped copy, runs once per pass, so
+         * time and input get their turn between two steps. */
+        s = irq_save();
+        n = uos_evq_count(&evq);
+        irq_restore(s);
+        while (n-- > 0) {
             s = irq_save();
             got = uos_evq_pop(&evq, &ev);
             irq_restore(s);
@@ -190,8 +197,12 @@ void uos_loop_run(void)
             (void)uos_ss_draw(&ss);
         }
         (void)uos_ss_draw(&ss);
-        /* Idle: sleep in wfi until an input event or the next tick. */
-        if (input_wait(&in, 1000u / UOS_TICK_HZ)) {
+        s = irq_save();
+        n = uos_evq_count(&evq);
+        irq_restore(s);
+        /* Idle: sleep in wfi until an input event or the next tick, unless
+         * a pass left work queued. */
+        if (n == 0 && input_wait(&in, 1000u / UOS_TICK_HZ)) {
             take_input(&in);
         }
     }
