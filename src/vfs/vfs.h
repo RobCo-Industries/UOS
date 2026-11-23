@@ -235,18 +235,19 @@ int vfs_copy(const vp_ctx_t *ctx, uint32_t privs, const char *from, const char *
 /* ---- DEV: pseudo-files ---------------------------------------------------- */
 
 /*
- * The device service registers these at its init. Each returns as below,
- * or a negative VFS_E_* code (VFS_E_NODEV for an unknown name). Called
- * from the loop only.
+ * The device service registers these at its init. Called from the loop
+ * only. Each returns a length or 0 on success, or a negative code.
  *   read(name, buf, size): writes the device's status line, NUL ended,
- *     and returns its length.
- *   write(name, text): acts on the command word in text; 0 or a code.
- *   list(index, name, size): 1 with the index-th device name, 0 past the end.
+ *     and returns its length. VFS_E_NODEV for an unknown name.
+ *   write(name, text, privs): acts on one command word; `privs` are the
+ *     caller's, for the device's own privilege mask. 0 or a code.
+ *   list(index, buf, size): writes the index-th device name and returns
+ *     its length; a negative code past the last one ends the listing.
  */
 typedef struct {
     int (*read)(const char *name, char *buf, size_t size);
-    int (*write)(const char *name, const char *text);
-    int (*list)(unsigned index, char *name, size_t size);
+    int (*write)(const char *name, const char *text, uint32_t privs);
+    int (*list)(unsigned index, char *buf, size_t size);
 } vfs_dev_hooks_t;
 
 /* Registers the hooks; NULL removes them. The struct must stay valid. Loop. */

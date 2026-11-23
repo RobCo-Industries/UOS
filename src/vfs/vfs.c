@@ -210,7 +210,7 @@ static int dev_read(const vp_res_t *r, size_t max_bytes, char **buf, size_t *len
     return VFS_OK;
 }
 
-static int dev_write(const vp_res_t *r, const void *data, size_t len)
+static int dev_write(const vp_res_t *r, const void *data, size_t len, uint32_t privs)
 {
     char text[VFS_DEV_LINE];
 
@@ -222,7 +222,7 @@ static int dev_write(const vp_res_t *r, const void *data, size_t len)
     }
     k_memcpy(text, data, len);
     text[len] = '\0';
-    return dev_hooks->write(r->path, text);
+    return dev_hooks->write(r->path, text, privs);
 }
 
 /* ---- Whole files --------------------------------------------------------------- */
@@ -311,7 +311,7 @@ int vfs_write_all(const vp_ctx_t *ctx, uint32_t privs, const char *spec, const c
         return rc;
     }
     if (r.tree == VP_TREE_DEV) {
-        return dev_write(&r, data, len);
+        return dev_write(&r, data, len, privs);
     }
     rc = stat_res(&r);
     if (rc == VFS_OK) {
@@ -591,8 +591,8 @@ static int list_dev(const vp_res_t *r, const char *pname, const char *ptype, lis
     (void)r;
     for (i = 0; i < 256u; i++) {
         rc = dev_hooks->list(i, name, sizeof(name));
-        if (rc <= 0) {
-            return rc < 0 ? rc : VFS_OK;
+        if (rc < 0) {
+            return VFS_OK;   /* past the last device */
         }
         if (k_strlen(name) > VP_NAME_MAX || !vp_match(pname, ptype, name, "")) {
             continue;

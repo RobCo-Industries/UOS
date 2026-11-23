@@ -333,10 +333,11 @@ static int fake_read(const char *name, char *buf, size_t size)
     return k_snprintf(buf, size, "%s FAKE %s", name, fake_last[0] ? fake_last : "IDLE");
 }
 
-static int fake_write(const char *name, const char *text)
+static int fake_write(const char *name, const char *text, uint32_t privs)
 {
     size_t i;
 
+    (void)privs;
     if (!fake_find(name)) {
         return VFS_E_NODEV;
     }
@@ -352,10 +353,9 @@ static int fake_list(unsigned index, char *name, size_t size)
     static const char *const names[] = { "LAMP2", "DOOR1" };
 
     if (index >= 2u) {
-        return 0;
+        return VFS_E_NODEV;
     }
-    (void)k_snprintf(name, size, "%s", names[index]);
-    return 1;
+    return k_snprintf(name, size, "%s", names[index]);
 }
 
 static const vfs_dev_hooks_t fake_hooks = { fake_read, fake_write, fake_list };
