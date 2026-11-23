@@ -141,7 +141,40 @@ check-doc-links:
 	$(ROBCO_CORE)/tools/check_doc_links.sh $(DOC_ROOT) external/robco-core
 
 # Host unit tests come from mk/host.mk. The pin check runs first.
-test-host: check-pins
+test-host: check-pins test-host-gccwarn-ci
+
+# The library's test-host-gccwarn drops the sanitizer flags and uses -O2.
+# CI's host GCC builds with -O1 and the sanitizers, and UBSan's checks
+# hide loop bounds from GCC, so -Wformat-truncation fires only there.
+# This target compiles every host C file with the cross GCC and the CI
+# host flags, minus -g. Remove it once mk/host.mk does the same.
+HOST_GWCI_SRCS := $(sort $(HOST_GW_SRCS) $(wildcard $(HOST_TEST_DIR)/*.c))
+HOST_GWCI = $(HOST_GCCWARN_CC) -c -o /dev/null $(filter-out -g,$(HOST_CFLAGS)) \
+            -Wno-pointer-to-int-cast -Wno-int-to-pointer-cast -idirafter "$$inc"
+
+.PHONY: test-host-gccwarn-ci
+test-host-gccwarn-ci: $(HOST_GEN_HDRS)
+	@set -u; \
+	skip() { echo "test-host-gccwarn-ci: skipped, $$1"; exit 0; }; \
+	defs=$$($(HOST_CC) -dM -E -x c /dev/null 2>/dev/null); \
+	case "$$defs" in *__clang__*) ;; *__GNUC__*) skip "$(HOST_CC) is GCC";; esac; \
+	command -v $(HOST_GCCWARN_CC) >/dev/null 2>&1 || skip "no $(HOST_GCCWARN_CC)"; \
+	inc="$(HOST_GCCWARN_INC)"; \
+	if [ -z "$$inc" ] && command -v xcrun >/dev/null 2>&1; then \
+	  inc="$$(xcrun --show-sdk-path 2>/dev/null)/usr/include"; \
+	fi; \
+	[ -n "$$inc" ] && [ -f "$$inc/stdio.h" ] || skip "no host headers, set HOST_GCCWARN_INC"; \
+	bad=""; \
+	for f in $(HOST_GWCI_SRCS); do $(HOST_GWCI) $$f || bad="$$bad $$f"; done; \
+	if [ -n "$$bad" ]; then echo "test-host-gccwarn-ci: FAILED:$$bad" >&2; exit 1; fi; \
+	echo "test-host-gccwarn-ci: $(HOST_GCCWARN_CC) found no warning at the CI flags"
+
+# Runs the CI build job in the robco-ci image, as GitHub Actions does.
+# The tree is copied to a scratch directory, so the container's outputs
+# never mix with the Mac's. CI_IMAGE overrides the image.
+.PHONY: ci-local
+ci-local:
+	tools/ci_local.sh
 
 # Generated headers exist before any host test builds.
 $(HOST_TESTS): $(HOST_GEN_HDRS)
