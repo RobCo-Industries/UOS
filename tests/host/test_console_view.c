@@ -107,8 +107,10 @@ TEST(cv_quote_text)
 
     CHECK_EQ(cv_quote(out, sizeof(out), "abc", 3, 100), 0);
     CHECK_STR(out, "\"abc\"");
-    CHECK_EQ(cv_quote(out, sizeof(out), "a\"b", 3, 100), 0);
-    CHECK_STR(out, "\"a\"\"b\"");
+    CHECK_EQ(cv_quote(out, sizeof(out), "a\"b c%", 6, 100), 0);
+    CHECK_STR(out, "\"a%22b%20c%25\"");
+    CHECK_EQ(cv_quote(out, sizeof(out), "\x01\x7f", 2, 100), 0);
+    CHECK_STR(out, "\"%01%7F\"");
     CHECK_EQ(cv_quote(out, sizeof(out), "", 0, 100), 0);
     CHECK_STR(out, "\"\"");
     CHECK_EQ(cv_quote(out, sizeof(out), "abcdef", 6, 3), 1);
@@ -116,6 +118,9 @@ TEST(cv_quote_text)
     /* 16 bytes hold 13 characters, the quotes and the NUL. */
     CHECK_EQ(cv_quote(out, sizeof(out), "abcdefghijklmnopq", 17, 100), 1);
     CHECK_STR(out, "\"abcdefghijklm\"");
+    /* An escape that does not fit whole is left out. */
+    CHECK_EQ(cv_quote(out, sizeof(out), "abcdefghijk ", 12, 100), 1);
+    CHECK_STR(out, "\"abcdefghijk\"");
     CHECK_EQ(cv_quote(out, 2, "a", 1, 100), CV_ERR_ARG);
 }
 

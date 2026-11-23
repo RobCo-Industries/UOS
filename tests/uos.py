@@ -178,3 +178,30 @@ def check_golden(rows, name):
             f.write(text)
     with open(path, encoding="ascii") as f:
         assert f.read() == text, f"screen differs from {path}:\n{text}"
+
+
+def wait_marker(vm, prefix, n=1):
+    """Waits for the n-th marker that starts with "ev=<prefix>" and returns it as a dict."""
+    one_line = r"@RC stage=uos ev=" + re.escape(prefix) + r"(?:[ \r][^\n]*)?\n"
+    vm.wait_for(re.compile(r"(?:" + one_line + r"[\s\S]*?){" + str(n) + r"}"), timeout=TIMEOUT)
+    head = prefix.split()
+    found = [m for m in vm.markers() if m.get("stage") == "uos" and m.get("ev") == head[0]
+             and all(m.get(k) == v for k, v in (f.split("=", 1) for f in head[1:]))]
+    assert len(found) >= n, (prefix, n, found)
+    return found[n - 1]
+
+
+def dump_until(vm, check, timeout=TIMEOUT):
+    """Dumps the screen until check(rows) is true, and returns the rows. Input
+    from the port reaches the screens a loop pass after its answer, so a
+    test that just sent keys asks again until the screen shows them."""
+    import time
+
+    deadline = time.monotonic() + timeout
+    while True:
+        _, rows = dump(vm)
+        rows = [r.rstrip() for r in rows]
+        if check(rows):
+            return rows
+        assert time.monotonic() < deadline, "\n".join(rows)
+        time.sleep(0.05)

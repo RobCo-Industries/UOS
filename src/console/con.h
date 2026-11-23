@@ -48,7 +48,7 @@ typedef void (*con_line_fn)(int result, const char *text, unsigned len, void *ct
 
 /*
  * Pushes a screen that reads one line. The prompt (cut to 40
- * characters) and the line go on the row of the console cursor, or the
+ * characters, a blank added when it does not end in one) and the line go on the row of the console cursor, or the
  * next row when the cursor is not in column 0; a row past the last one
  * above the status row scrolls the screen up. `max` 1 to 255 characters.
  * Keys are those of lineedit.h. F4, or any GPIO button, opens the

@@ -5,9 +5,10 @@
  *   readline <flags> <max> [prompt words]
  *            starts a read on the loop. flags "-" or letters m (masked)
  *            and h (no history); max 1 to 255. When it ends:
- *            ev=line result=<ok|cancel> len=<n> text=<"quoted"|masked>
+ *            ev=line result=<ok|cancel> len=<n> text=<"quoted"|masked>,
+ *            the quoted text with blanks, quotes and % as %XX
  *   page <short|long|empty|big>
- *            shows a built-in test text; ev=page done when left
+ *            shows a built-in test text; ev=page result=done when left
  *   osk <open|close|state>
  *            the keyboard of the active read
  */
@@ -147,7 +148,7 @@ static void on_page(int result, void *ctx)
 {
     (void)result;
     (void)ctx;
-    UOS_MARK("page done");
+    UOS_MARK("page result=done");
 }
 
 static void start_page(void *arg)

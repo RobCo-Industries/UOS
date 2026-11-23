@@ -63,10 +63,12 @@ int cv_pager_status(const pg_t *p, char *out, size_t size);
 void cv_printable(char *dst, const char *src, size_t len);
 
 /*
- * Writes `len` bytes of text in double quotes, a quote inside as "",
- * into out of `size` bytes, NUL-terminated. Stops before `limit` text
- * bytes or before out is full, and closes the quote. Returns 1 when the
- * text was cut, 0 when whole, CV_ERR_ARG when size < 3.
+ * Writes `len` bytes of text in double quotes into out of `size` bytes,
+ * NUL-terminated, for a marker: a space, a quote, '%' and every byte
+ * outside printable ASCII become %XX in upper-case hex, so the field
+ * holds no blank. Stops before `limit` text bytes or before out is full,
+ * and closes the quote. Returns 1 when the text was cut, 0 when whole,
+ * CV_ERR_ARG when size < 3.
  */
 int cv_quote(char *out, size_t size, const char *text, size_t len, size_t limit);
 

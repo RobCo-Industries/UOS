@@ -84,6 +84,7 @@ void cv_printable(char *dst, const char *src, size_t len)
 
 int cv_quote(char *out, size_t size, const char *text, size_t len, size_t limit)
 {
+    static const char hex[] = "0123456789ABCDEF";
     size_t n = 0;
     size_t i;
     int cut = 0;
@@ -93,16 +94,21 @@ int cv_quote(char *out, size_t size, const char *text, size_t len, size_t limit)
     }
     out[n++] = '"';
     for (i = 0; i < len; i++) {
-        size_t need = text[i] == '"' ? 2u : 1u;
+        unsigned char c = (unsigned char)text[i];
+        int esc = c <= 0x20 || c >= 0x7f || c == '"' || c == '%';
+        size_t need = esc ? 3u : 1u;
 
         /* Room for the character, the closing quote and the NUL. */
         if (i >= limit || n + need + 2u > size) {
             cut = 1;
             break;
         }
-        out[n++] = text[i];
-        if (need == 2u) {
-            out[n++] = '"';
+        if (esc) {
+            out[n++] = '%';
+            out[n++] = hex[c >> 4];
+            out[n++] = hex[c & 15u];
+        } else {
+            out[n++] = (char)c;
         }
     }
     out[n++] = '"';

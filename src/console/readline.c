@@ -260,12 +260,16 @@ int con_read_line(const char *prompt, unsigned flags, unsigned max, con_line_fn 
     if (n > CV_PROMPT_MAX) {
         n = CV_PROMPT_MAX;
     }
+    k_memcpy(rl.prompt, prompt, n);
+    /* A prompt that does not end in a blank gets one. */
+    if (n > 0 && prompt[n - 1] != ' ' && n < CV_PROMPT_MAX) {
+        rl.prompt[n++] = ' ';
+    }
+    rl.prompt[n] = 0;
     if (le_init(&rl.le, rl.buf, sizeof(rl.buf), max, flags, &con_history,
                 cv_line_width(n, con_cols())) != 0) {
         return CON_ERR_ARG;
     }
-    k_memcpy(rl.prompt, prompt, n);
-    rl.prompt[n] = 0;
     rl.plen = (unsigned)n;
     rl.flags = flags;
     osk_init(&rl.osk);
