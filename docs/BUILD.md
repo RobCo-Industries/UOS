@@ -1,0 +1,51 @@
+# Building UOS
+
+Nothing here is validated on real hardware.
+
+## Tools
+
+- `arm-none-eabi-gcc` and binutils
+- GNU make and Python 3
+- For the tests: `qemu-system-arm`, mtools and a Python venv, which `make venv` creates
+
+The library lives in the submodule `external/robco-core`. Run `git submodule update --init` after a clone.
+
+## Targets
+
+| Target | What it does |
+|---|---|
+| `make` or `make all` | Builds `build/uos.img`, a sealed rimg, and copies it to `build/UOS.SYS` |
+| `make test-host` | Checks the CI pins and doc links, then builds and runs the host tests |
+| `make test-target BOARD=raspi2b` | Runs the QEMU tests on one board. `BOARD=all` is the default. |
+| `make test` | `test-host`, then `test-target` |
+| `make test-tools` | Runs pytest over `tests/tools/` |
+| `make sdimage` | Writes `build/sd.img` with `/ROBCO/UOS.SYS` and the `card/` tree |
+| `make run BOARD=raspi2b` | Boots `build/sd.img` in QEMU on this terminal. `WINDOW=1` opens the display. |
+| `make check-pins` | Checks that the CI workflow pins match the submodule, and the doc links |
+| `make clean` | Removes `build/` |
+
+`CI=1` adds `-Werror`, as CI does.
+
+## The image
+
+- A sealed rimg with magic `BOOT`, subtype 0, ABI 2.
+- Linked at `0x00400000`, the OS slot. The link fails if the image passes `0x01000000`.
+- The stage name in markers is `uos`.
+
+## The whole chain on one card
+
+```sh
+make sdimage CHAIN=1 RETROS_IMG=path/to/RETROS.IMG MFBOOT_SYS=path/to/MFBOOT.SYS
+```
+
+This adds RETROS-BIOS as the first stage with its `config.txt`, `/ROBCO/MFBOOT.SYS`, and a `/ROBCO/BOOT.CFG` whose only entry is `/ROBCO/UOS.SYS` with a 3 second timeout. `make run CHAIN=1 RETROS_IMG=...` boots it.
+
+## Where module sources go
+
+The Makefile finds sources by wildcard. A module branch only adds files:
+
+- Every `src/<dir>/*.c` builds into the image.
+- The pure files the design names are picked up when they exist: `src/dcl/*.c`, `src/dev/devcfg.c`, `src/dev/devstate.c`, `src/hack/hack.c`, `src/holo/holofmt.c`, `src/osk/osk.c`, `src/session/lockout.c`, `src/session/sha256.c`, `src/session/uaf.c`, `src/tui/tui.c`, `src/vfs/path.c`. Another pure file needs one line in `PURE_NAMED` or `PURE_KERNEL`.
+- Every `tests/host/test_*.c` is a host test. It links all pure files and the library's `src/lib/`.
+- Every `src/<dir>/` is an include directory for the image and the host tests.
+- `tests/host/*.mk` are the standalone makefiles of the module tasks. The main build ignores them.

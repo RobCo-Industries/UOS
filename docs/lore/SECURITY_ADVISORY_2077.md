@@ -1,3 +1,5 @@
+> Lore: in-world fiction, original to this project. It does not describe how UOS works.
+
 # RobCo Industries Security Advisory
 
 **DOCUMENT TYPE:** Security Bulletin  
