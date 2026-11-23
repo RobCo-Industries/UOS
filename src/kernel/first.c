@@ -121,7 +121,8 @@ static void show(void *arg)
     (void)arg;
     shown = 1;
     read_clock();
-    uos_screen_invalidate();
+    /* Drawn now, so the screen is complete when "ready" goes out. */
+    draw(&uos_first_screen);
     if (uos_timer_start(CLOCK_TICKS, CLOCK_TICKS, on_clock, NULL, &clock_id) != 0) {
         uos_set_error("timer");
     }
