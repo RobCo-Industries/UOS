@@ -181,8 +181,4 @@ Sources are in `card/UOS/HOLO/SRC/<TAPE>/`. The text is original lore about a sm
 
 ## Tests
 
-```
-make -f tests/host/holo.mk ROBCO_CORE=/path/to/RobCo-Core PYTHON=python-with-pytest
-```
-
-This builds and runs the host tests with sanitizers, compiles each source with the cross compiler and target flags, builds `build/holo/holocheck` from `tests/host/test_holo_cli.c`, and runs the tool tests against it.
+`make test-host` runs `test_holo`. `make test-tools` builds `build/host/holocheck` from `tests/host/holocheck.c` and runs `tests/tools/test_mkholo.py` against it. See [TESTING.md](../TESTING.md).

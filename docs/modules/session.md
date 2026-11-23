@@ -124,7 +124,4 @@ Change these passwords before you use a terminal. Anyone who reads this page kno
 
 ## Tests
 
-```
-make -f tests/host/session.mk ROBCO_CORE=/path/to/RobCo-Core
-python3 -m pytest tests/tools/test_mkuaf.py
-```
+`make test-host` runs `test_session_sha256`, `test_session_uaf` and `test_session_lockout`. It first generates `build/host/gen/uaf_vectors.h` from `tests/vectors/uaf.json` with `tools/mkuaf.py vectors-h`. `make test-tools` runs `tests/tools/test_mkuaf.py`. See [TESTING.md](../TESTING.md).

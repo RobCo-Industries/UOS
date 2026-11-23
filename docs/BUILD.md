@@ -45,7 +45,8 @@ This adds RETROS-BIOS as the first stage with its `config.txt`, `/ROBCO/MFBOOT.S
 The Makefile finds sources by wildcard. A module branch only adds files:
 
 - Every `src/<dir>/*.c` builds into the image.
-- The pure files the design names are picked up when they exist: `src/dcl/*.c`, `src/dev/devcfg.c`, `src/dev/devstate.c`, `src/hack/hack.c`, `src/holo/holofmt.c`, `src/osk/osk.c`, `src/session/lockout.c`, `src/session/sha256.c`, `src/session/uaf.c`, `src/tui/tui.c`, `src/vfs/path.c`. Another pure file needs one line in `PURE_NAMED` or `PURE_KERNEL`.
+- The pure files the design names are picked up when they exist: `src/dcl/*.c`, `src/dev/devcfg.c`, `src/dev/devstate.c`, `src/hack/hack.c`, `src/holo/holofmt.c`, `src/holo/holoread.c`, `src/osk/osk.c`, `src/session/lockout.c`, `src/session/sha256.c`, `src/session/uaf.c`, `src/tui/pager.c`, `src/tui/tui.c`, `src/tui/tuicfg.c`, `src/vfs/path.c`. Another pure file needs one line in `PURE_NAMED` or `PURE_KERNEL`.
 - Every `tests/host/test_*.c` is a host test. It links all pure files and the library's `src/lib/`.
 - Every `src/<dir>/` is an include directory for the image and the host tests.
-- `tests/host/*.mk` are the standalone makefiles of the module tasks. The main build ignores them.
+- A generated header lands in `build/host/gen/` before any host test builds: `uaf_vectors.h`, from `tests/vectors/uaf.json`.
+- `make test-tools` builds the host tools the tool tests call, such as `build/host/holocheck`, then runs pytest over `tests/tools/`.

@@ -128,8 +128,4 @@ Memory: `hk_list_t` is about 3 KiB with 32-bit pointers, `hk_game_t` about 2 KiB
 
 ## Tests
 
-```
-make -f tests/host/hack.mk ROBCO_CORE=/path/to/RobCo-Core
-```
-
-Run from the repository root. It builds and runs `tests/host/test_hack.c` with sanitizers, compiles `src/hack/hack.c` with `arm-none-eabi-gcc` and the target flags, and runs `tests/tools/test_mkwords.py`. The tool test also runs under pytest.
+`make test-host` runs `tests/host/test_hack.c` from the repository root, so it reads `card/UOS/WORDS`. `make test-tools` runs `tests/tools/test_mkwords.py`. See [TESTING.md](../TESTING.md).

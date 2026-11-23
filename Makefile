@@ -50,8 +50,8 @@ PURE_SRCS  := $(sort $(wildcard $(PURE_NAMED))) $(PURE_KERNEL)
 
 # Host unit tests: every tests/host/test_*.c links every pure file. Each
 # source folder is an include directory, so a test includes "uos_timer.h"
-# or "kernel/uos_timer.h" alike. tests/host/*.mk are the standalone
-# makefiles of the module tasks: not part of this build.
+# or "kernel/uos_timer.h" alike. Files in tests/host/ not named test_*.c
+# are host tools, built by test-tools.
 HOST_TEST_DIR := tests/host
 HOST_SRCS     := $(PURE_SRCS)
 SRC_INCLUDES  := src $(patsubst %/,%,$(sort $(dir $(wildcard src/*/*.c src/*/*.h))))

@@ -209,8 +209,4 @@ Errors: `PG_E_ARG` (-1), `PG_E_SPACE` (-2), `PG_E_RANGE` (-3, no such line).
 
 ## Tests
 
-```
-make -f tests/host/tui.mk ROBCO_CORE=/path/to/RobCo-Core
-```
-
-It runs the host tests with sanitizers and compiles each source with the ARM cross compiler. Run it from the repository root: the content test reads `card/UOS/HOME`.
+`make test-host` runs `test_tui`, `test_tui_cfg` and `test_tui_pager` from the repository root, so the content test reads `card/UOS/HOME`. See [TESTING.md](../TESTING.md).

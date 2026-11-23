@@ -214,8 +214,4 @@ User qualifiers: `/PASSWORD=text`, `/PRIVS=` one value or a list from `SYSTEM`, 
 
 ## Tests
 
-```
-make -f tests/host/dcl.mk ROBCO_CORE=/path/to/RobCo-Core
-```
-
-It builds `test_dcl`, `test_dcl_msg` and `test_dcl_table` with sanitizers and `-Werror`, compiles the module for the ARM target, and runs GCC's warnings over the tests with the host headers. Output goes under `build/host-dcl/`.
+`make test-host` runs `test_dcl`, `test_dcl_msg` and `test_dcl_table`. See [TESTING.md](../TESTING.md).

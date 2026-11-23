@@ -127,4 +127,4 @@ Each cell is read, write, delete, list. OK is allowed, NP is `VP_E_NOPRIV`, RO i
 
 ## Tests
 
-`make -f tests/host/vfs.mk ROBCO_CORE=<RobCo-Core>` builds `tests/host/test_vfs_path.c` with sanitizers and checks `path.c` with the cross compiler.
+`make test-host` runs `tests/host/test_vfs_path.c`. See [TESTING.md](../TESTING.md).
