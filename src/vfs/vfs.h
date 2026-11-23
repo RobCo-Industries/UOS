@@ -243,6 +243,7 @@ int vfs_copy(const vp_ctx_t *ctx, uint32_t privs, const char *from, const char *
  *     caller's, for the device's own privilege mask. 0 or a code.
  *   list(index, buf, size): writes the index-th device name and returns
  *     its length; a negative code past the last one ends the listing.
+ *     VFS_E_NODEV for index 0 makes the listing VFS_E_NODEV: no devices.
  */
 typedef struct {
     int (*read)(const char *name, char *buf, size_t size);

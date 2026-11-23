@@ -592,7 +592,8 @@ static int list_dev(const vp_res_t *r, const char *pname, const char *ptype, lis
     for (i = 0; i < 256u; i++) {
         rc = dev_hooks->list(i, name, sizeof(name));
         if (rc < 0) {
-            return VFS_OK;   /* past the last device */
+            /* Past the last device; no device at all is no DEV: device. */
+            return i == 0 && rc == VFS_E_NODEV ? VFS_E_NODEV : VFS_OK;
         }
         if (k_strlen(name) > VP_NAME_MAX || !vp_match(pname, ptype, name, "")) {
             continue;
