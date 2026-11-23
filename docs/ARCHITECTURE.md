@@ -202,7 +202,7 @@ Test builds put a service named `testfail` first, whose init returns -5, so the 
 
 Shutdown runs in reverse: `devices`, `console`, `vfs`, `uptime`. So on a reboot, a halt and a panic the device service drives every output safe before anything else stops. Its `devsafe` lines and `devdown` come right after `ev=shutdown name=devices` and before `ev=shutdown name=console`. `test_link.py` checks this order for all three causes.
 
-A file write cannot be cut by a reboot. `vfs_write_all()` runs in one loop pass, and the `reboot` command waits for the next one. A stepped copy can be cut between two steps. Its new content sits in a work file, and the target keeps its whole old content. The next read of the target removes the work file. `test_link.py` reboots during a 1 MiB copy over a file and checks both. A power cut during a write is not tested: the library's atomic write states that guarantee.
+A file write cannot be cut by a reboot. `vfs_write_all()` runs in one loop pass, and the `reboot` command waits for the next one. A stepped copy can be cut between two steps. Its new content sits in a work file, and the target keeps its whole old content. The next call that looks at the target removes the work file. `test_link.py` reboots during a 1 MiB copy over a file and checks both. A power cut during a write is not tested: the library's atomic write states that guarantee.
 
 ### Interfaces between services
 
@@ -263,7 +263,10 @@ The file system service, `src/vfs/vfs.h`, prefix `vfs_`. Commands and screens re
 Every call that touches the card runs from the loop only. The service reads `uos.card` on each call: no card gives `VFS_E_NOCARD`, no `/UOS` folder `VFS_E_NOTREE`. Its init cannot fail.
 
 - `vfs_read_all()` reads a whole file into a heap buffer. A file over the caller's limit is `VFS_E_TOOBIG` and nothing is read.
-- `vfs_write_all()` uses `fs_write_file_atomic()`. New content goes to `~NAME`, then replaces `NAME`. After a power cut the target holds the whole old or the whole new content, or is absent for a first write. The library finishes or undoes leftover work files on the next read or write of that target. Init does not sweep the card. Listings hide work files. A full card is `VFS_E_FULL` and keeps the old file.
+- `vfs_write_all()` uses `fs_write_file_atomic()`. New content goes to `~NAME`, then replaces `NAME`. After a power cut the target holds the whole old or the whole new content, or is absent for a first write. A full card is `VFS_E_FULL` and keeps the old file.
+- Every call sees a file as the library's recovery leaves it. Before it looks at a path, each call that reads, stats, writes, deletes, renames, copies or creates one runs `settle()` on it once. On a writable card `settle()` calls `fs_atomic_recover()`. Init does not sweep the card.
+- A read-only card keeps its work files. `settle()` then finds the name that holds the content, by the library's recovery table, and reads it. Reads, `stat` and listings work and show the real name. Every write, delete, rename, copy or folder creation fails with `VFS_E_READONLY`.
+- Listings never show work files. A work file that holds a file's content after recovery is listed under the file's name. A listing changes nothing on the card. `DEV:` names are never touched.
 - `vfs_list()` returns the first `max` entries in the path module's order, and the total. It hides work files, names that are not 8.3 and entries the access table hides from the caller. Dates are FAT dates, shown as `DD-MMM-YYYY HH:MM:SS`.
 - `vfs_iter_begin()` resolves a wildcard to at most 128 files and checks access per file. DELETE, RENAME and COPY use it.
 - `vfs_copy_begin()` and `vfs_copy_step()` copy in steps of 16 KiB. The new file is written as `~NAME` and moved into place through `#NAME`, the library's recovery names. `vfs_copy()` runs every step in one call, for small files.
@@ -281,7 +284,7 @@ The `fs` maintenance command acts as a test user. `fs who <home|-> <privs>` and 
 | `fs crc <spec>` | `len=` and `crc=`, CRC-32 of up to 4 MiB |
 | `fs write <spec> <words>`, `fs new <spec> <words>` | The words and a line end. `new` refuses an existing file |
 | `fs del <spec>`, `fs ren <from> <to>` | One `file=` marker per file, then `files=` and `skipped=` |
-| `fs copy <from> <to>` | One `file=` marker per file, then `files=`, `skipped=`, `steps=` and `maxticks=` |
+| `fs copy <from> <to> [new]` | One `file=` marker per file, then `files=`, `skipped=`, `steps=` and `maxticks=`. `new` refuses an existing target |
 | `fs mkdir <spec>`, `fs stat <spec>`, `fs free` | `stat` adds `exists=`, the entry fields; `free` adds `total=` and `free=` |
 
 Test builds add `fs pattern <spec> <bytes>` and `fs fakedev on|off`. `on` replaces the device service's hooks with a fake one with `DOOR1` and `LAMP2`; `off` removes every hook until the next boot.
@@ -340,7 +343,8 @@ Init registers the `DEV:` hooks with the file system, then reads the file with `
 | `devfail name= op=<config\|write\|read\|pulse> rc= why=` | An operation failed, such as `NOEXPDRV` on an expander pin |
 | `devfault name= result=failing op=<config\|write\|pulse> owed= rc= why=` | A write to the safe level failed: a fault starts |
 | `devfault name= result=cleared fails= state=` | The owed write succeeded after `fails` failed tries |
-| `devarm name= result=held why=fault` | Boot: `ARM` stays off because another output faulted |
+| `devarm name= result=held why=unreachable count=` | Boot: `ARM` stays off because `count` other outputs did not reach their initial level |
+| `devarm name= result=on why=unreachable count=` | An operator switched `ARM` on while `count` other outputs are unreachable |
 | `wdog result=<on\|off\|expired> timeout_ms=15000` | The watchdog |
 | `dev name= state= by=<source>` | A state change: `maint`, `dev`, a caller's word, `pulse` or `sensor` |
 | `devsafe name= pin= level= rc= tries=`, `devdown why= count=` | The safe state at shutdown, one `devsafe` per write |
@@ -359,7 +363,8 @@ Sensors are read every 50 ms. A change counts after 3 equal reads in a row, so i
 
 - The safe state of an output is its `initial` state from the file. A lock with `initial = off` is locked.
 - At boot every output is set to its initial level, in file order, with `gpio_config_output()`, which sets the level before the pin becomes an output.
-- A relay named `ARM` switches the supply of every load. It is set last at boot, after every other output holds its initial level. It goes off first at shutdown. No other name or type gets special treatment.
+- A relay named `ARM` switches the supply of every load. It is set last at boot. It goes off first at shutdown.
+- `ARM` is switched on at boot only if every other output was written to its initial level. No other name or type gets special treatment.
 - Shutdown on reboot, halt and panic, and the watchdog, drive `ARM` off, then every other output to its initial level in reverse file order. They use direct GPIO writes only: no timers, no allocation, safe with IRQs off.
 - A failed pin write never leaves the model saying a state the pin does not have. See "Pin faults".
 - An expander device loads and is listed. Every operation on it fails with `%DEVICE-E-NOEXPDRV, expander not available in this build`. The library has no expander driver yet. `exp_write`, `exp_config` and `exp_read` in `devglue.c` are the three functions a driver replaces.
@@ -375,7 +380,8 @@ A GPIO or expander write can fail. The rule: after a failed write, the model nev
 - `SHOW DEVICES`, `dev list` and `DEV:` reads show ` FAULT=<count>` after the pin while the fault lasts.
 - A device in fault refuses every command with `%DEVICE-E-PINFAULT, a pin write failed and is retried; command refused`. A queued command could fire long after the operator gave it, so none is kept.
 - A failed write away from the safe level starts no fault. The command fails with its code, `%DEVICE-E-IOERR` for a Pi pin, and the state stays as it was.
-- `NOEXPDRV` starts no fault: without an expander driver, the pin was never driven.
+- `NOEXPDRV` starts no fault: without an expander driver, the pin was never driven. At boot the output is off and marked unreached. Its line shows ` UNREACHABLE` until a write to it succeeds.
+- An output is unreachable while it is in fault or unreached. `ARM`'s line shows ` UNREACH=<count>` while any other output is unreachable.
 
 Each write site:
 
@@ -385,8 +391,9 @@ Each write site:
 | Command to the safe level, such as `LOCK` | Fault, `PINFAULT` to the caller. A pending pulse end is cancelled: the fault owes the same write. |
 | Command away from the safe level, such as `UNLOCK` | `IOERR` to the caller, state unchanged, nothing owed. |
 | Pulse start | As the command away from the safe level. No pulse end is set. |
-| Boot, `DEVICES.CFG` loaded | `devfail op=config`. The output is off with a fault, its `CONFIG_OUTPUT` owed. |
-| Boot, `ARM` | If any other output faulted, `ARM` is written off instead of its initial level, with a `devarm` marker. An operator may switch it on later. |
+| Boot, `DEVICES.CFG` loaded | `devfail op=config`. The output is off. A Pi GPIO error, a refused pin or an expander driver error starts a fault with its `CONFIG_OUTPUT` owed. `NOEXPDRV` marks the output unreached. |
+| Boot, `ARM` | Any failed output counts, with a fault or not. `ARM` is then written off instead of its initial level, with a `devarm result=held` marker. |
+| Command, `ARM` on | Allowed while outputs are unreachable: the operator decides, as on a real panel. The answer reads `ON, <n> outputs unreachable` and a `devarm result=on` marker follows. |
 | Shutdown on reboot, halt and panic | Each write is tried 3 times, then the next device comes. Each write gives one `devsafe` marker with its `rc` and `tries`. |
 | Shutdown, `ARM` off fails | The other outputs still go to their initial level. That level is safe with or without the supply. |
 | The watchdog | It runs the shutdown sequence, so the same bound applies. |

@@ -128,7 +128,7 @@ A device with `pulse_ms` above 0 pulses for every word that turns it on: `ON`, `
 
 ## Status lines
 
-`SHOW DEVICES` uses `dv_status_header()` and `dv_status_line()`. Columns: name 8, type 6, label 31, state 8, then `GPIO n`. The longest line is 64 characters. A device in fault adds ` FAULT=<count>`, at most 12 more characters.
+`SHOW DEVICES` uses `dv_status_header()` and `dv_status_line()`. Columns: name 8, type 6, label 31, state 8, then `GPIO n`. The longest line is 64 characters. A device in fault adds ` FAULT=<count>`, at most 12 more characters. An output unreached at boot adds ` UNREACHABLE`. `devs_status()` adds ` UNREACH=<count>` on `ARM`'s line while other outputs are unreachable. `DV_STATUS_LINE_MAX` is 96 to hold them all.
 
 ```
 NAME     TYPE   LABEL                           STATE    PIN
@@ -139,7 +139,7 @@ DOOR1    DOOR   Workshop door                   CLOSED   GPIO 12
 
 ## Pin faults
 
-The device service keeps a fault per device in `dv_dstate_t`: `fault`, the `owed` level, the `owed_kind` of operation and the `fails` count. The rule: after a failed write, the model never says a state the pin does not have. A failed write toward the safe level leaves the state as last written and owes the write. `devs_tick()` retries it every tick until it succeeds. A device in fault refuses commands with `DEVS_ERR_FAULT`. A failed write away from the safe level only returns its code. The rule for each write site is in `docs/ARCHITECTURE.md`, "Pin faults".
+The device service keeps a fault per device in `dv_dstate_t`: `fault`, the `owed` level, the `owed_kind` of operation and the `fails` count. The rule: after a failed write, the model never says a state the pin does not have. A failed write toward the safe level leaves the state as last written and owes the write. `devs_tick()` retries it every tick until it succeeds. A device in fault refuses commands with `DEVS_ERR_FAULT`. A failed write away from the safe level only returns its code. `unreached` marks an output whose boot write failed without a fault, such as `NOEXPDRV`. Any successful write to it clears the mark. `ARM` is switched on at boot only if every other output was written to its initial level. The rule for each write site is in `docs/ARCHITECTURE.md`, "Pin faults".
 
 ```
 VAULT    LOCK   Vault bolt                      UNLOCKED GPIO 20 FAULT=3
