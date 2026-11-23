@@ -92,7 +92,7 @@ dcl_qual_t   { name, flags, value, type, keys, min, max, def }
 
 On error `cmd->token` names the token that caused it, or is NULL for errors with no single token. Errors are checked in this order: tokens and structure in line order, then the keyword, then qualifiers, then too many parameters, then parameter values, then missing parameters. So `INSFPRM` comes only for a line that is otherwise valid. With `INSFPRM`, `cmd->prompt` is the prompt of the first missing parameter or of the missing keyword. The caller shows it, reads the answer, appends it to the line and parses again.
 
-`dcl_cmd_t` is about 1.3 KiB. Keep it in a context struct or static storage, not on the stack.
+`dcl_cmd_t` is 1816 bytes on the target. Keep it in a context struct or static storage, not on the stack.
 
 ## Limits
 
