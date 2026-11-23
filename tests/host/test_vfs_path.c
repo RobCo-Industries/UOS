@@ -733,6 +733,30 @@ TEST(access_table)
     CHECK_EQ(cells, 17 * 5 * 4);
 }
 
+/* A file directly in HOME has depth 1: vp_access() must not look at
+ * dir[1], a slot past the depth. vp_resolve() zeroes it, so give it a
+ * stale name the way a reused or hand-built result would hold one. */
+TEST(access_file_in_home_ignores_slot_past_depth)
+{
+    vp_ctx_t c = std_ctx();
+    vp_res_t r;
+
+    CHECK_EQ(vp_resolve(&c, "SD0:[HOME]NOTYPE", NULL, 0, &r), VP_OK);
+    CHECK_EQ(r.depth, 1);
+    CHECK_EQ(r.is_dir, 0);
+    CHECK_EQ(vp_access(&r, "ADMIN", 0, VP_OP_READ), VP_E_NOPRIV);
+    strncpy(r.dir[1], "ADMIN", sizeof(r.dir[1]));
+    CHECK_EQ(vp_access(&r, "ADMIN", 0, VP_OP_READ), VP_E_NOPRIV);
+    CHECK_EQ(vp_access(&r, "ADMIN", 0, VP_OP_WRITE), VP_E_NOPRIV);
+    CHECK_EQ(vp_access(&r, "ADMIN", VP_PRIV_READALL, VP_OP_READ), VP_OK);
+    /* No NUL in the stale slot either. */
+    memset(r.dir[1], 'A', sizeof(r.dir[1]));
+    CHECK_EQ(vp_access(&r, "ADMIN", 0, VP_OP_READ), VP_E_NOPRIV);
+    CHECK_EQ(vp_resolve(&c, "SD0:[HOME]X.TXT", NULL, 0, &r), VP_OK);
+    strncpy(r.dir[1], "ADMIN", sizeof(r.dir[1]));
+    CHECK_EQ(vp_access(&r, "ADMIN", 0, VP_OP_READ), VP_E_NOPRIV);
+}
+
 TEST(access_edges)
 {
     vp_ctx_t c = std_ctx();
