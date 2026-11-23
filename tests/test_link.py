@@ -3,11 +3,12 @@ device service, screens of the console on the kernel's stack beside device
 changes, and the shutdown order of every service."""
 
 import re
+import time
 import zlib
 
 import pytest
 
-from test_dev import ALL, CFG, boot_card, dev_list, marks, record, wait_ready
+from test_dev import ALL, ALL_SAFE, CFG, boot_card, dev_list, marks, record, wait_ready
 from test_vfs import entries, err, home_card, ok
 from uos import (IDLE, SERVICES, TIMEOUT, alone, answer, card, card_names, dump, dump_until, events, fs,
                  key, one, uos_card, wait_marker)
@@ -223,3 +224,31 @@ def test_reboot_during_a_copy(board, hooks_image, need_mtools, tmp_path):
         ok(fs(vm, "crc T.BIN")[0], len=len(old), crc=f"0x{zlib.crc32(old):08x}")
     names = card_names(sd, "UOS/HOME/ADMIN")
     assert not [n for n in names if n[0] in "~#"], names
+
+
+# Seconds the panic screen sits there in the next test: longer than VAULT's
+# 2000 ms pulse, so a pulse end left running would show in the record.
+STILL_S = 4
+
+
+@pytest.mark.parametrize("how", ["panic", "halt"])
+def test_outputs_stay_safe_after_panic_and_halt(board, hooks_image, need_mtools, tmp_path,
+                                                how):
+    """No watchdog can reset the board once IRQs are off, so safety holds by
+    rule: the device service's shutdown drives every output safe, and
+    nothing writes a pin afterwards, not even the end of a running pulse."""
+    with alone(hooks_image, board, boot_card(tmp_path, ALL)) as vm:
+        wait_ready(vm)
+        answer(vm, "dev set DOOR1 OPEN")
+        answer(vm, "dev set VAULT UNLOCK")             # a 2000 ms pulse, running
+        answer(vm, how)
+        vm.wait_for(IDLE, timeout=TIMEOUT)
+        head = answer(vm, "dev rec")[0]
+        rows = record(vm)
+        assert [(p, lv) for p, lv, _ in rows[-len(ALL_SAFE):]] == ALL_SAFE, rows
+        devs = len(events(vm, "dev"))
+        time.sleep(STILL_S)
+        assert answer(vm, "dev rec")[0] == head, head
+        assert record(vm) == rows
+        assert len(events(vm, "dev")) == devs
+        assert not re.search(r"ev=dev name=VAULT state=LOCKED by=pulse", vm.serial)
