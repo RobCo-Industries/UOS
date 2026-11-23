@@ -31,3 +31,4 @@ All notable changes to UOS are recorded here. The format follows [Keep a Changel
 - The panic path starts the maintenance port when a panic comes before it, with the base commands in the registry.
 - `uptime` reports `last=`, the tick of its last service tick.
 - The `vfs` service: file specifications to card files with access checks, safe writes, listings, wildcards, stepped copies, a `DEV:` hook and the `fs` maintenance command.
+- The console service: an event-driven line editor with history and masked input, the on-screen keyboard on a line read, a pager screen, and shared output helpers.

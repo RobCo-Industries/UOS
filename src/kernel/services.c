@@ -16,6 +16,7 @@
 /* One extern per service. */
 extern const uos_service_t uos_svc_uptime;
 extern const uos_service_t uos_svc_vfs;
+extern const uos_service_t uos_svc_console;
 
 #if defined(UOS_TEST_HOOKS) && UOS_TEST_HOOKS
 /* Test builds only: a service whose init fails, first in the table, so the
@@ -46,6 +47,7 @@ static const uos_service_t *const services[] = {
     /* BEGIN SERVICES */
     &uos_svc_uptime,
     &uos_svc_vfs,
+    &uos_svc_console,
     /* END SERVICES */
 };
 

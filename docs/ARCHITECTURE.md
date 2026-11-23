@@ -247,6 +247,43 @@ The `fs` maintenance command acts as a test user. `fs who <home|-> <privs>` and 
 
 Test builds add `fs pattern <spec> <bytes>` and `fs fakedev on|off`, a fake device service with `DOOR1` and `LAMP2`.
 
+### console
+
+The console service, `src/console/`, gives every later screen a way to read a line, show a long text and print. Its header is `src/console/con.h`, prefix `con_`. Every `con_` function runs in the loop only. Pure files: `lineedit.c` (the line editor, prefix `le_`) and `conview.c` (layout and text decisions, prefix `cv_`). Thin files: `readline.c`, `pager.c`, `out.c` and `console.c`, the service.
+
+`con_read_line(prompt, flags, max, cb, ctx)` pushes a screen that reads one line of up to 255 characters. The prompt and the line go on the cursor's row, or the next row when the cursor is not in column 0. A prompt gets a blank after it when it lacks one. Only one read runs at a time; a second gets `CON_ERR_BUSY`. When the read ends, the screen pops, then calls `cb` with `CON_OK` or `CON_CANCEL` and the text. The text stays valid until `cb` returns.
+
+Keys of the line editor:
+
+| Key | Does |
+|---|---|
+| Characters | Insert, or overwrite after Ctrl-O |
+| SELECT, Enter | Accept |
+| BACK, Backspace, DEL, a lone ESC | Delete before the cursor |
+| LEFT, RIGHT, Ctrl-B, Ctrl-F | Move |
+| F1, F2, Ctrl-A, Ctrl-E | Start and end of the line |
+| F3, Ctrl-D | Delete under the cursor |
+| Ctrl-K | Delete to the end |
+| UP, DOWN, Ctrl-P, Ctrl-N | Older and newer history lines |
+| Ctrl-C | Cancel |
+| F4 | Open the on-screen keyboard |
+
+The library's serial parser turns ESC, BS and DEL all into BACK, so BACK is backspace and Ctrl-C cancels. Held keys repeat for moves and deletes, never for SELECT. The history keeps the last 16 lines. It skips empty lines and a repeat of the newest line. An edit of a recalled line does not change the stored one. `CON_RL_MASK` shows `*` per character and never stores or recalls a line. `CON_RL_NOHIST` neither stores nor recalls. A line wider than its window scrolls, with `<` and `>` at the cut ends.
+
+The on-screen keyboard opens on F4 or on any GPIO button event while a line is read. The event that opens it does nothing else. It covers the bottom 5 rows; an input row under it moves to the row above. Each event goes to `osk_handle()` first, and its output goes to the line editor. The console keeps no saved layers, so when the keyboard closes, the read screen calls the `draw()` of the screen below, then draws its own row again. GPIO input is off for now, so the tests open the keyboard with F4 and `osk open`.
+
+`con_page_text(title, text, len, cb, ctx)` pushes a full-screen pager: a title row, 28 rows of body at 78 columns and a status row `line A to B of N` with the keys. It copies the text into the kernel heap with every byte outside printable ASCII as `.`, and allocates the pager's index there. It frees both when the person leaves. Texts up to 1 MiB are accepted; a 64 KiB text wraps in one loop pass. An empty text shows `(no text)`. One pager runs at a time.
+
+`out.c` holds `con_print()`, `con_message()` for `%FAC-S-IDENT, text` lines from `dcl_format_message()`, `con_clear_rows()`, a status row at the bottom (`con_status_set()`, `con_status_clear()`, `con_status_redraw()`) and `con_pause()`, a "press a key" screen. `con_print()` cuts a line at the screen width and also sends it to the PL011. The line being edited is not mirrored on the PL011.
+
+Maintenance commands, for tests and operators:
+
+| Command | Answer |
+|---|---|
+| `readline <flags> <max> [prompt]` | `ok`, then `ev=line state=reading` and, when the read ends, `ev=line result=<ok\|cancel> len=<n> text=<"text"\|masked>`. Flags are `-`, or `m` for masked and `h` for no history. The text shows a blank, a quote and `%` as `%XX`, and stops at 160 characters with `cut=1`. `err busy` while a read runs. |
+| `page <short\|long\|empty\|big>` | A built-in test text. `ev=page top=<n> shown=<n> lines=<n>` on show and on each move, `ev=page result=done` when left. `err busy` while a pager runs. |
+| `osk <open\|close\|state>` | `open` and `close` act on the active read, else `err no line`. `state` answers `osk open= layer= row= col= line= reading=`. The keyboard marks `ev=osk state=open` and `ev=osk state=closed`. |
+
 ## Memory
 
 | Range | Use |

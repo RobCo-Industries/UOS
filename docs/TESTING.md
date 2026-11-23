@@ -33,6 +33,8 @@ The tests run from the repository root, so the ones that read the default card o
 | `test_card_menus.c` | Each device entry in the default card's menus names a device of its `DEVICES.CFG` and a word that device takes |
 | `test_hack.c` | Word lists, candidate picks, 1000 boards per difficulty, the one-junk gap, the cursor, brackets, the game and its lockout, the default card's lists |
 | `test_holo.c` | Tape validation step by step, every error, limits, the reader model |
+| `test_console_lineedit.c` | The line editor: every key, insert in the middle, the 255 and per-call limits, a full line, history from empty to 17 lines, recalled edits, masked lines, the scroll window, repeats, redraw results |
+| `test_console_view.c` | The console's decisions: the input row under the keyboard, when the keyboard opens, line widths, the pager status row, the byte filter, marker quoting, command words |
 
 ## Tool tests
 
@@ -57,6 +59,7 @@ The tests run from the repository root, so the ones that read the default card o
 | `test_first.py` | A golden of the first screen's text and screenshots |
 | `test_services.py` | The `ev=service` markers and `services`; `uptime`; shutdown markers in reverse order on `reboot`, halt and panic; a fault after the services started: one shutdown each with `why=panic`, none again on the reboot, and `help` lists every command; a failing service in test builds; `help`, unknown commands and quotes; the `bench uaf` figure |
 | `test_vfs.py` | The vfs service through `fs`: every specification form, the read limit, missing files and folders, a folder read as a file; listings with wildcards, an empty folder and more entries than the maximum; write, overwrite, must-not-exist, mkdir, rename, copy of a small and a 1 MiB file with CRCs, wildcard delete, files kept across a reboot with no work file left; cells of the access table; a full card keeps the old file; no card and no `/UOS`; the `DEV:` hook with a fake and with none |
+| `test_console.py` | Reading a line with edit keys, history, cancel and the maximum; a masked read; the on-screen keyboard typing a word over both layers and leaving the screen below intact; the pager over each test text; goldens of the open keyboard and the long text's first page; command errors and a second read refused |
 | `test_env_hygiene.py` | No test copies the host environment |
 
 ### How the tests start UOS

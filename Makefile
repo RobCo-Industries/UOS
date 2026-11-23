@@ -30,7 +30,9 @@ SRCS       := $(sort $(wildcard src/*/*.c src/*/*.S))
 # Pure files: no hardware access. The host tests link all of them. Two
 # lists: the pure files the design names, picked up when they exist, and
 # the kernel's own pure files, one per line and sorted.
-PURE_NAMED := src/dcl/*.c \
+PURE_NAMED := src/console/conview.c \
+              src/console/lineedit.c \
+              src/dcl/*.c \
               src/dev/devcfg.c src/dev/devstate.c \
               src/hack/hack.c \
               src/holo/holofmt.c src/holo/holoread.c \
