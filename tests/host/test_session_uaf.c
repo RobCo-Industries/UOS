@@ -168,7 +168,7 @@ TEST(validate_empty_and_full)
 {
     uaf_db_t db;
     uint8_t s[16] = { 0 };
-    char name[8];
+    char name[13]; /* "U", an int of up to 11 characters, the NUL */
     size_t len;
     int i;
 

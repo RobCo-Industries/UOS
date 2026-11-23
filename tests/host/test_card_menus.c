@@ -107,7 +107,7 @@ TEST(card_menu_devices_exist_and_take_their_words)
         }
         while ((de = readdir(d)) != NULL) {
             size_t len = strlen(de->d_name);
-            char path[512];
+            char path[sizeof(dir) + 1 + sizeof(de->d_name)];
             size_t n;
             unsigned i;
 
