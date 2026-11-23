@@ -49,6 +49,10 @@ static const struct {
     { DCL_SYS_DELETED, "%DELETE-S-DELETED, 0 files deleted" },
     { DCL_SYS_RENAMED, "%RENAME-S-RENAMED, 0 files renamed" },
     { DCL_SYS_CREATED, "%CREATE-S-CREATED,  created" },
+    { DCL_SYS_WRITLCK, "%UOS-E-WRITLCK, volume is read-only" },
+    { DCL_SYS_PROTECT, "%UOS-E-PROTECT, file is protected" },
+    { DCL_SYS_TOOBIG, "%UOS-E-TOOBIG, file is too large" },
+    { DCL_SYS_INSFMEM, "%UOS-E-INSFMEM, not enough memory for this operation" },
 };
 
 TEST(every_message_text)

@@ -29,13 +29,12 @@ dcl_msg_t vfs_msg(int err)
     case VFS_E_NOTFOUND:  return DCL_SYS_FNF;
     case VFS_E_DIRNF:     return DCL_SYS_DNF;
     case VFS_E_EXISTS:    return DCL_SYS_EXISTS;
-    /* The command language has no read-only or protected message. */
-    case VFS_E_NOPRIV:
-    case VFS_E_READONLY:
-    case VFS_E_PROTECTED: return DCL_SYS_NOPRIV;
-    case VFS_E_TOOBIG:
-    case VFS_E_READ:
-    case VFS_E_NOMEM:     return DCL_SYS_READERR;
+    case VFS_E_NOPRIV:    return DCL_SYS_NOPRIV;
+    case VFS_E_READONLY:  return DCL_SYS_WRITLCK;
+    case VFS_E_PROTECTED: return DCL_SYS_PROTECT;
+    case VFS_E_TOOBIG:    return DCL_SYS_TOOBIG;
+    case VFS_E_NOMEM:     return DCL_SYS_INSFMEM;
+    case VFS_E_READ:      return DCL_SYS_READERR;
     case VFS_E_WRITE:
     case VFS_E_BUSY:      return DCL_SYS_WRITERR;
     case VFS_E_FULL:      return DCL_SYS_DISKFULL;

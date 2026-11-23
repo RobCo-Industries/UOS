@@ -152,6 +152,10 @@ Shape: `%FACILITY-S-IDENT, text`. Severity is `S`, `I`, `W`, `E` or `F`. In the 
 | `DCL_SYS_DELETED` | `%DELETE-S-DELETED, !N file!P deleted` |
 | `DCL_SYS_RENAMED` | `%RENAME-S-RENAMED, !N file!P renamed` |
 | `DCL_SYS_CREATED` | `%CREATE-S-CREATED, !S created` |
+| `DCL_SYS_WRITLCK` | `%UOS-E-WRITLCK, volume is read-only` |
+| `DCL_SYS_PROTECT` | `%UOS-E-PROTECT, file is protected` |
+| `DCL_SYS_TOOBIG` | `%UOS-E-TOOBIG, file is too large` |
+| `DCL_SYS_INSFMEM` | `%UOS-E-INSFMEM, not enough memory for this operation` |
 
 ## The UOS command table
 

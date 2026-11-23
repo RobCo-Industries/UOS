@@ -73,6 +73,10 @@ typedef enum {
     DCL_SYS_DELETED,
     DCL_SYS_RENAMED,
     DCL_SYS_CREATED,
+    DCL_SYS_WRITLCK,
+    DCL_SYS_PROTECT,
+    DCL_SYS_TOOBIG,
+    DCL_SYS_INSFMEM,
     DCL_MSG_COUNT
 } dcl_msg_t;
 
