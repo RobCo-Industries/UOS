@@ -20,6 +20,11 @@ typedef struct {
     char section[INI_MAX_SECTION + 1];
     int have_section;       /* section[] holds the current one */
     int is_device;          /* the current section is [device NAME] */
+    int is_expander;        /* the current section is [expander N] */
+    int exp_chip;           /* N of the current expander, or -1 */
+    int seen_addr;
+    uint8_t exp_addr;
+    unsigned lines[DV_MAX_DEVICES];  /* first line of each loaded device */
     int over;               /* past the 16th device section: ignored */
     unsigned sections;      /* device sections seen so far */
     int err;                /* first bad field, DV_ERR_* or 0 */
@@ -104,12 +109,47 @@ static void dv_field_err(dv_parse_t *p, int code, unsigned line)
     }
 }
 
+/* 1 for an expander address: PCF8574 0x20 to 0x27, PCF8574A 0x38 to 0x3F. */
+static int dv_exp_addr_ok(uint32_t a)
+{
+    return (a >= 0x20 && a <= 0x27) || (a >= 0x38 && a <= 0x3F);
+}
+
+/* Closes an [expander N] section: declares the chip or adds an error. */
+static void dv_finish_expander(dv_parse_t *p)
+{
+    dv_set_t *set = p->set;
+    unsigned i;
+
+    if (p->err == 0 && !p->seen_addr) {
+        dv_field_err(p, DV_ERR_EXPADDR, p->first_line);
+    }
+    if (p->err == 0 && set->exp[p->exp_chip].declared) {
+        dv_field_err(p, DV_ERR_EXPANDER, p->first_line);
+    }
+    for (i = 0; p->err == 0 && i < DV_MAX_EXPANDERS; i++) {
+        if (set->exp[i].declared && set->exp[i].addr == p->exp_addr) {
+            dv_field_err(p, DV_ERR_EXPADDR, p->first_line);
+        }
+    }
+    if (p->err != 0) {
+        dv_add_err(p->res, p->err, p->err_line, p->raw);
+        return;
+    }
+    set->exp[p->exp_chip].declared = 1;
+    set->exp[p->exp_chip].addr = p->exp_addr;
+}
+
 /* Closes the current device section: loads, skips or ignores it. */
 static void dv_finish(dv_parse_t *p)
 {
     dv_set_t *set = p->set;
     unsigned i;
 
+    if (p->have_section && p->is_expander) {
+        dv_finish_expander(p);
+        return;
+    }
     if (!p->have_section || !p->is_device) {
         return;
     }
@@ -135,7 +175,7 @@ static void dv_finish(dv_parse_t *p)
     for (i = 0; p->err == 0 && i < set->count; i++) {
         if (k_strcmp(set->dev[i].name, p->d.name) == 0) {
             dv_field_err(p, DV_ERR_DUPNAME, p->first_line);
-        } else if (set->dev[i].pin == p->d.pin) {
+        } else if (set->dev[i].chip == p->d.chip && set->dev[i].pin == p->d.pin) {
             dv_field_err(p, DV_ERR_PINSHARED, p->first_line);
         }
     }
@@ -144,10 +184,11 @@ static void dv_finish(dv_parse_t *p)
         dv_add_err(p->res, p->err, p->err_line, p->raw);
         return;
     }
-    if (p->d.type != DV_TYPE_SENSOR && p->d.active_high &&
+    if (p->d.chip == DV_CHIP_PI && p->d.type != DV_TYPE_SENSOR && p->d.active_high &&
         ((DV_PINS_RESET_PULLUP >> p->d.pin) & 1u)) {
         dv_add_warn(p->res, DV_WARN_PULLUP, p->first_line, p->d.name);
     }
+    p->lines[set->count] = p->first_line;
     set->dev[set->count] = p->d;
     set->count++;
     p->res->loaded++;
@@ -164,6 +205,10 @@ static void dv_start(dv_parse_t *p, const char *section, unsigned line)
     p->section[INI_MAX_SECTION] = '\0';
     p->have_section = 1;
     p->is_device = 0;
+    p->is_expander = 0;
+    p->exp_chip = -1;
+    p->seen_addr = 0;
+    p->exp_addr = 0;
     p->over = 0;
     p->err = 0;
     p->err_line = 0;
@@ -174,7 +219,24 @@ static void dv_start(dv_parse_t *p, const char *section, unsigned line)
     k_memset(&p->d, 0, sizeof(p->d));
     p->d.active_high = 1;
     p->d.privs = DV_PRIVS_DEFAULT;
+    p->d.chip = DV_CHIP_PI;
 
+    if (k_strncmp(section, "expander", 8) == 0 && (section[8] == ' ' || section[8] == '\t')) {
+        p->is_expander = 1;
+        n = section + 8;
+        while (*n == ' ' || *n == '\t') {
+            n++;
+        }
+        p->raw[0] = 'X';
+        k_strncpy(p->raw + 1, n, DV_NAME_MAX - 1);
+        p->raw[DV_NAME_MAX] = '\0';
+        if (n[0] >= '0' && n[0] < (char)('0' + DV_MAX_EXPANDERS) && n[1] == '\0') {
+            p->exp_chip = n[0] - '0';
+        } else {
+            dv_field_err(p, DV_ERR_EXPANDER, line);
+        }
+        return;
+    }
     if (k_strncmp(section, "device", 6) != 0 || (section[6] != ' ' && section[6] != '\t')) {
         return;
     }
@@ -261,11 +323,22 @@ static void dv_key(dv_parse_t *p, const char *key, const char *value, unsigned l
         dv_field_err(p, DV_ERR_TYPE, line);
     } else if (k_strcmp(key, "gpio") == 0) {
         p->seen_gpio = 1;
-        if (k_strlen(value) > 3 || dv_parse_u32(value, 0, &v) != 0) {
+        if (value[0] == 'X' || value[0] == 'x') {
+            /* X<chip>.<pin>: one digit each. */
+            if (k_strlen(value) != 4 || value[2] != '.' ||
+                value[1] < '0' || value[1] >= (char)('0' + DV_MAX_EXPANDERS) ||
+                value[3] < '0' || value[3] >= (char)('0' + DV_EXP_PINS)) {
+                dv_field_err(p, DV_ERR_GPIO, line);
+            } else {
+                p->d.chip = (uint8_t)(value[1] - '0');
+                p->d.pin = (uint8_t)(value[3] - '0');
+            }
+        } else if (k_strlen(value) > 3 || dv_parse_u32(value, 0, &v) != 0) {
             dv_field_err(p, DV_ERR_GPIO, line);
         } else if (dv_pin_refused_in(p->refused, v)) {
             dv_field_err(p, DV_ERR_PINUSED, line);
         } else {
+            p->d.chip = DV_CHIP_PI;
             p->d.pin = (uint8_t)v;
         }
     } else if (k_strcmp(key, "active") == 0) {
@@ -316,6 +389,35 @@ static void dv_key(dv_parse_t *p, const char *key, const char *value, unsigned l
     }
 }
 
+/*
+ * After the whole file: skip each device on an expander that no good
+ * [expander N] declared, so a chip may be declared after its devices.
+ */
+static void dv_check_chips(dv_parse_t *p)
+{
+    dv_set_t *set = p->set;
+    unsigned i = 0;
+    unsigned j;
+
+    while (i < set->count) {
+        const dv_device_t *d = &set->dev[i];
+
+        if (d->chip == DV_CHIP_PI || set->exp[d->chip].declared) {
+            i++;
+            continue;
+        }
+        dv_add_err(p->res, DV_ERR_NOCHIP, p->lines[i], d->name);
+        p->res->loaded--;
+        p->res->skipped++;
+        for (j = i + 1; j < set->count; j++) {
+            set->dev[j - 1] = set->dev[j];
+            p->lines[j - 1] = p->lines[j];
+        }
+        set->count--;
+        k_memset(&set->dev[set->count], 0, sizeof(set->dev[set->count]));
+    }
+}
+
 static int dv_handler(const char *section, const char *key, const char *value,
                       unsigned line, void *ctx)
 {
@@ -324,6 +426,23 @@ static int dv_handler(const char *section, const char *key, const char *value,
     if (!p->have_section || k_strcmp(section, p->section) != 0) {
         dv_finish(p);
         dv_start(p, section, line);
+    }
+    if (p->is_expander) {
+        uint32_t v;
+
+        if (k_strcmp(key, "addr") != 0) {
+            p->res->unknown++;
+        } else if (p->seen_addr) {
+            dv_field_err(p, DV_ERR_EXPADDR, line);
+        } else {
+            p->seen_addr = 1;
+            if (k_strlen(value) > 4 || dv_parse_u32(value, 1, &v) != 0 || !dv_exp_addr_ok(v)) {
+                dv_field_err(p, DV_ERR_EXPADDR, line);
+            } else {
+                p->exp_addr = (uint8_t)v;
+            }
+        }
+        return 0;
     }
     if (!p->is_device) {
         p->res->unknown++;
@@ -365,9 +484,11 @@ int dv_cfg_parse_pins(const char *text, size_t len, uint32_t refused,
         res->parse_rc = rc;
         res->parse_line = line;
         dv_add_err(res, DV_ERR_SYNTAX, line, "");
+        dv_check_chips(&p);
         return DV_ERR_SYNTAX;
     }
     dv_finish(&p);
+    dv_check_chips(&p);
     return DV_OK;
 }
 

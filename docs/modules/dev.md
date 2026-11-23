@@ -21,7 +21,7 @@ privs = 2
 |---|---|---|
 | section | `[device NAME]`, NAME 1 to 8 of `A-Z 0-9 _`, any case, stored upper-case | required |
 | `type` | `door`, `light`, `turret`, `lock`, `relay`, `sensor`, any case | required |
-| `gpio` | BCM pin number, decimal, not refused, not used by another device | required |
+| `gpio` | `<n>`: a BCM pin number, decimal, not refused. `X<chip>.<pin>`: an expander pin, chip 0 to 3, pin 0 to 7. Not used by another device. | required |
 | `active` | `high` or `low`: the pin level that means on | `high` |
 | `initial` | `on` or `off`: the state set at boot. Ignored for a sensor. Must be `off` when `pulse_ms` is set | `off` |
 | `pulse_ms` | 0 for a level device, or 10 to 10000 | 0 |
@@ -43,6 +43,40 @@ Keys are lower-case. Rules:
 
 `dv_cfg_summary()` formats the result for the `ev=config` marker: `loaded=4 skipped=0 unknown=0 ignored=0 errors=0 parse=0 warnings=0`.
 
+## Expander pins
+
+An `[expander N]` section declares I2C expander chip N, 0 to 3. Its one key, `addr`, is the chip's 7-bit address: 0x20 to 0x27 or 0x38 to 0x3F, decimal or `0x` hex. A device names an expander pin as `gpio = X<chip>.<pin>`, any case.
+
+```
+[expander 0]
+addr = 0x20
+
+[expander 1]
+addr = 0x38
+
+[device LAMP1]
+type = light
+gpio = X0.3
+label = Store room lamp
+
+[device GATE]
+type = door
+gpio = X1.0
+pulse_ms = 500
+```
+
+Rules:
+
+- A chip may be declared before or after its devices. A device on a chip with no good `[expander N]` section is skipped with `DV_ERR_NOCHIP` once the whole file is read.
+- N other than one digit 0 to 3, or a chip declared twice, gives `DV_ERR_EXPANDER`. The first good section of a chip wins.
+- A missing or bad `addr`, a second `addr` key, or an address another chip already has gives `DV_ERR_EXPADDR`. The chip is then not declared.
+- Other keys in an expander section are unknown and counted.
+- Expander errors are counted in `err_count` with the name `X` and N, for example `X1`. They do not count as skipped devices.
+- Two devices may not share one expander pin. The same pin number on another chip, or on the Pi, is fine.
+- Refused pins and the pull-up warning apply to Pi pins only.
+
+Each device and each pin operation has a `chip` field: `DV_CHIP_PI` for a Pi pin, or 0 to 3. `dv_set_t.exp[chip]` holds the chip's address. The status line shows `X1.0` in place of `GPIO n`. The expander driver is not in the library yet, so no glue applies expander operations. The pin record ring keeps the pin number only.
+
 ## Refused pins
 
 `dv_cfg_parse_pins()` takes the refused pin mask: bit n refuses GPIO n. `dv_cfg_parse()` uses `DV_REFUSED_DEFAULT`. The masks come from RobCo-Core `docs/spec/BOARD_SUPPORT.md`, section "Pins", and the input mapping it lists:
@@ -58,7 +92,7 @@ Keys are lower-case. Rules:
 | 16, 23, 24 | the dial: push, A, B | `DV_PINS_DIAL` |
 | 28 and up | PWM audio on Pi 1 to 3 (40, 41, 45), SD routing (34 to 39, 48 to 53), pins not on the header | always |
 
-`DV_REFUSED_DEFAULT` refuses all of these. It leaves 7 free pins: 4, 12, 13, 19, 20, 21 and 25. UOS has six buttons and no dial, so its glue passes `DV_REFUSED_UOS`, which frees the dial's pins. That leaves 10 free Pi pins: 4, 12, 13, 16, 19, 20, 21, 23, 24 and 25. So at most 10 devices can load on Pi pins.
+`DV_REFUSED_DEFAULT` refuses all of these. It leaves 7 free pins: 4, 12, 13, 19, 20, 21 and 25. UOS has six buttons and no dial, so its glue passes `DV_REFUSED_UOS`, which frees the dial's pins. That leaves 10 free Pi pins: 4, 12, 13, 16, 19, 20, 21, 23, 24 and 25. So at most 10 devices can load on Pi pins. With expanders, up to `DV_MAX_DEVICES`, 24, load in all.
 
 ## Pins pulled up at reset
 

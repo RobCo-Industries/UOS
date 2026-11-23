@@ -461,6 +461,212 @@ TEST(cfg_summary)
     CHECK_EQ(dv_cfg_summary(NULL, buf, sizeof(buf)), DV_ERR_ARG);
 }
 
+/* ---- expander pins ---- */
+
+static const char *with_expanders =
+    "[expander 0]\n"
+    "addr = 0x20\n"
+    "[expander 3]\n"
+    "addr = 0x3F\n"
+    "[device LAMP]\n"
+    "type = light\n"
+    "gpio = X0.0\n"
+    "[device GATE]\n"
+    "type = door\n"
+    "gpio = x3.7\n"
+    "pulse_ms = 300\n"
+    "[device PUMP]\n"
+    "type = relay\n"
+    "gpio = 12\n";
+
+TEST(cfg_expander_pins_load)
+{
+    CHECK_EQ(parse(with_expanders), DV_OK);
+    CHECK_EQ(g_res.loaded, 3);
+    CHECK_EQ(g_res.err_count, 0);
+    CHECK_EQ(g_res.unknown, 0);
+    CHECK_EQ(g_set.exp[0].declared, 1);
+    CHECK_EQ(g_set.exp[0].addr, 0x20);
+    CHECK_EQ(g_set.exp[1].declared, 0);
+    CHECK_EQ(g_set.exp[3].addr, 0x3F);
+    CHECK_EQ(g_set.dev[0].chip, 0);
+    CHECK_EQ(g_set.dev[0].pin, 0);
+    CHECK_EQ(g_set.dev[1].chip, 3);
+    CHECK_EQ(g_set.dev[1].pin, 7);
+    CHECK_EQ(g_set.dev[2].chip, DV_CHIP_PI);
+    CHECK_EQ(g_set.dev[2].pin, 12);
+}
+
+TEST(cfg_expander_declared_after_its_devices)
+{
+    CHECK_EQ(parse("[device LAMP]\ntype = light\ngpio = X1.4\n"
+                   "[expander 1]\naddr = 0x27\n"), DV_OK);
+    CHECK_EQ(g_res.loaded, 1);
+    CHECK_EQ(g_set.dev[0].chip, 1);
+    CHECK_EQ(g_set.dev[0].pin, 4);
+}
+
+TEST(cfg_expander_pin_needs_its_chip)
+{
+    CHECK_EQ(parse("[device A]\ntype = relay\ngpio = 12\n"
+                   "[device LAMP]\ntype = light\ngpio = X2.1\n"
+                   "[device B]\ntype = relay\ngpio = 13\n"
+                   "[expander 0]\naddr = 0x20\n"), DV_OK);
+    CHECK_EQ(g_res.loaded, 2);
+    CHECK_EQ(g_res.skipped, 1);
+    CHECK_EQ(g_res.err_count, 1);
+    CHECK_EQ(g_res.errs[0].code, DV_ERR_NOCHIP);
+    CHECK_EQ(g_res.errs[0].line, 5);
+    CHECK_STR(g_res.errs[0].name, "LAMP");
+    CHECK_STR(g_set.dev[0].name, "A");
+    CHECK_STR(g_set.dev[1].name, "B");
+    CHECK_EQ(g_set.count, 2);
+    /* A chip whose section is bad is not declared either. */
+    CHECK_EQ(parse("[expander 0]\naddr = 0x30\n[device LAMP]\ntype = light\ngpio = X0.1\n"),
+             DV_OK);
+    CHECK_EQ(g_res.loaded, 0);
+    CHECK_EQ(g_res.err_count, 2);
+    CHECK_EQ(g_res.errs[0].code, DV_ERR_EXPADDR);
+    CHECK_STR(g_res.errs[0].name, "X0");
+    CHECK_EQ(g_res.errs[1].code, DV_ERR_NOCHIP);
+}
+
+TEST(cfg_expander_addresses)
+{
+    static const unsigned good[] = { 0x20, 0x23, 0x27, 0x38, 0x3C, 0x3F };
+    static const char *const bad[] = {
+        "0x1F", "0x28", "0x37", "0x40", "0", "32x", "0x", "0x020", "",
+    };
+    char buf[128];
+    unsigned i;
+
+    for (i = 0; i < sizeof(good) / sizeof(good[0]); i++) {
+        snprintf(buf, sizeof(buf), "[expander 2]\naddr = 0x%X\n", good[i]);
+        CHECK_EQ(parse(buf), DV_OK);
+        CHECK_EQ(g_res.err_count, 0);
+        CHECK_EQ(g_set.exp[2].declared, 1);
+        CHECK_EQ(g_set.exp[2].addr, good[i]);
+    }
+    /* Decimal works too: 32 is 0x20. */
+    CHECK_EQ(parse("[expander 2]\naddr = 32\n"), DV_OK);
+    CHECK_EQ(g_set.exp[2].addr, 0x20);
+    for (i = 0; i < sizeof(bad) / sizeof(bad[0]); i++) {
+        snprintf(buf, sizeof(buf), "[expander 2]\naddr = %s\n", bad[i]);
+        CHECK_EQ(parse(buf), DV_OK);
+        CHECK_EQ(g_set.exp[2].declared, 0);
+        CHECK_EQ(g_res.err_count, 1);
+        CHECK_EQ(g_res.errs[0].code, DV_ERR_EXPADDR);
+    }
+    /* No addr key, and a second addr key. */
+    CHECK_EQ(parse("[expander 1]\nother = 1\n"), DV_OK);
+    CHECK_EQ(g_res.errs[0].code, DV_ERR_EXPADDR);
+    CHECK_EQ(g_res.unknown, 1);
+    CHECK_EQ(g_set.exp[1].declared, 0);
+    CHECK_EQ(parse("[expander 1]\naddr = 0x20\naddr = 0x21\n"), DV_OK);
+    CHECK_EQ(g_res.errs[0].code, DV_ERR_EXPADDR);
+    CHECK_EQ(g_res.errs[0].line, 3);
+    CHECK_EQ(g_set.exp[1].declared, 0);
+}
+
+TEST(cfg_expander_numbers_and_duplicates)
+{
+    static const char *const bad[] = { "4", "9", "-1", "01", "A", "0 0" };
+    char buf[128];
+    unsigned i;
+
+    for (i = 0; i < sizeof(bad) / sizeof(bad[0]); i++) {
+        snprintf(buf, sizeof(buf), "[expander %s]\naddr = 0x20\n", bad[i]);
+        CHECK_EQ(parse(buf), DV_OK);
+        CHECK_EQ(g_res.err_count, 1);
+        CHECK_EQ(g_res.errs[0].code, DV_ERR_EXPANDER);
+        CHECK_EQ(g_res.errs[0].line, 2);
+    }
+    /* The same chip twice: the second one is refused. */
+    CHECK_EQ(parse("[expander 0]\naddr = 0x20\n[x]\ny = 1\n[expander 0]\naddr = 0x21\n"), DV_OK);
+    CHECK_EQ(g_res.errs[0].code, DV_ERR_EXPANDER);
+    CHECK_EQ(g_set.exp[0].addr, 0x20);
+    /* Two chips on one address: the second one is refused. */
+    CHECK_EQ(parse("[expander 0]\naddr = 0x20\n[expander 1]\naddr = 0x20\n"), DV_OK);
+    CHECK_EQ(g_res.err_count, 1);
+    CHECK_EQ(g_res.errs[0].code, DV_ERR_EXPADDR);
+    CHECK_STR(g_res.errs[0].name, "X1");
+    CHECK_EQ(g_set.exp[0].declared, 1);
+    CHECK_EQ(g_set.exp[1].declared, 0);
+}
+
+TEST(cfg_expander_pin_syntax)
+{
+    static const char *const bad[] = {
+        "X4.0", "X0.8", "X0", "X0.", "X.1", "X00.1", "X0.10", "X0-1", "XA.1", "Y0.1", "X0.1x",
+    };
+    char buf[160];
+    unsigned i;
+
+    for (i = 0; i < sizeof(bad) / sizeof(bad[0]); i++) {
+        snprintf(buf, sizeof(buf), "[expander 0]\naddr = 0x20\n[device D]\ntype = relay\ngpio = %s\n",
+                 bad[i]);
+        CHECK_EQ(parse(buf), DV_OK);
+        CHECK_EQ(g_res.loaded, 0);
+        CHECK_EQ(g_res.errs[0].code, DV_ERR_GPIO);
+    }
+}
+
+TEST(cfg_expander_pin_shared)
+{
+    CHECK_EQ(parse("[expander 0]\naddr = 0x20\n[expander 1]\naddr = 0x21\n"
+                   "[device A]\ntype = relay\ngpio = X0.4\n"
+                   "[device B]\ntype = relay\ngpio = X0.4\n"
+                   "[device C]\ntype = relay\ngpio = X1.4\n"
+                   "[device D]\ntype = relay\ngpio = 4\n"), DV_OK);
+    /* Same chip and pin: refused. Same pin on another chip or the Pi: fine. */
+    CHECK_EQ(g_res.loaded, 3);
+    CHECK_EQ(g_res.err_count, 1);
+    CHECK_EQ(g_res.errs[0].code, DV_ERR_PINSHARED);
+    CHECK_STR(g_res.errs[0].name, "B");
+}
+
+TEST(cfg_expander_no_pullup_warning)
+{
+    CHECK_EQ(parse("[expander 0]\naddr = 0x20\n[device A]\ntype = relay\ngpio = X0.4\n"), DV_OK);
+    CHECK_EQ(g_res.loaded, 1);
+    CHECK_EQ(g_res.warn_count, 0);
+}
+
+TEST(expander_ops_name_the_chip)
+{
+    dv_op_t ops[4];
+    char buf[DV_STATUS_LINE_MAX];
+
+    CHECK_EQ(parse(with_expanders), DV_OK);
+    CHECK_EQ(dv_boot_ops(&g_set, ops, 4), 3);
+    CHECK_EQ(ops[0].chip, 0);
+    CHECK_EQ(ops[0].pin, 0);
+    CHECK_EQ(ops[1].chip, 3);
+    CHECK_EQ(ops[1].pin, 7);
+    CHECK_EQ(ops[2].chip, DV_CHIP_PI);
+    CHECK_EQ(ops[2].pin, 12);
+    CHECK_EQ(dv_command(&g_set, 1, DV_ACT_OPEN, DV_PRIV_OPER, 1000, ops, 4), 2);
+    CHECK_EQ(ops[0].chip, 3);
+    CHECK_EQ(ops[0].pin, 7);
+    CHECK_EQ(ops[1].chip, 3);
+    CHECK_EQ(ops[1].after_ms, 300);
+    CHECK_EQ(dv_tick(&g_set, 1300, ops, 4), 1);
+    CHECK_EQ(ops[0].chip, 3);
+    CHECK_EQ(ops[0].pin, 7);
+    CHECK(dv_status_line(&g_set, 1, buf, sizeof(buf)) > 0);
+    CHECK_STR(buf, "GATE     DOOR                                   CLOSED   X3.7");
+    CHECK(dv_status_line(&g_set, 2, buf, sizeof(buf)) > 0);
+    CHECK_STR(buf, "PUMP     RELAY                                  OFF      GPIO 12");
+}
+
+TEST(expander_messages)
+{
+    CHECK_STR(dv_strerror(DV_ERR_EXPANDER), "%DEVICE-E-BADEXP, expander number must be 0 to 3, once");
+    CHECK_STR(dv_strerror(DV_ERR_EXPADDR),
+              "%DEVICE-E-BADADDR, expander addr must be 0x20 to 0x27 or 0x38 to 0x3F, once");
+    CHECK_STR(dv_strerror(DV_ERR_NOCHIP), "%DEVICE-E-NOCHIP, expander pin on an undeclared chip");
+}
+
 /* ---- commands ---- */
 
 static unsigned idx_of(const char *name)
@@ -819,10 +1025,10 @@ TEST(messages_every_code_distinct)
     int c;
     int d;
 
-    for (c = DV_OK; c >= DV_ERR_SPACE; c--) {
+    for (c = DV_OK; c >= DV_ERR_NOCHIP; c--) {
         CHECK(strncmp(dv_strerror(c), "%DEVICE-", 8) == 0);
         CHECK(strcmp(dv_strerror(c), dv_strerror(1)) != 0);
-        for (d = c - 1; d >= DV_ERR_SPACE; d--) {
+        for (d = c - 1; d >= DV_ERR_NOCHIP; d--) {
             CHECK(strcmp(dv_strerror(c), dv_strerror(d)) != 0);
         }
     }

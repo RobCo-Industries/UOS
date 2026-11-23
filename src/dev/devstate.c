@@ -118,6 +118,7 @@ int dv_boot_ops(dv_set_t *set, dv_op_t *ops, unsigned max)
         dv_op_t *o = &ops[i];
 
         k_memset(o, 0, sizeof(*o));
+        o->chip = d->chip;
         o->pin = d->pin;
         o->dev = (uint8_t)i;
         s->pending = 0;
@@ -204,6 +205,7 @@ int dv_command(dv_set_t *set, unsigned idx, dv_action_t act, uint32_t privs,
     s->level = dv_level(d, on);
     k_memset(ops, 0, sizeof(*ops) * DV_CMD_OPS);
     ops[0].kind = DV_OP_WRITE;
+    ops[0].chip = d->chip;
     ops[0].pin = d->pin;
     ops[0].level = s->level;
     ops[0].dev = (uint8_t)idx;
@@ -213,6 +215,7 @@ int dv_command(dv_set_t *set, unsigned idx, dv_action_t act, uint32_t privs,
     s->pending = 1;
     s->due = now + d->pulse_ms;
     ops[1].kind = DV_OP_WRITE;
+    ops[1].chip = d->chip;
     ops[1].pin = d->pin;
     ops[1].level = dv_level(d, 0);
     ops[1].dev = (uint8_t)idx;
@@ -240,6 +243,7 @@ int dv_tick(dv_set_t *set, uint32_t now, dv_op_t *ops, unsigned max)
         s->level = dv_level(d, 0);
         k_memset(&ops[n], 0, sizeof(ops[n]));
         ops[n].kind = DV_OP_WRITE;
+        ops[n].chip = d->chip;
         ops[n].pin = d->pin;
         ops[n].level = s->level;
         ops[n].dev = (uint8_t)i;
@@ -304,6 +308,11 @@ int dv_status_line(const dv_set_t *set, unsigned idx, char *buf, size_t size)
     for (i = 0; type[i] != '\0'; i++) {
         type[i] = dv_upper(type[i]);
     }
+    if (d->chip != DV_CHIP_PI) {
+        return dv_fit(k_snprintf(buf, size, "%-8s %-6s %-31s %-8s X%u.%u",
+                                 d->name, type, d->label, dv_state_word(set, idx),
+                                 (unsigned)d->chip, (unsigned)d->pin), buf, size);
+    }
     return dv_fit(k_snprintf(buf, size, "%-8s %-6s %-31s %-8s GPIO %u",
                              d->name, type, d->label, dv_state_word(set, idx),
                              (unsigned)d->pin), buf, size);
@@ -352,6 +361,12 @@ const char *dv_strerror(int code)
         return "%DEVICE-W-NOPULSE, device has no pulse length";
     case DV_ERR_SPACE:
         return "%DEVICE-F-NOSPACE, output buffer too small";
+    case DV_ERR_EXPANDER:
+        return "%DEVICE-E-BADEXP, expander number must be 0 to 3, once";
+    case DV_ERR_EXPADDR:
+        return "%DEVICE-E-BADADDR, expander addr must be 0x20 to 0x27 or 0x38 to 0x3F, once";
+    case DV_ERR_NOCHIP:
+        return "%DEVICE-E-NOCHIP, expander pin on an undeclared chip";
     case DV_WARN_PULLUP:
         return "%DEVICE-W-PULLUP, active-high output on a pin pulled up at reset";
     default:

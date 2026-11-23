@@ -24,6 +24,9 @@
 #define DV_CMD_OPS          2       /* pin operations one command needs */
 #define DV_REC_SIZE         64      /* pin operations the record ring keeps */
 #define DV_STATUS_LINE_MAX  80      /* bytes of a status line, with the NUL */
+#define DV_MAX_EXPANDERS    4       /* I2C expander chips, X0 to X3 */
+#define DV_EXP_PINS         8       /* pins per expander chip, 0 to 7 */
+#define DV_CHIP_PI          0xFFu   /* chip value of a Pi pin */
 
 /*
  * Refused pin masks: bit n set refuses GPIO n. Pins from DV_PIN_LIMIT up
@@ -81,6 +84,9 @@ _Static_assert(DV_PRIV_SYSTEM == 0x1u && DV_PRIV_OPER == 0x2u,
 #define DV_ERR_BADACTION    (-17)   /* word not valid for the device type */
 #define DV_ERR_NOPULSE      (-18)   /* PULSE on a device with pulse_ms 0 */
 #define DV_ERR_SPACE        (-19)   /* output buffer too small */
+#define DV_ERR_EXPANDER     (-20)   /* [expander N]: N not 0 to 3, or declared twice */
+#define DV_ERR_EXPADDR      (-21)   /* addr missing, not 0x20-0x27 or 0x38-0x3F, or taken */
+#define DV_ERR_NOCHIP       (-22)   /* expander pin on a chip with no good [expander N] */
 
 /* Warning codes: the device loads, the result counts and names it. */
 #define DV_WARN_PULLUP      (-30)   /* active-high output on a pin pulled up at reset */
@@ -113,7 +119,8 @@ typedef struct {
     char name[DV_NAME_MAX + 1];     /* upper-case */
     char label[DV_LABEL_MAX + 1];
     uint8_t type;                   /* dv_type_t */
-    uint8_t pin;                    /* BCM number */
+    uint8_t chip;                   /* DV_CHIP_PI, or expander 0 to 3 */
+    uint8_t pin;                    /* BCM number, or expander pin 0 to 7 */
     uint8_t active_high;            /* 1: high means on */
     uint8_t initial_on;             /* outputs only */
     uint16_t pulse_ms;              /* 0: level device */
@@ -127,17 +134,24 @@ typedef struct {
     uint32_t due;           /* tick of the pulse end */
 } dv_dstate_t;
 
+/* One I2C expander chip, from an [expander N] section. */
+typedef struct {
+    uint8_t declared;       /* 1: the section was good */
+    uint8_t addr;           /* 7-bit I2C address */
+} dv_expander_t;
+
 /* The device table and its state. Fill with dv_cfg_parse(), then dv_reset(). */
 typedef struct {
     dv_device_t dev[DV_MAX_DEVICES];
     dv_dstate_t st[DV_MAX_DEVICES];
     unsigned count;
+    dv_expander_t exp[DV_MAX_EXPANDERS];
 } dv_set_t;
 
 typedef struct {
     int code;                       /* DV_ERR_* */
     unsigned line;                  /* line of the bad key, or of the section's first key */
-    char name[DV_NAME_MAX + 1];     /* device name as written, cut to 8 */
+    char name[DV_NAME_MAX + 1];     /* device name as written, cut to 8; "X" and N for an expander */
 } dv_cfg_err_t;
 
 typedef struct {
@@ -165,8 +179,15 @@ typedef enum {
 #define DV_PULL_DOWN    1
 #define DV_PULL_UP      2
 
+/*
+ * A pin operation names a Pi pin (chip DV_CHIP_PI, pin = BCM number) or an
+ * expander pin (chip 0 to 3, pin 0 to 7; the chip's address is in
+ * dv_set_t.exp[chip]). gpio.h takes Pi pins only: the expander glue is
+ * not written yet.
+ */
 typedef struct {
     uint8_t kind;           /* dv_op_kind_t */
+    uint8_t chip;           /* DV_CHIP_PI, or expander 0 to 3 */
     uint8_t pin;
     uint8_t level;          /* 0 or 1, for WRITE and CONFIG_OUTPUT */
     uint8_t pull;           /* DV_PULL_*, for CONFIG_INPUT */
@@ -177,7 +198,11 @@ typedef struct {
 /* ---- devcfg.c ---- */
 
 /*
- * Parses DEVICES.CFG text into `set` (count and dev[]; states are zeroed).
+ * Parses DEVICES.CFG text into `set` (count, dev[] and exp[]; states are
+ * zeroed). `gpio = <n>` names a Pi pin and `gpio = X<chip>.<pin>` an
+ * expander pin, whose chip needs a good [expander N] section with
+ * `addr = 0x20` anywhere in the file; otherwise the device is skipped
+ * with DV_ERR_NOCHIP.
  * `refused` is the refused pin mask, such as DV_REFUSED_UOS. A bad device
  * is skipped, the others load. An active-high output on a pin in
  * DV_PINS_RESET_PULLUP loads with a DV_WARN_PULLUP warning. Returns DV_OK,
