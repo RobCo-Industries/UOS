@@ -6,6 +6,7 @@
 #include <robco/klibc.h>
 
 #include "devsplan.h"
+#include "vfs.h"
 
 void devs_deb_seed(devs_deb_t *d, int level)
 {
@@ -230,6 +231,26 @@ int devs_tick(dv_set_t *set, const devs_io_t *io, uint32_t now_ms, dv_rec_t *rec
         }
     }
     return n < 0 ? 0 : n;
+}
+
+int devs_vfs_code(int code)
+{
+    switch (code) {
+    case DV_ERR_NOSUCHDEV:
+    case DEVS_ERR_DOWN:
+        return VFS_E_NODEV;
+    case DV_ERR_NOPRIV:
+        return VFS_E_NOPRIV;
+    case DV_ERR_READONLY:
+        return VFS_E_READONLY;
+    case DV_ERR_SPACE:
+        return VFS_E_TOOBIG;
+    case DEVS_ERR_IO:
+    case DEVS_ERR_NOEXP:
+        return VFS_E_WRITE;
+    default:
+        return code >= 0 ? code : VFS_E_ARG;
+    }
 }
 
 const char *devs_strerror(int code)

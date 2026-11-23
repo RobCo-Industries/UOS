@@ -28,6 +28,7 @@
 #include "uos.h"
 #include "uos_maint.h"
 #include "uos_service.h"
+#include "vfs.h"
 
 #define DEVS_CFG_PATH       "/UOS/DEVICES.CFG"
 #define DEVS_CFG_MAX        8192u               /* bytes of DEVICES.CFG read */
@@ -433,6 +434,26 @@ static int hook_list(unsigned index, char *buf, size_t size)
 
 static const devs_hooks_t hooks = { hook_read, hook_write, hook_list };
 
+/* The same three calls with the file system's codes: DV_ERR_NOPRIV is
+ * -15 here and VFS_E_NOMEM there, so the codes go through
+ * devs_vfs_code(). The prototypes match field by field. */
+static int dvfs_read(const char *name, char *buf, size_t size)
+{
+    return devs_vfs_code(hook_read(name, buf, size));
+}
+
+static int dvfs_write(const char *name, const char *text, uint32_t privs)
+{
+    return devs_vfs_code(hook_write(name, text, privs));
+}
+
+static int dvfs_list(unsigned index, char *buf, size_t size)
+{
+    return devs_vfs_code(hook_list(index, buf, size));
+}
+
+static const vfs_dev_hooks_t vfs_hooks = { dvfs_read, dvfs_write, dvfs_list };
+
 const devs_hooks_t *devs_hooks(void)
 {
     return &hooks;
@@ -612,6 +633,8 @@ static int devs_init(void)
     k_memset(forced, 0xff, sizeof(forced));
 #endif
     dv_rec_init(&rec);
+    /* The file system starts first: DEV: names reach this service from now. */
+    vfs_dev_register(&vfs_hooks);
     load();
     if (set.count != 0) {
         boot();

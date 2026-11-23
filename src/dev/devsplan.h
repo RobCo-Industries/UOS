@@ -114,6 +114,15 @@ int devs_cmd(dv_set_t *set, const devs_io_t *io, unsigned idx, dv_action_t act,
 int devs_tick(dv_set_t *set, const devs_io_t *io, uint32_t now_ms, dv_rec_t *rec,
               uint32_t tick, uint8_t *ended);
 
+/*
+ * The file system's VFS_E_* code for a DV_ERR_* or DEVS_ERR_* code, for the
+ * DEV: hooks. A length or 0 passes through. An unknown device or no
+ * device table is VFS_E_NODEV, a missing privilege VFS_E_NOPRIV, a
+ * command to a sensor VFS_E_READONLY, a short buffer VFS_E_TOOBIG, a GPIO
+ * or expander failure VFS_E_WRITE, any other code VFS_E_ARG.
+ */
+int devs_vfs_code(int code);
+
 /* dv_strerror(), plus the DEVS_ERR_* texts. */
 const char *devs_strerror(int code);
 

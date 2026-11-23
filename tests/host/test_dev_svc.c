@@ -4,6 +4,7 @@
 #include "rc_test.h"
 
 #include "devsplan.h"
+#include "vfs.h"
 
 /* ---- A fake GPIO layer: a log of calls, and pin levels to read ---- */
 
@@ -377,6 +378,22 @@ TEST(read_pi_pin)
     g_fail_pin = 21;
     CHECK_EQ(devs_read(&fake, &g_set, 3), DEVS_ERR_IO);
     CHECK_EQ(devs_read(&fake, &g_set, 9), DV_ERR_ARG);
+}
+
+TEST(vfs_codes)
+{
+    CHECK_EQ(devs_vfs_code(0), 0);
+    CHECK_EQ(devs_vfs_code(17), 17);
+    CHECK_EQ(devs_vfs_code(DV_ERR_NOSUCHDEV), VFS_E_NODEV);
+    CHECK_EQ(devs_vfs_code(DEVS_ERR_DOWN), VFS_E_NODEV);
+    CHECK_EQ(devs_vfs_code(DV_ERR_NOPRIV), VFS_E_NOPRIV);
+    CHECK_EQ(devs_vfs_code(DV_ERR_READONLY), VFS_E_READONLY);
+    CHECK_EQ(devs_vfs_code(DV_ERR_SPACE), VFS_E_TOOBIG);
+    CHECK_EQ(devs_vfs_code(DEVS_ERR_IO), VFS_E_WRITE);
+    CHECK_EQ(devs_vfs_code(DEVS_ERR_NOEXP), VFS_E_WRITE);
+    CHECK_EQ(devs_vfs_code(DV_ERR_BADACTION), VFS_E_ARG);
+    CHECK_EQ(devs_vfs_code(DV_ERR_NOPULSE), VFS_E_ARG);
+    CHECK_EQ(devs_vfs_code(DV_ERR_ARG), VFS_E_ARG);
 }
 
 TEST(messages_and_idents)
