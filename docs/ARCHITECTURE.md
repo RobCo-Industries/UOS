@@ -1,15 +1,18 @@
 # UOS architecture
 
-This describes the kernel base. Nothing is validated on real hardware.
+This describes the kernel base and the pure modules. Nothing is validated on real hardware.
 
 ## Layout
 
 ```
-src/kernel/   entry, panic, event loop, timers, screens, settings, maintenance port, first screen
-src/vfs/ src/console/ src/dcl/ src/session/ src/cmd/ src/tui/ src/hack/ src/osk/ src/dev/ src/holo/
-              later modules, one folder each
-card/         the default card content: /UOS/UOS.CFG
-tests/host/   host tests of the pure files
+src/kernel/   entry, panic, event loop, timers, screens, settings, maintenance port, first screen,
+              the shared privilege bits
+src/dcl/ src/vfs/ src/session/ src/osk/ src/dev/ src/tui/ src/hack/ src/holo/
+              the pure modules, one folder each
+card/         the default card: /UOS/UOS.CFG, SYSUAF.DAT, DEVICES.CFG, HOME/, WORDS/, HOLO/
+tools/        card tools: mkuaf.py, mkwords.py, mkholo.py
+tests/host/   host tests of the pure files, and host tools such as holocheck.c
+tests/tools/  pytest tests of the card tools
 tests/        QEMU target tests
 ```
 
@@ -26,6 +29,30 @@ A pure file has no hardware access, no kernel calls and no allocation. Its state
 | `src/kernel/bootlines.c` | The first screen's text, `bootlines.h` |
 
 The hardware side is `main.c`, `loop.c`, `panic.c`, `maint.c` and `first.c`. Their services are in `uos.h`.
+
+The modules below are pure too. The image links them, but no kernel code calls them yet, so the linker drops them.
+
+## Modules
+
+Each module has a reference page in `docs/modules/`. The on-card formats are gathered in [FORMATS.md](FORMATS.md). No login, shell or screen uses a module yet.
+
+Every module that tests privileges uses the bits of `src/kernel/uos_privs.h`: `SYSTEM` bit 0, `OPER` bit 1, `SECURITY` bit 2, `READALL` bit 3. Each module keeps its own names, such as `DCL_PRIV_OPER` or `UAF_PRIV_OPER`, as aliases, and static asserts check them.
+
+[dcl](modules/dcl.md): the command language in the style of DCL. It splits a line into a verb, qualifiers and parameters, looks names up by the abbreviation rule, checks the privileges each verb needs and formats the system messages. Pure files: `src/dcl/dcl.c`, `msg.c`, `tables.c`. Public header: `src/dcl/dcl.h`, prefix `dcl_`.
+
+[vfs path](modules/vfs-path.md): file specifications such as `SD0:[HOME.ADMIN]A.TXT;1`. It turns them into FAT paths and back, expands logical names and wildcards, and decides file access. Pure file: `src/vfs/path.c`. Public header: `src/vfs/path.h`, prefix `vp_`.
+
+[session](modules/session.md): users and login. It holds SHA-256, the `SYSUAF.DAT` user database with its iterated password hash, and the login lockout. Pure files: `src/session/sha256.c`, `uaf.c`, `lockout.c`. Public headers: `sha256.h`, `uaf.h`, `lockout.h`, prefixes `sha_`, `uaf_`, `lk_`.
+
+[osk](modules/osk.md): the on-screen keyboard for text entry with buttons only. It keeps the highlight and the layer and emits key events for the line editor. Pure file: `src/osk/osk.c`. Public header: `src/osk/osk.h`, prefix `osk_`.
+
+[dev](modules/dev.md): device control. It parses `DEVICES.CFG`, keeps each device's state, turns commands into pin operations with their timing and formats status lines. Pure files: `src/dev/devcfg.c`, `devstate.c`. Public header: `src/dev/dev.h`, prefix `dv_`.
+
+[tui](modules/tui.md): the menu-driven terminal screen and the pager. It parses `TERMINAL.CFG`, runs the menu model and lays out the screen. Pure files: `src/tui/tuicfg.c`, `tui.c`, `pager.c`. Public header: `src/tui/tui.h`, prefixes `tui_` and `pg_`.
+
+[hack](modules/hack.md): the password minigame. It parses the word lists, picks the candidates, builds the board and runs the game with its lockout timer. Pure file: `src/hack/hack.c`. Public header: `src/hack/hack.h`, prefix `hk_`.
+
+[holo](modules/holo.md): data holotapes. It validates a tape in memory, gives its title and entries, and runs the reader model. Pure files: `src/holo/holofmt.c`, `holoread.c`. Public header: `src/holo/holofmt.h`, prefix `hf_`.
 
 ## Boot order
 

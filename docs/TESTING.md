@@ -4,7 +4,9 @@ Every test runs on the host or in QEMU. Nothing is validated on real hardware.
 
 ## Host tests
 
-`make test-host` builds each `tests/host/test_*.c` with the host compiler, `-Werror` and the address and undefined behaviour sanitizers. Each test links every pure file. It also compiles the tests and the pure files with the cross GCC, to catch warnings only GCC reports.
+`make test-host` builds each `tests/host/test_*.c` with the host compiler, `-Werror` and the address and undefined behaviour sanitizers. Each test links every pure file. It also compiles the tests and the pure files with the cross GCC, to catch warnings only GCC reports. `make all` compiles every module source with the target flags and `-Werror`.
+
+The tests run from the repository root, so the ones that read the default card open `card/UOS/...` by a relative path. Before they build, `tools/mkuaf.py vectors-h` writes `build/host/gen/uaf_vectors.h` from `tests/vectors/uaf.json`.
 
 | File | Covers |
 |---|---|
@@ -12,6 +14,32 @@ Every test runs on the host or in QEMU. Nothing is validated on real hardware.
 | `test_screen.c` | The screen stack rules: push, pop, replace, events passed down, draws |
 | `test_settings.c` | `UOS.CFG`: every key, clamps, bad values, unknown keys, syntax errors |
 | `test_bootlines.c` | The text of the first screen |
+| `test_privs.c` | Every module's privilege names equal the shared bits of `uos_privs.h`; the `SYSUAF.DAT` names of each bit |
+| `test_dcl.c` | The DCL tokeniser, continuation, numbers, the abbreviation rule, qualifiers and parameters, prompts, privileges |
+| `test_dcl_msg.c` | The text of every system message |
+| `test_dcl_table.c` | The UOS command table: every verb and keyword, the table check |
+| `test_vfs_path.c` | File specifications: parse, resolve, format, logical names, wildcards, listing order, the access table |
+| `test_session_sha256.c` | SHA-256: the standard short and long messages, a million `a` streamed, block boundaries, length carry |
+| `test_session_uaf.c` | `SYSUAF.DAT`: layout, every validation check, the hash vectors shared with `mkuaf.py`, verify with equal work, edits, privilege names, the default card's file |
+| `test_session_lockout.c` | The login lockout: counts, the lock time, the tick wrap |
+| `test_osk.c` | The on-screen keyboard: both layers, moves with wrap, every key, emitted events, the row text |
+| `test_dev.c` | `DEVICES.CFG`: every key and error, the refused pin masks, the pull-up warning, expander pins; commands, pulses, the tick wrap, status lines, the pin record, the default card's file |
+| `test_tui.c` | The menu model: moves, every action, sub-menus to eight levels, scrolling, headers, privileges, the layout |
+| `test_tui_cfg.c` | `TERMINAL.CFG`: every key, target and error; the menus of the default card |
+| `test_tui_pager.c` | The pager: line ends, wrapping, moves and keys, a 64 KiB text |
+| `test_card_menus.c` | Each device entry in the default card's menus names a device of its `DEVICES.CFG` and a word that device takes |
+| `test_hack.c` | Word lists, candidate picks, 1000 boards per difficulty, the one-junk gap, the cursor, brackets, the game and its lockout, the default card's lists |
+| `test_holo.c` | Tape validation step by step, every error, limits, the reader model |
+
+## Tool tests
+
+`make test-tools` builds the host tools the tool tests call, then runs pytest over `tests/tools/` from the venv. `tests/host/holocheck.c` is such a tool: it validates tapes with the C code, so the Python and C checks can be compared.
+
+| File | Covers |
+|---|---|
+| `test_mkuaf.py` | `tools/mkuaf.py`: build, check, the shared vectors, every bad input, the default card's file |
+| `test_mkwords.py` | `tools/mkwords.py`: check, sort and sample over good and bad lists, the default card's lists |
+| `test_mkholo.py` | `tools/mkholo.py`: build, list, check, every bad input, agreement with `holocheck` |
 
 ## Target tests
 

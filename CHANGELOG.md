@@ -17,3 +17,9 @@ All notable changes to UOS are recorded here. The format follows [Keep a Changel
 - The `UOS.CFG` reader with clamps, defaults and counts of bad values.
 - The maintenance port: `state`, `dump`, `type`, `timers` and `reboot`.
 - A first screen with the boot banner and a placeholder for the login.
+- Eight pure modules with host tests, not yet wired into the system: `dcl`, `vfs` path, `session`, `osk`, `dev`, `tui`, `hack` and `holo`.
+- One set of privilege bits for every module, in `src/kernel/uos_privs.h`.
+- Devices: the refused pin mask is a parameter, UOS frees the dial's pins, up to 24 devices, a warning for an active-high output on a pin pulled up at reset, and expander pins as `X<chip>.<pin>` with `[expander N]` sections.
+- Card tools with pytest tests: `mkuaf.py`, `mkwords.py`, `mkholo.py`. `make test-tools` runs them.
+- The default card's user database, devices, menus, word lists and holotapes.
+- `docs/FORMATS.md` and a reference page per module in `docs/modules/`.
