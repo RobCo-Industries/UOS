@@ -1,7 +1,8 @@
 """tools/mkholo.py: building, listing, checking, every bad input, and agreement with the C validator.
 
-Needs ROBCO_CORE (RobCo-Core checkout) and HOLO_CHECK (the holocheck host
-tool from tests/host/holo.mk) in the environment.
+ROBCO_CORE (default: external/robco-core) and HOLO_CHECK (default:
+build/host/holocheck, built from tests/host/holocheck.c by make test-tools)
+override the paths.
 """
 
 import os
@@ -15,9 +16,9 @@ ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)
 sys.path.insert(0, os.path.join(ROOT, "tools"))
 import mkholo  # noqa: E402
 
-CORE = os.environ.get("ROBCO_CORE", "")
+CORE = os.environ.get("ROBCO_CORE", os.path.join(ROOT, "external", "robco-core"))
 RIMG = os.path.join(CORE, "tools", "rimg.py")
-CHECK = os.environ.get("HOLO_CHECK", os.path.join(ROOT, "build", "holo", "holocheck"))
+CHECK = os.environ.get("HOLO_CHECK", os.path.join(ROOT, "build", "host", "holocheck"))
 CARD = os.path.join(ROOT, "card", "UOS", "HOLO")
 SAMPLES = {
     "TECHLOG": "Alder Creek technician's log",

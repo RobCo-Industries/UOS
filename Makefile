@@ -117,11 +117,17 @@ test-target: all venv
 	    $(if $(RETROS_IMG),--retros-img $(abspath $(RETROS_IMG))) \
 	    $(if $(MFBOOT_SYS),--mfboot-sys $(abspath $(MFBOOT_SYS)))
 
-# pytest exits 5 when it collects nothing: no tool has tests yet.
-test-tools: venv
-	@if ls tests/tools/test_*.py >/dev/null 2>&1; then \
-	  $(VENV)/bin/pytest tests/tools -q -p no:cacheprovider; \
-	else echo "test-tools: no tests/tools/test_*.py"; fi
+# Host tools the tool tests call. holocheck validates tapes with the C
+# reader, so tests/tools/test_mkholo.py checks both sides agree.
+HOST_TOOLS := $(HOST_BUILD)/holocheck
+
+$(HOST_BUILD)/holocheck: tests/host/holocheck.c $(HOST_LINK) $(HOST_HDRS)
+	@mkdir -p $(dir $@)
+	$(HOST_CC) $(HOST_CFLAGS) -o $@ $< $(HOST_LINK)
+
+test-tools: venv $(HOST_TOOLS)
+	ROBCO_CORE=$(abspath $(ROBCO_CORE)) HOLO_CHECK=$(abspath $(HOST_BUILD)/holocheck) \
+	    $(VENV)/bin/pytest tests/tools -q -p no:cacheprovider
 
 # DOC_ROOT: the tree whose Markdown links check-doc-links reads.
 DOC_ROOT ?= .
