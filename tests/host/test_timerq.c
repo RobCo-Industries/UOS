@@ -328,3 +328,186 @@ TEST(event_names)
     CHECK_STR(uos_ev_name(UOS_EV_CALL), "call");
     CHECK_STR(uos_ev_name(99), "none");
 }
+
+/* ---- Delivery through a full event queue ---- */
+
+static uos_timerq_t *chain_tq;
+static uos_timer_id_t chain_id;
+
+static void fill(uos_evq_t *q, unsigned n)
+{
+    uos_event_t ev = { .type = UOS_EV_KEY };
+
+    while (n-- > 0) {
+        CHECK_EQ(uos_evq_push(q, &ev), 0);
+    }
+}
+
+/* Pops every event as the loop does: a live TIMER runs its callback. */
+static unsigned drain(uos_timerq_t *tq, uos_evq_t *q)
+{
+    uos_event_t ev;
+    unsigned fired = 0;
+
+    while (uos_evq_pop(q, &ev)) {
+        if (ev.type == UOS_EV_TIMER && uos_tq_claim(tq, ev.timer, &ev.fn, &ev.arg)) {
+            fired++;
+            if (ev.fn != NULL) {
+                ev.fn(ev.arg);
+            }
+        }
+    }
+    return fired;
+}
+
+TEST(full_queue_keeps_a_oneshot_due)
+{
+    uos_timerq_t tq;
+    uos_evq_t q;
+    uos_timer_id_t id;
+
+    uos_tq_init(&tq);
+    uos_evq_init(&q);
+    calls = 0;
+    CHECK_EQ(uos_tq_start(&tq, 0, 5, 0, cb, NULL, &id), 0);
+    fill(&q, UOS_EVQ_LEN);
+    CHECK_EQ(uos_tq_deliver(&tq, 5, &q), 0u);
+    CHECK_EQ(q.dropped, 0u);
+    CHECK_EQ(tq.expired, 0u);
+    /* Still due, still live: nothing was lost. */
+    CHECK_EQ(uos_tq_due(&tq, 6, &id), 1);
+    CHECK_EQ(drain(&tq, &q), 0u);
+    CHECK_EQ(uos_tq_deliver(&tq, 9, &q), 1u);
+    CHECK_EQ(uos_tq_deliver(&tq, 10, &q), 0u);
+    CHECK_EQ(drain(&tq, &q), 1u);
+    CHECK_EQ(calls, 1);
+    CHECK_EQ(uos_tq_deliver(&tq, 1000, &q), 0u);
+    CHECK_EQ(drain(&tq, &q), 0u);
+    CHECK_EQ(calls, 1);
+    CHECK_EQ(uos_tq_live(&tq), 0u);
+}
+
+TEST(full_queue_periodic_delivers_each_missed_period)
+{
+    uos_timerq_t tq;
+    uos_evq_t q;
+    uos_timer_id_t id;
+    uint32_t t;
+
+    uos_tq_init(&tq);
+    uos_evq_init(&q);
+    calls = 0;
+    CHECK_EQ(uos_tq_start(&tq, 0, 10, 10, cb, NULL, &id), 0);
+    /* Full from tick 1 to tick 35: periods 10, 20 and 30 wait. */
+    fill(&q, UOS_EVQ_LEN);
+    for (t = 1; t <= 35; t++) {
+        CHECK_EQ(uos_tq_deliver(&tq, t, &q), 0u);
+    }
+    CHECK_EQ(drain(&tq, &q), 0u);
+    /* Room for 2 only: two now, the third on the next call. */
+    fill(&q, UOS_EVQ_LEN - 2);
+    CHECK_EQ(uos_tq_deliver(&tq, 36, &q), 2u);
+    CHECK_EQ(drain(&tq, &q), 2u);
+    CHECK_EQ(uos_tq_deliver(&tq, 37, &q), 1u);
+    CHECK_EQ(drain(&tq, &q), 1u);
+    for (t = 38; t <= 100; t++) {
+        (void)uos_tq_deliver(&tq, t, &q);
+        (void)drain(&tq, &q);
+    }
+    CHECK_EQ(calls, 10);
+    CHECK_EQ(tq.expired, 10u);
+    CHECK_EQ(q.dropped, 0u);
+}
+
+TEST(cancel_while_pending_never_fires)
+{
+    uos_timerq_t tq;
+    uos_evq_t q;
+    uos_timer_id_t one, per;
+
+    uos_tq_init(&tq);
+    uos_evq_init(&q);
+    calls = 0;
+    CHECK_EQ(uos_tq_start(&tq, 0, 1, 0, cb, NULL, &one), 0);
+    CHECK_EQ(uos_tq_start(&tq, 0, 1, 1, cb, NULL, &per), 0);
+    fill(&q, UOS_EVQ_LEN);
+    CHECK_EQ(uos_tq_deliver(&tq, 5, &q), 0u);
+    CHECK_EQ(uos_tq_cancel(&tq, one), 0);
+    CHECK_EQ(uos_tq_cancel(&tq, per), 0);
+    CHECK_EQ(drain(&tq, &q), 0u);
+    CHECK_EQ(uos_tq_deliver(&tq, 6, &q), 0u);
+    CHECK_EQ(drain(&tq, &q), 0u);
+    CHECK_EQ(calls, 0);
+    CHECK_EQ(uos_tq_live(&tq), 0u);
+    CHECK_EQ(uos_tq_ack(&tq, one), UOS_TIMER_ERR_ID);
+}
+
+TEST(sixteen_due_timers_and_a_full_queue)
+{
+    uos_timerq_t tq;
+    uos_evq_t q;
+    uos_timer_id_t id;
+    unsigned i;
+
+    uos_tq_init(&tq);
+    uos_evq_init(&q);
+    calls = 0;
+    for (i = 0; i < UOS_TIMER_MAX; i++) {
+        CHECK_EQ(uos_tq_start(&tq, 0xfffffff0u, 0x10u + i, 0, cb, NULL, &id), 0);
+    }
+    CHECK_EQ(uos_tq_start(&tq, 0, 1, 0, cb, NULL, &id), UOS_TIMER_ERR_FULL);
+    fill(&q, UOS_EVQ_LEN);
+    /* Past the wrap of the tick counter: all 16 due. */
+    CHECK_EQ(uos_tq_deliver(&tq, 0x20u, &q), 0u);
+    CHECK_EQ(drain(&tq, &q), 0u);
+    fill(&q, UOS_EVQ_LEN - 10);
+    CHECK_EQ(uos_tq_deliver(&tq, 0x21u, &q), 10u);
+    CHECK_EQ(drain(&tq, &q), 10u);
+    CHECK_EQ(uos_tq_deliver(&tq, 0x22u, &q), 6u);
+    CHECK_EQ(drain(&tq, &q), 6u);
+    CHECK_EQ(calls, (int)UOS_TIMER_MAX);
+    CHECK_EQ(uos_tq_live(&tq), 0u);
+    CHECK_EQ(q.dropped, 0u);
+}
+
+/* Starts the next one-shot from inside a callback. */
+static void restart(void *arg)
+{
+    (void)arg;
+    calls++;
+    if (calls < 3) {
+        CHECK_EQ(uos_tq_start(chain_tq, 0, 0, 0, restart, NULL, &chain_id), 0);
+    }
+}
+
+TEST(timer_started_from_a_callback)
+{
+    uos_timerq_t tq;
+    uos_evq_t q;
+
+    uos_tq_init(&tq);
+    uos_evq_init(&q);
+    chain_tq = &tq;
+    calls = 0;
+    CHECK_EQ(uos_tq_start(&tq, 0, 0, 0, restart, NULL, &chain_id), 0);
+    CHECK_EQ(uos_tq_deliver(&tq, 0, &q), 1u);
+    CHECK_EQ(drain(&tq, &q), 1u);
+    CHECK_EQ(uos_tq_deliver(&tq, 1, &q), 1u);
+    CHECK_EQ(drain(&tq, &q), 1u);
+    CHECK_EQ(uos_tq_deliver(&tq, 2, &q), 1u);
+    CHECK_EQ(drain(&tq, &q), 1u);
+    CHECK_EQ(calls, 3);
+    CHECK_EQ(uos_tq_live(&tq), 0u);
+}
+
+TEST(posted_call_to_a_full_queue_is_refused_and_counted)
+{
+    uos_evq_t q;
+    uos_event_t ev = { .type = UOS_EV_CALL, .fn = cb };
+
+    uos_evq_init(&q);
+    fill(&q, UOS_EVQ_LEN);
+    CHECK_EQ(uos_evq_push(&q, &ev), UOS_EVQ_ERR_FULL);
+    CHECK_EQ(q.dropped, 1u);
+    CHECK_EQ(uos_tq_deliver(NULL, 0, &q), 0u);
+}

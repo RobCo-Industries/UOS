@@ -89,20 +89,27 @@ A `UOS.CFG` scheme applies only when the boot info gave none. Bad values are ski
 
 One thread of control. `uos_loop_run()` repeats:
 
-1. Takes every input event. Key releases are dropped.
-2. Posts one `TICK` event for the ticks since the last one, and one `TIMER` event per timer due.
+1. Posts one `TICK` event for the ticks since the last one, and one `TIMER` event per timer expiry due.
+2. Takes input events while the queue has room. Key releases are dropped. The rest waits in the input layer.
 3. Delivers every queued event, drawing the top screen after each one when it is dirty.
 4. Sleeps in `wfi`, through `input_wait()`, until input or the next tick.
 
 Each `TICK` event first calls the `tick` function of every started service, then goes to the screens.
 
-Event types, `uos_event.h`: `KEY`, `CHAR`, `TICK`, `TIMER` and `CALL`. `uos_post(fn, arg)` queues a call from any context. The queue holds 32 events and counts drops.
+Event types, `uos_event.h`: `KEY`, `CHAR`, `TICK`, `TIMER` and `CALL`. `uos_post(fn, arg)` queues a call from any context. The queue holds 32 events. A full queue refuses an event and counts it in `uos_events_dropped()`: `uos_post()` then returns `UOS_EVQ_ERR_FULL`, and the call never runs unless the caller posts it again. A key that finds the queue full is dropped and counted. Under a flood the loop takes input only while there is room, so drops are rare; the PL011 console then stalls instead of dropping.
 
 ### Timers
 
 `uos_timer_start(delay, period, fn, arg, &id)` starts a timer in ticks: once when `period` is 0, else every `period` ticks. At expiry the loop runs `fn(arg)`, or, when `fn` is NULL, gives the screens a `TIMER` event. `uos_timer_cancel(id)` ends it. A timer never fires after its cancel returns, even when its expiry is already queued: the loop checks the id first. Deadlines compare by signed difference, so the tick counter may wrap. Delays and periods go up to `0x7fffffff` ticks. At most 16 timers live at once.
 
-A periodic timer fires on the first loop pass at or after its deadline. A late loop catches up one expiry per pass, so the count stays exact.
+Time goes into the queue before input. After a pass the queue holds at most one event, so the `TICK` and all 16 expiries fit. A timer fires on the first loop pass at or after its deadline, however much input waits.
+
+An expiry is never lost. `uos_tq_deliver()` in `timerq.c` queues one `TIMER` event per due expiry, most overdue first. It marks an expiry delivered only once its event is queued. An expiry that finds the queue full stays due and goes out on a later pass:
+
+- A one-shot timer fires once, as soon as there is room.
+- A periodic timer fires once per period, missed periods included. It does not coalesce: the count stays exact, and a callback that counts periods stays right.
+- A cancel ends the timer, pending expiry included. It never fires after the cancel returns.
+- A `TICK` that finds the queue full is retried with the ticks added up.
 
 ### Screens
 
@@ -118,7 +125,7 @@ A screen is a struct of `enter`, `leave`, `event` and `draw` callbacks and a `ct
 
 `first.c` shows the banner from `bootlines.c`, then after half a second a placeholder: the system name, "login is not built yet", the card state, the settings state, the clock if a clock chip answered, and the last key. A periodic one-second timer refreshes the clock. The session task replaces this screen.
 
-Two keys test the timers. F1 starts a periodic timer of 10 ticks that fires 10 times, with an `ev=timer name=probe` marker each time. F2 starts a one-shot timer that a second timer cancels before it is due, and a third timer reports whether it fired.
+Two keys test the timers. F1 starts a periodic timer of 10 ticks that fires 10 times, with an `ev=timer name=probe` marker each time. F2 starts a one-shot timer that a second timer cancels before it is due, and a third timer reports whether it fired. While a probe runs, its key is ignored, repeats included.
 
 The banner lines are lore: in-world text, original to UOS.
 
@@ -126,7 +133,11 @@ The banner lines are lore: in-world text, original to UOS.
 
 `uos_panic(fmt, ...)` and the exception hook for undefined instructions and aborts share one path. It masks IRQs, prints `ev=panic kind=<call|undef|pabt|dabt> reason=<words_joined_by_underscores>`, with the registers after an exception, and shuts the services down with `why=panic`. It clears the screen and shows the reason and the registers. Then it prints `ev=idle` and polls the maintenance port for good.
 
-The MMU stays on in the panic path. The vectors, the stacks and the framebuffer stay mapped, so the screen and the port keep working.
+The rule: from the moment a panic is possible, the maintenance port answers. The first way into the panic path is the exception hook, set at the `handoff` step. That comes before the mini UART and before `uos_maint_start()`. A failed tick also panics before `uos_maint_start()`. So when the port is not up yet, the panic path starts it itself, polled: the registry's base commands, `input_init()`, the command handler, `uart_mini_init()` if needed and `input_script_start()`. The script channel needs no tick and no IRQs. It prints `ev=port late=1 mini=<rc> script=<rc>` before `ev=idle`. `help`, `state`, `timers` and `reboot` then answer. `dump` answers once the screen is up, else `err no screen`. No `uos_panic()` call comes before the tick step.
+
+A panic before the `service` markers has no service to shut down, so it prints no `ev=shutdown` marker.
+
+When the MMU is on, it stays on in the panic path. The vectors, the stacks and the framebuffer stay mapped, so the screen and the port keep working.
 
 ## Reboot and halt
 
@@ -140,6 +151,8 @@ The mini UART script channel. In QEMU it is the second serial port. On a Pi the 
 
 The library answers its built-in commands: `key`, `char`, `text`, `dial`, `wait` and `stats`. Every other line goes to the registry of `uos_maint.h`. It looks the first word up, splits the rest into words again and calls the command function. A word in double quotes keeps its spaces, and `""` inside quotes is one quote. A line holds at most 127 characters and 8 blank-separated words in all, quotes or not: the library refuses longer lines. An unknown first word gets `err unknown command`, an unclosed quote `err bad quotes`.
 
+The base commands enter the table on the first use of the registry: `uos_maint_start()`, a `uos_maint_register()` call or the panic path, whichever comes first. So the base commands answer after any panic. A service's commands exist once its init has run.
+
 | Command | Answer |
 |---|---|
 | `help` | One line per registered command, sorted by name: the name, then its help text |
@@ -147,7 +160,7 @@ The library answers its built-in commands: `key`, `char`, `text`, `dial`, `wait`
 | `dump` | The console cells, from `console_dump()` |
 | `key <name>` | Built in: presses and releases a key |
 | `char <c>`, `text <s>` | Built in: characters |
-| `type <words>` | The words as characters with single spaces, then SELECT |
+| `type <words>` | The words as characters with single spaces, then SELECT. At most 30 characters, spaces included: the input queue holds 32 events, and SELECT takes a press and a release. A longer line answers `err full` and types nothing. For longer text a test sends several `type` or `text` commands. |
 | `timers` | `timers count=<n> expired=<n>`, then `timer id=<id> due=<ticks> period=<ticks>` per live timer |
 | `reboot` | Shuts the services down, `ev=reboot source=maint`, then a watchdog reset |
 | `services` | `service name=<n> rc=<rc>` per service, in table order |

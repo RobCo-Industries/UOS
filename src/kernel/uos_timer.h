@@ -67,8 +67,30 @@ int uos_tq_cancel(uos_timerq_t *tq, uos_timer_id_t id);
  * Collects up to `max` timers due at `now` into out[] and returns their
  * count. A one-shot timer becomes FIRED; a periodic one moves its deadline
  * on by one period, so a late caller catches up one expiry per call.
+ * It cannot tell whether an expiry was delivered: the loop uses
+ * uos_tq_deliver() instead.
  */
 unsigned uos_tq_expire(uos_timerq_t *tq, uint32_t now, uos_timer_id_t *out, unsigned max);
+
+/*
+ * Delivery that never loses an expiry. uos_tq_due() names the due timer
+ * whose deadline passed longest ago, without changing it: returns 1 and
+ * its id, or 0 when none is due. uos_tq_ack() records that the expiry of
+ * that id was queued: a one-shot timer becomes FIRED, a periodic one
+ * moves its deadline on by one period. Returns 0, or UOS_TIMER_ERR_ID
+ * when the id is not an armed timer. Until the ack, the expiry stays due.
+ */
+int uos_tq_due(const uos_timerq_t *tq, uint32_t now, uos_timer_id_t *id);
+int uos_tq_ack(uos_timerq_t *tq, uos_timer_id_t id);
+
+/*
+ * Queues one UOS_EV_TIMER event per due expiry while `q` has room, and
+ * acks each one queued. Returns the count queued. An expiry that finds
+ * the queue full stays due for the next call: a one-shot timer fires
+ * once, as soon as there is room; a periodic timer late by k periods
+ * fires k times, one event per missed period. Never counts a drop.
+ */
+unsigned uos_tq_deliver(uos_timerq_t *tq, uint32_t now, uos_evq_t *q);
 
 /*
  * Checks an expired id before it is delivered. Returns 1 and the

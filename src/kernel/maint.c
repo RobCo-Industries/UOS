@@ -10,7 +10,8 @@
  *   help           the registered commands with their help, sorted
  *   state          one line: phase, screen, user, card, last error
  *   dump           the console cells, through console_dump()
- *   type <words>   the words as characters, then SELECT: one typed line
+ *   type <words>   the words as characters, then SELECT: one typed line of
+ *                  at most 30 characters, or "err full"
  *   timers         the live timers, one line each after a count line
  *   reboot         shuts the services down, then restarts the board
  * Test builds only (UOS_TEST_HOOKS=1):
@@ -40,11 +41,17 @@
 
 static uos_maint_table_t table;
 static input_script_reply_t *cur_reply;   /* the line being answered */
+static int table_on;    /* the table holds the base commands */
+static int input_on;    /* input_init() ran and the handler is set */
+static int script_on;   /* the script channel answers */
+
+static void fill_table(void);
 
 /* ---- The registry on the port -------------------------------------------- */
 
 int uos_maint_register(const char *name, uos_maint_fn fn, const char *help)
 {
+    fill_table();
     return uos_mt_add(&table, name, fn, help);
 }
 
@@ -184,10 +191,10 @@ static int cmd_type(int argc, char **argv)
     if (uos.phase != UOS_PHASE_READY) {
         return uos_maint_fail("not ready");
     }
+    /* One event per character, a space between words, SELECT pressed and released. */
     for (i = 0; i < argc; i++) {
-        n += (unsigned)k_strlen(argv[i]) * 2u + 2u;
+        n += (unsigned)k_strlen(argv[i]) + (i > 0 ? 1u : 0u);
     }
-    /* Each character and the key: a press and maybe a release in the queue. */
     if (!input_room(n)) {
         return uos_maint_fail("full");
     }
@@ -328,37 +335,80 @@ static int cmd_bench(int argc, char **argv)
 }
 #endif
 
+/*
+ * The base commands, once. uos_maint_start(), uos_maint_register() and the
+ * panic path call it, so the base commands answer even after a panic that
+ * came before uos_maint_start(). Pure table work: safe with IRQs off.
+ */
+static void fill_table(void)
+{
+    if (table_on) {
+        return;
+    }
+    table_on = 1;
+    uos_mt_init(&table);
+    (void)uos_mt_add(&table, "help", cmd_help, "lists the commands");
+    (void)uos_mt_add(&table, "state", cmd_state, "phase, screen, user, card, trust, last error");
+    (void)uos_mt_add(&table, "dump", cmd_dump, "the console cells");
+    (void)uos_mt_add(&table, "type", cmd_type, "types the words, then SELECT");
+    (void)uos_mt_add(&table, "timers", cmd_timers, "the live timers");
+    (void)uos_mt_add(&table, "reboot", cmd_reboot, "shuts the services down and restarts");
+#if defined(UOS_TEST_HOOKS) && UOS_TEST_HOOKS
+    (void)uos_mt_add(&table, "fault", cmd_fault, "test: fault undef|pabt");
+    (void)uos_mt_add(&table, "panic", cmd_panic, "test: calls uos_panic()");
+    (void)uos_mt_add(&table, "halt", cmd_halt, "test: calls uos_halt()");
+    (void)uos_mt_add(&table, "bench", cmd_bench, "test: bench uaf <iterations>");
+#endif
+}
+
 void uos_maint_start(void)
 {
     int serial, script = INPUT_ERR_NO_UART;
 
-    uos_mt_init(&table);
-    (void)uos_maint_register("help", cmd_help, "lists the commands");
-    (void)uos_maint_register("state", cmd_state, "phase, screen, user, card, trust, last error");
-    (void)uos_maint_register("dump", cmd_dump, "the console cells");
-    (void)uos_maint_register("type", cmd_type, "types the words, then SELECT");
-    (void)uos_maint_register("timers", cmd_timers, "the live timers");
-    (void)uos_maint_register("reboot", cmd_reboot, "shuts the services down and restarts");
-#if defined(UOS_TEST_HOOKS) && UOS_TEST_HOOKS
-    (void)uos_maint_register("fault", cmd_fault, "test: fault undef|pabt");
-    (void)uos_maint_register("panic", cmd_panic, "test: calls uos_panic()");
-    (void)uos_maint_register("halt", cmd_halt, "test: calls uos_halt()");
-    (void)uos_maint_register("bench", cmd_bench, "test: bench uaf <iterations>");
-#endif
-
+    fill_table();
     input_init();
     serial = input_serial_start(INPUT_SERIAL_MAIN);
     input_script_set_handler(dispatch, NULL);
+    input_on = 1;
     if (uart_mini_ready()) {
         script = input_script_start();
     }
+    script_on = script == 0;
     UOS_MARK("input serial=%d script=%d gpio=off", serial, script);
+}
+
+/*
+ * A panic can come before uos_maint_start(), from the exception hook or a
+ * failed tick. The port then starts here, polled: the script channel needs
+ * the mini UART and the input layer, not the tick or IRQs. The table gets
+ * its base commands first, so help, state, dump and reboot answer.
+ */
+static void late_start(void)
+{
+    int mini = 0, script;
+
+    fill_table();
+    if (script_on) {
+        return;
+    }
+    if (!input_on) {
+        input_init();
+        input_script_set_handler(dispatch, NULL);
+        input_on = 1;
+    }
+    if (!uart_mini_ready()) {
+        mini = uart_mini_init(115200);
+    }
+    script = input_script_start();
+    script_on = script == 0;
+    UOS_MARK("port late=1 mini=%d script=%d", mini, script);
 }
 
 void uos_maint_idle(void)
 {
     input_event_t ev;
 
+    late_start();
     UOS_MARK("idle");
     for (;;) {
         /* IRQs are off: poll. Keys are dropped; script lines are answered. */

@@ -10,7 +10,7 @@ The tests run from the repository root, so the ones that read the default card o
 
 | File | Covers |
 |---|---|
-| `test_timerq.c` | Timers: one-shot, periodic, catch-up, the tick wrap, cancel before and after expiry, limits. The event queue. |
+| `test_timerq.c` | Timers: one-shot, periodic, catch-up, the tick wrap, cancel before and after expiry, limits. Delivery through a full event queue: a one-shot, a periodic timer over several periods, a cancel while pending, 16 timers due, a timer started from a callback. The event queue. |
 | `test_screen.c` | The screen stack rules: push, pop, replace, events passed down, draws |
 | `test_settings.c` | `UOS.CFG`: every key, clamps, bad values, unknown keys, syntax errors |
 | `test_bootlines.c` | The text of the first screen |
@@ -51,8 +51,8 @@ The tests run from the repository root, so the ones that read the default card o
 |---|---|
 | `test_entry.py` | Every bring-up marker in order; the trust rule after `examples/chain1`, with a good and a broken boot info; the whole chain |
 | `test_card.py` | No card, no `/UOS` folder, no `UOS.CFG`, a syntax error, bad and clamped values, the scheme and the name |
-| `test_loop.py` | Keys from the port and the serial console reach the screen; a periodic timer fires the right number of times in its bound; a cancelled timer never fires; the timer listing |
-| `test_panic.py` | The panic path for an undefined instruction, a prefetch abort and a `uos_panic()` call; `reboot`; an `nm` check that the shipped image has no test hooks |
+| `test_loop.py` | Keys from the port and the serial console reach the screen; a periodic timer fires the right number of times in its bound; a cancelled timer never fires; F2 twice runs one cancel probe; the timer listing; a key flood during the banner still shows the first screen in its bound; `type` with 1, 15, 30 and 31 characters |
+| `test_panic.py` | The panic path for an undefined instruction, a prefetch abort and a `uos_panic()` call; a failed tick and a fault right after the exception hook, both before the input layer starts, with `state`, `dump` and `reboot` answering; `reboot`; an `nm` check that the shipped image has no test hooks |
 | `test_first.py` | A golden of the first screen's text and screenshots |
 | `test_services.py` | The `ev=service` markers and `services`; `uptime`; shutdown markers in reverse order on `reboot`, halt and panic; a failing service in test builds; `help`, unknown commands and quotes; the `bench uaf` figure |
 | `test_env_hygiene.py` | No test copies the host environment |
@@ -65,11 +65,13 @@ The tests run from the repository root, so the ones that read the default card o
 
 ### Test builds
 
-`UOS_TEST_HOOKS=1` adds the `fault`, `panic`, `halt` and `bench` maintenance commands, and a service named `testfail` whose init returns -5, first in the table. The tests build it in `build/testhooks/`. It is never shipped: `test_panic.py` checks with `nm` that the shipped image has none of its symbols.
+`UOS_TEST_HOOKS=1` adds the `fault`, `panic`, `halt` and `bench` maintenance commands, and a service named `testfail` whose init returns -5, first in the table. The tests build it in `build/testhooks/`. `UOS_TEST_TICK_FAIL=1` makes `tick_init()` report a failure, in `build/tickfail/`. `UOS_TEST_EARLY_FAULT=1` runs an undefined instruction just after the exception hook, in `build/earlyfault/`. None is shipped: `test_panic.py` checks with `nm` that the shipped image has none of their symbols.
 
 ### Timing bound
 
 The timer probe runs 10 periods of 10 ticks. It must end after at least 100 ticks and at most 100 ticks plus 1 tick of loop latency plus `HOST_ALLOWANCE_TICKS`, 20 ticks. The allowance covers a loaded test host. The count must be exact.
+
+The key flood sends 1500 `text` lines of 32 characters in one write while the banner runs. The `ready` marker reports `banner=<ticks>` since the screen was entered. It must be at least 50 ticks and at most 50 ticks plus 1 tick of loop latency plus `HOST_ALLOWANCE_TICKS`.
 
 ### The hash bench
 

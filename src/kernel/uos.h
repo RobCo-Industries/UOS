@@ -134,7 +134,8 @@ uint32_t uos_events_dropped(void);
 /* Starts the input layer: the console backend and the maintenance port commands. */
 void uos_maint_start(void);
 
-/* Answers the maintenance port with IRQs off. Never returns. For uos_panic(). */
+/* Answers the maintenance port with IRQs off, starting it first when it is not up.
+ * Never returns. For uos_panic(). */
 void uos_maint_idle(void) __attribute__((noreturn));
 
 /* ---- The first screen ------------------------------------------------- */

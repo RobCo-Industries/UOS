@@ -33,12 +33,16 @@ static uos_first_t info;
 static int shown;               /* the placeholder is on screen */
 static char key_name[8];
 static uos_timer_id_t clock_id;
+static uint32_t banner_t0;      /* tick of enter(), for the ready marker */
 
 static unsigned probe_n;
 static uint32_t probe_t0;
 static uos_timer_id_t probe_id;
 static unsigned victim_fired;
 static uos_timer_id_t victim_id;
+/* A probe runs to its end: F1 or F2 again, repeats included, is ignored until then. */
+static int probe_running;
+static int cancel_running;
 
 static void put_row(unsigned row, const char *text, unsigned attr)
 {
@@ -132,7 +136,8 @@ static void show(void *arg)
         uart_puts(line);
         uart_putc('\n');
     }
-    UOS_MARK("ready screen=first card=%s rtc=%d", uos_card_name(uos.card), info.rtc);
+    UOS_MARK("ready screen=first card=%s rtc=%d banner=%u", uos_card_name(uos.card), info.rtc,
+             (unsigned)(uos_ticks() - banner_t0));
 }
 
 static void enter(uos_screen_t *s)
@@ -146,6 +151,7 @@ static void enter(uos_screen_t *s)
     info.keys = 0;
     info.last_key = NULL;
     shown = 0;
+    banner_t0 = uos_ticks();
     if (uos_timer_start(BANNER_TICKS, 0, show, NULL, &id) != 0) {
         show(NULL);
     }
@@ -167,6 +173,7 @@ static void probe_tick(void *arg)
     UOS_MARK("timer name=probe n=%u ticks=%u", probe_n, (unsigned)(uos_ticks() - probe_t0));
     if (probe_n >= UOS_PROBE_COUNT) {
         (void)uos_timer_cancel(probe_id);
+        probe_running = 0;
         UOS_MARK("timer name=probe done=1 count=%u ticks=%u period=%u", probe_n,
                  (unsigned)(uos_ticks() - probe_t0), UOS_PROBE_PERIOD);
     }
@@ -174,12 +181,16 @@ static void probe_tick(void *arg)
 
 static void start_probe(void)
 {
-    (void)uos_timer_cancel(probe_id);
+    if (probe_running) {
+        return;
+    }
     probe_n = 0;
     probe_t0 = uos_ticks();
     if (uos_timer_start(UOS_PROBE_PERIOD, UOS_PROBE_PERIOD, probe_tick, NULL, &probe_id) != 0) {
         UOS_MARK("timer name=probe error=start");
+        return;
     }
+    probe_running = 1;
 }
 
 static void victim(void *arg)
@@ -198,6 +209,7 @@ static void killer(void *arg)
 static void witness(void *arg)
 {
     (void)arg;
+    cancel_running = 0;
     UOS_MARK("timer name=witness victim=%u", victim_fired);
 }
 
@@ -205,12 +217,17 @@ static void start_cancel_probe(void)
 {
     uos_timer_id_t id;
 
+    if (cancel_running) {
+        return;
+    }
     victim_fired = 0;
     if (uos_timer_start(VICTIM_TICKS, 0, victim, NULL, &victim_id) != 0 ||
         uos_timer_start(KILLER_TICKS, 0, killer, NULL, &id) != 0 ||
         uos_timer_start(WITNESS_TICKS, 0, witness, NULL, &id) != 0) {
         UOS_MARK("timer name=cancel error=start");
+        return;
     }
+    cancel_running = 1;
 }
 
 static int event(uos_screen_t *s, const uos_event_t *ev)

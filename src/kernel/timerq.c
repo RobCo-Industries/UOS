@@ -114,6 +114,80 @@ unsigned uos_tq_expire(uos_timerq_t *tq, uint32_t now, uos_timer_id_t *out, unsi
     return n;
 }
 
+/* The armed timer whose deadline passed longest ago, or -1. */
+static int most_overdue(const uos_timerq_t *tq, uint32_t now)
+{
+    unsigned i;
+    int best = -1;
+    uint32_t late = 0;
+
+    for (i = 0; i < UOS_TIMER_MAX; i++) {
+        const uos_timer_slot_t *s = &tq->slot[i];
+
+        if (s->state != UOS_TS_ARMED || !due_at(now, s->due)) {
+            continue;
+        }
+        if (best < 0 || now - s->due > late) {
+            best = (int)i;
+            late = now - s->due;
+        }
+    }
+    return best;
+}
+
+int uos_tq_due(const uos_timerq_t *tq, uint32_t now, uos_timer_id_t *id)
+{
+    int i;
+
+    if (tq == NULL || id == NULL) {
+        return 0;
+    }
+    i = most_overdue(tq, now);
+    if (i < 0) {
+        return 0;
+    }
+    *id = ((uint32_t)tq->slot[i].gen << 8) | ((unsigned)i + 1u);
+    return 1;
+}
+
+int uos_tq_ack(uos_timerq_t *tq, uos_timer_id_t id)
+{
+    uos_timer_slot_t *s = lookup(tq, id);
+
+    if (s == NULL || s->state != UOS_TS_ARMED) {
+        return UOS_TIMER_ERR_ID;
+    }
+    tq->expired++;
+    if (s->period == 0) {
+        s->state = UOS_TS_FIRED;
+    } else {
+        s->due += s->period;
+    }
+    return 0;
+}
+
+unsigned uos_tq_deliver(uos_timerq_t *tq, uint32_t now, uos_evq_t *q)
+{
+    uos_timer_id_t id;
+    unsigned n = 0;
+
+    if (q == NULL) {
+        return 0;
+    }
+    /* Each pass of the loop moves a deadline on or ends the timer, so it ends. */
+    while (uos_tq_due(tq, now, &id)) {
+        uos_event_t ev = { .type = UOS_EV_TIMER, .timer = id };
+
+        /* No room: the expiry stays due and the next call tries again. */
+        if (q->head - q->tail >= UOS_EVQ_LEN || uos_evq_push(q, &ev) != 0) {
+            break;
+        }
+        (void)uos_tq_ack(tq, id);
+        n++;
+    }
+    return n;
+}
+
 int uos_tq_claim(uos_timerq_t *tq, uos_timer_id_t id, uos_call_fn *fn, void **arg)
 {
     uos_timer_slot_t *s = lookup(tq, id);

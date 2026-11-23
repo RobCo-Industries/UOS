@@ -102,25 +102,36 @@ static void take_input(const input_event_t *in)
     (void)uos_post_event(&ev);
 }
 
-/* One TICK event for the ticks since the last one, and the timers due. */
+/*
+ * One TICK event for the ticks since the last one, and the timers due.
+ * A TICK that finds the queue full is tried again with the ticks added
+ * up. A timer expiry that finds it full stays due in the timer queue.
+ */
 static void take_time(void)
 {
-    uos_timer_id_t due[UOS_TIMER_MAX];
     uint32_t now = tick_count();
-    unsigned i, n;
+    uint32_t s;
 
     if (now != last_tick) {
         uos_event_t ev = { .type = UOS_EV_TICK, .value = (int32_t)(now - last_tick) };
 
-        last_tick = now;
-        (void)uos_post_event(&ev);
+        if (uos_post_event(&ev) == 0) {
+            last_tick = now;
+        }
     }
-    n = uos_tq_expire(&tq, now, due, UOS_TIMER_MAX);
-    for (i = 0; i < n; i++) {
-        uos_event_t ev = { .type = UOS_EV_TIMER, .timer = due[i] };
+    s = irq_save();
+    (void)uos_tq_deliver(&tq, now, &evq);
+    irq_restore(s);
+}
 
-        (void)uos_post_event(&ev);
-    }
+/* Input fills only the room left: the rest waits in the input layer. */
+static int evq_room(void)
+{
+    uint32_t s = irq_save();
+    unsigned n = uos_evq_count(&evq);
+
+    irq_restore(s);
+    return n < UOS_EVQ_LEN;
 }
 
 static void dispatch(uos_event_t *ev)
@@ -162,10 +173,12 @@ void uos_loop_run(void)
         uint32_t s;
         int got;
 
-        while (input_poll(&in)) {
+        /* Time first: the queue holds at most the one event input_wait()
+         * took, so the TICK and all 16 expiries fit before input. */
+        take_time();
+        while (evq_room() && input_poll(&in)) {
             take_input(&in);
         }
-        take_time();
         for (;;) {
             s = irq_save();
             got = uos_evq_pop(&evq, &ev);
