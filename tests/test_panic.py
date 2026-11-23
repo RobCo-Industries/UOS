@@ -133,3 +133,27 @@ def test_earliest_fault_keeps_the_port(board, early_fault_image, need_mtools, tm
         reply = vm.script("dump", timeout=TIMEOUT)
         assert reply.status == "err no screen", reply
         reboots(vm)
+
+
+# The base commands of src/kernel/maint.c: in the table on the panic path
+# even when uos_maint_start() never ran.
+BASE_COMMANDS = ["dump", "help", "reboot", "state", "timers", "type"]
+
+
+def help_names(vm):
+    return [line.split()[0] for line in answer(vm, "help")]
+
+
+def test_early_panics_have_the_registry(board, tick_fail_image, early_fault_image, need_mtools,
+                                        tmp_path):
+    """Both early panics come before uos_maint_start() and the services: the panic path
+    fills the registry, so the base commands answer, and only those."""
+    for image in (tick_fail_image, early_fault_image):
+        with alone(image, board, uos_card(tmp_path)) as vm:
+            vm.wait_for(IDLE, timeout=TIMEOUT)
+            assert help_names(vm) == BASE_COMMANDS, vm.serial
+            assert answer(vm, "timers")[0].startswith("timers count=0 "), vm.serial
+            assert vm.script("type abc", timeout=TIMEOUT).status == "err not ready"
+            assert vm.script("services", timeout=TIMEOUT).status == "err unknown command"
+            assert not events(vm, "service") and not events(vm, "shutdown"), vm.serial
+            reboots(vm)

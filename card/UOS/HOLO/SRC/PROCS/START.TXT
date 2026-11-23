@@ -1,0 +1,8 @@
+1. Confirm the suction valve is fully open. The stem shows a green band
+   when it is open.
+2. Confirm the discharge valve is closed to one quarter.
+3. Select the pump on the control panel and press START once.
+4. Watch the discharge pressure. It should rise within five seconds.
+   If it does not, press STOP and call the duty engineer.
+5. Open the discharge valve slowly over one minute.
+6. Record the start time and the pressure in the station log.

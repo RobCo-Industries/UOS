@@ -41,11 +41,25 @@ void uos_panic(const char *fmt, ...) __attribute__((noreturn, format(printf, 1, 
 /* Routes undefined instructions and aborts to the panic path. Once, at entry. */
 void uos_panic_init(void);
 
+/*
+ * Shuts the services down, prints "ev=reboot source=<source>", turns the
+ * MMU and caches off so every write reaches memory, then resets the board
+ * through the watchdog. Main context. Never returns.
+ */
+void uos_reboot(const char *source) __attribute__((noreturn));
+
+/*
+ * Masks IRQs, shuts the services down, prints "ev=halt", then answers the
+ * maintenance port for good, as the panic path does. Never returns.
+ */
+void uos_halt(void) __attribute__((noreturn));
+
 /* ---- System state ----------------------------------------------------- */
 
 #define UOS_PHASE_INIT          0   /* bring-up */
 #define UOS_PHASE_READY         1   /* the event loop runs */
 #define UOS_PHASE_PANIC         2   /* stopped by uos_panic() */
+#define UOS_PHASE_HALT          3   /* stopped by uos_halt() */
 
 #define UOS_USER_NAME_MAX       15
 

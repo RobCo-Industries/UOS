@@ -3,6 +3,7 @@
 ## Before you open a pull request
 
 - `make CI=1 all test-host` passes.
+- `make ci-local` passes when you change C code. It runs the CI build in its container. See [docs/TESTING.md](docs/TESTING.md).
 - `make test-target BOARD=<board>` passes on the boards you touched. CI runs all four.
 - New pure code has host tests that can fail. New behaviour has a target test or a reason why not.
 - Docs match the code. Nothing is validated on real hardware: do not claim it.

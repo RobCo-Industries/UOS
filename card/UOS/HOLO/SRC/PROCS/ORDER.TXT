@@ -1,0 +1,5 @@
+# Entry order and titles for the operating procedures tape.
+START.TXT Starting a pump
+STOP.TXT Stopping a pump
+ALARM.TXT Answering an alarm
+SHIFT.TXT Shift handover

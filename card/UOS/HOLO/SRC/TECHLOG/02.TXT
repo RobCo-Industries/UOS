@@ -1,0 +1,9 @@
+Tuesday: gauge three
+Pressure gauge three on the outlet header reads four tenths of a bar
+higher than gauges two and four. I tapped the glass and it did not
+move. Likely the gauge, not the pipe.
+
+I swapped it with the spare from the store room and the readings now
+agree within a tenth. The old gauge is tagged and on the bench for
+calibration. The spare shelf is now empty: I added a gauge to the
+order sheet.

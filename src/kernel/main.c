@@ -3,9 +3,9 @@
  * /ROBCO/UOS.SYS into the OS slot at 0x00400000. It also boots alone.
  *
  * Bring-up runs in a fixed order with one marker per step, see
- * docs/ARCHITECTURE.md: boot, handoff, maint, board, mbox, screen, tick,
- * heap, input, selfcheck, mount, config, rtc, then the first screen and
- * ready.
+ * docs/ARCHITECTURE.md: boot, handoff, maint, board, mbox, mmu, screen,
+ * tick, heap, input, selfcheck, mount, config, rtc, one service line per
+ * service, then the first screen and ready.
  */
 
 #include <stdarg.h>
@@ -22,6 +22,7 @@
 #include <robco/irq.h>
 #include <robco/klibc.h>
 #include <robco/mbox.h>
+#include <robco/mmu.h>
 #include <robco/part.h>
 #include <robco/rimg.h>
 #include <robco/rtc.h>
@@ -31,6 +32,7 @@
 #include <robco/uart_mini.h>
 
 #include "uos.h"
+#include "uos_service.h"
 
 #define SCREEN_W 640
 #define SCREEN_H 480
@@ -211,6 +213,18 @@ static void read_config(void)
              uos.fb_ok ? console_scheme() : 0u);
 }
 
+/* The MMU with the library's identity map, and the caches. Before the
+ * framebuffer and the IRQs, as memory.md says. */
+static void init_mmu(void)
+{
+    int rc = mmu_init();
+
+    if (rc == 0) {
+        mmu_enable();
+    }
+    UOS_MARK("mmu result=%s rc=%d", rc != 0 ? "err" : mmu_enabled() ? "on" : "off", rc);
+}
+
 static void init_rtc(void)
 {
     int rc = i2c_init(100000);
@@ -282,6 +296,7 @@ void robco_main(void)
     UOS_MARK("mbox rc=%d mem_base=0x%08x mem_size=0x%08x", mbox, (unsigned)mem_base,
              (unsigned)mem_size);
 
+    init_mmu();
     init_screen();
 
     irq_init();
@@ -304,6 +319,7 @@ void robco_main(void)
     mount_card();
     read_config();
     init_rtc();
+    uos_services_init();
 
     uos_loop_init();
     uos.phase = UOS_PHASE_READY;

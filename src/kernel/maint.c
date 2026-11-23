@@ -4,38 +4,111 @@
  * mini UART reaches no pin, see BOARD_SUPPORT.md in RobCo-Core. It is for
  * tests and bring-up, not for users.
  *
- * Commands, besides the library's built-in ones (key, char, text, dial):
+ * The library answers its built-in commands (key, char, text, dial, wait,
+ * stats). Every other line goes to dispatch(), which looks the first word
+ * up in the registry of uos_maint.h. Commands registered here:
+ *   help           the registered commands with their help, sorted
  *   state          one line: phase, screen, user, card, last error
  *   dump           the console cells, through console_dump()
  *   type <words>   the words as characters, then SELECT: one typed line of
  *                  at most 30 characters, or "err full"
  *   timers         the live timers, one line each after a count line
- *   reboot         restarts the board through the watchdog
+ *   reboot         shuts the services down, then restarts the board
  * Test builds only (UOS_TEST_HOOKS=1):
  *   fault undef|pabt   runs an undefined instruction or a breakpoint
  *   panic              calls uos_panic()
+ *   halt               calls uos_halt()
+ *   bench uaf <n>      times uaf_hash() over n iterations
  * Every answer line is complete; the port then says "ok" or "err <why>".
  */
+
+#include <stdarg.h>
 
 #include <robco/console.h>
 #include <robco/input.h>
 #include <robco/klibc.h>
-#include <robco/power.h>
 #include <robco/uart.h>
 #include <robco/uart_mini.h>
 
 #include "uos.h"
+#include "uos_maint.h"
 
-static input_script_reply_t *dump_reply;
+#if defined(UOS_TEST_HOOKS) && UOS_TEST_HOOKS
+#include <robco/timer.h>
+
+#include "uaf.h"
+#endif
+
+static uos_maint_table_t table;
+static input_script_reply_t *cur_reply;   /* the line being answered */
+static int table_on;    /* the table holds the base commands */
 static int input_on;    /* input_init() ran and the handler is set */
 static int script_on;   /* the script channel answers */
 
-static void dump_char(char c)
-{
-    char s[2] = { c, '\0' };
+static void fill_table(void);
 
-    dump_reply->write(s);
+/* ---- The registry on the port -------------------------------------------- */
+
+int uos_maint_register(const char *name, uos_maint_fn fn, const char *help)
+{
+    fill_table();
+    return uos_mt_add(&table, name, fn, help);
 }
+
+void uos_maint_reply(const char *fmt, ...)
+{
+    char line[124];
+    va_list ap;
+    size_t n;
+
+    if (cur_reply == NULL) {
+        return;
+    }
+    va_start(ap, fmt);
+    k_vsnprintf(line, sizeof(line) - 1, fmt, ap);
+    va_end(ap);
+    n = k_strlen(line);
+    line[n] = '\n';
+    line[n + 1] = '\0';
+    cur_reply->write(line);
+}
+
+int uos_maint_fail(const char *reason)
+{
+    if (cur_reply != NULL) {
+        cur_reply->reason = reason;
+    }
+    return UOS_MAINT_FAIL;
+}
+
+static int dispatch(int argc, char *argv[], input_script_reply_t *reply, void *ctx)
+{
+    char *args[UOS_MAINT_ARGS_MAX + 1];
+    const uos_maint_cmd_t *cmd = uos_mt_find(&table, argv[0]);
+    char *rest = "";
+    int n, rc;
+
+    (void)ctx;
+    if (cmd == NULL) {
+        reply->reason = "unknown command";
+        return -1;
+    }
+    /* The words after the name, joined back, then split again with quotes. */
+    if (argc > 1) {
+        rest = uos_mt_rejoin(argv[1], argv[argc - 1]);
+    }
+    n = uos_mt_split(rest, args, UOS_MAINT_ARGS_MAX);
+    if (n < 0) {
+        reply->reason = n == UOS_MAINT_SPLIT_QUOTE ? "bad quotes" : "too many words";
+        return -1;
+    }
+    cur_reply = reply;
+    rc = cmd->fn(n, args);
+    cur_reply = NULL;
+    return rc < 0 ? -1 : 0;
+}
+
+/* ---- Base commands ----------------------------------------------------------- */
 
 static const char *phase_name(int phase)
 {
@@ -43,18 +116,60 @@ static const char *phase_name(int phase)
     case UOS_PHASE_INIT:  return "init";
     case UOS_PHASE_READY: return "ready";
     case UOS_PHASE_PANIC: return "panic";
+    case UOS_PHASE_HALT:  return "halt";
     default:              return "unknown";
     }
 }
 
-static void state_line(char *buf, unsigned size)
+static int cmd_help(int argc, char **argv)
 {
-    const uos_screen_t *top = uos.phase == UOS_PHASE_PANIC ? NULL : uos_screen_top();
+    unsigned i;
 
-    k_snprintf(buf, size, "phase=%s screen=%s user=%s card=%s trusted=%d error=%s",
-               phase_name(uos.phase), top != NULL && top->name != NULL ? top->name : "none",
-               uos.user[0] != '\0' ? uos.user : "none", uos_card_name(uos.card), uos.trusted,
-               uos.error[0] != '\0' ? uos.error : "none");
+    (void)argv;
+    if (argc != 0) {
+        return uos_maint_fail("unknown command");
+    }
+    for (i = 0; i < table.count; i++) {
+        uos_maint_reply("%-12s %s", table.cmd[i].name, table.cmd[i].help);
+    }
+    return 0;
+}
+
+static int cmd_state(int argc, char **argv)
+{
+    const uos_screen_t *top = uos.phase == UOS_PHASE_READY || uos.phase == UOS_PHASE_INIT
+                              ? uos_screen_top() : NULL;
+
+    (void)argv;
+    if (argc != 0) {
+        return uos_maint_fail("unknown command");
+    }
+    uos_maint_reply("phase=%s screen=%s user=%s card=%s trusted=%d error=%s",
+                    phase_name(uos.phase),
+                    top != NULL && top->name != NULL ? top->name : "none",
+                    uos.user[0] != '\0' ? uos.user : "none", uos_card_name(uos.card),
+                    uos.trusted, uos.error[0] != '\0' ? uos.error : "none");
+    return 0;
+}
+
+static void dump_char(char c)
+{
+    char s[2] = { c, '\0' };
+
+    cur_reply->write(s);
+}
+
+static int cmd_dump(int argc, char **argv)
+{
+    (void)argv;
+    if (argc != 0) {
+        return uos_maint_fail("unknown command");
+    }
+    if (!uos.fb_ok) {
+        return uos_maint_fail("no screen");
+    }
+    console_dump(dump_char);
+    return 0;
 }
 
 static void push_char(char c)
@@ -65,7 +180,7 @@ static void push_char(char c)
     (void)input_push(&ev);
 }
 
-static int cmd_type(int argc, char *argv[], input_script_reply_t *reply)
+static int cmd_type(int argc, char **argv)
 {
     input_event_t key = { .type = INPUT_EV_KEY, .source = INPUT_SRC_SCRIPT,
                           .code = INPUT_KEY_SELECT, .value = INPUT_PRESS };
@@ -73,16 +188,18 @@ static int cmd_type(int argc, char *argv[], input_script_reply_t *reply)
     int i;
     const char *p;
 
+    if (uos.phase != UOS_PHASE_READY) {
+        return uos_maint_fail("not ready");
+    }
     /* One event per character, a space between words, SELECT pressed and released. */
-    for (i = 1; i < argc; i++) {
-        n += (unsigned)k_strlen(argv[i]) + (i > 1 ? 1u : 0u);
+    for (i = 0; i < argc; i++) {
+        n += (unsigned)k_strlen(argv[i]) + (i > 0 ? 1u : 0u);
     }
     if (!input_room(n)) {
-        reply->reason = "full";
-        return -1;
+        return uos_maint_fail("full");
     }
-    for (i = 1; i < argc; i++) {
-        if (i > 1) {
+    for (i = 0; i < argc; i++) {
+        if (i > 0) {
             push_char(' ');
         }
         for (p = argv[i]; *p != '\0'; p++) {
@@ -95,27 +212,36 @@ static int cmd_type(int argc, char *argv[], input_script_reply_t *reply)
     return 0;
 }
 
-static int cmd_timers(input_script_reply_t *reply)
+static int cmd_timers(int argc, char **argv)
 {
     const uos_timerq_t *tq = uos_timer_table();
     uint32_t now = uos_ticks();
-    char line[96];
     unsigned i;
 
-    k_snprintf(line, sizeof(line), "timers count=%u expired=%u\n", uos_tq_live(tq),
-               (unsigned)tq->expired);
-    reply->write(line);
+    (void)argv;
+    if (argc != 0) {
+        return uos_maint_fail("unknown command");
+    }
+    uos_maint_reply("timers count=%u expired=%u", uos_tq_live(tq), (unsigned)tq->expired);
     for (i = 0; i < UOS_TIMER_MAX; i++) {
         uos_timer_id_t id;
         uint32_t due, period;
 
         if (uos_tq_slot(tq, i, now, &id, &due, &period)) {
-            k_snprintf(line, sizeof(line), "timer id=0x%08x due=%u period=%u\n",
-                       (unsigned)id, (unsigned)due, (unsigned)period);
-            reply->write(line);
+            uos_maint_reply("timer id=0x%08x due=%u period=%u", (unsigned)id, (unsigned)due,
+                            (unsigned)period);
         }
     }
     return 0;
+}
+
+static int cmd_reboot(int argc, char **argv)
+{
+    (void)argv;
+    if (argc != 0) {
+        return uos_maint_fail("unknown command");
+    }
+    uos_reboot("maint");
 }
 
 #if defined(UOS_TEST_HOOKS) && UOS_TEST_HOOKS
@@ -135,82 +261,114 @@ static void uos_test_panic(void *arg)
     uos_panic("TEST PANIC FROM THE MAINTENANCE PORT");
 }
 
-static int test_command(int argc, char *argv[], input_script_reply_t *reply, int *rc)
+static void uos_test_halt(void *arg)
 {
-    if (k_strcmp(argv[0], "fault") == 0 && argc == 2) {
-        if (k_strcmp(argv[1], "undef") == 0) {
-            *rc = uos_post(uos_test_fault, NULL);
-        } else if (k_strcmp(argv[1], "pabt") == 0) {
-            *rc = uos_post(uos_test_fault, (void *)1);
-        } else {
-            reply->reason = "unknown fault";
-            *rc = -1;
-        }
-        return 1;
+    (void)arg;
+    uos_halt();
+}
+
+/* A fixed input: the bench measures the hash, not the data. */
+static void uos_test_bench_uaf(void *arg)
+{
+    static const uint8_t salt[UAF_SALT_SIZE] = { 'U', 'O', 'S', '-', 'B', 'E', 'N', 'C', 'H' };
+    uint8_t out[UAF_HASH_SIZE];
+    uint32_t iterations = (uint32_t)(uintptr_t)arg;
+    uint32_t t0 = uos_ticks();
+    uint64_t us0 = timer_now_us();
+    uaf_err_t rc = uaf_hash(salt, "robco-bench", iterations, out, NULL);
+
+    UOS_MARK("bench name=uaf iterations=%u rc=%d ticks=%u us=%u", (unsigned)iterations,
+             (int)rc, (unsigned)(uos_ticks() - t0), (unsigned)(timer_now_us() - us0));
+}
+
+/* Each refuses to run without the loop: after a panic or a halt nothing
+ * would take the posted call. */
+static int test_post(uos_call_fn fn, void *arg)
+{
+    if (uos.phase != UOS_PHASE_READY) {
+        return uos_maint_fail("unknown command");
     }
-    if (k_strcmp(argv[0], "panic") == 0 && argc == 1) {
-        *rc = uos_post(uos_test_panic, NULL);
-        return 1;
+    return uos_post(fn, arg) == 0 ? 0 : uos_maint_fail("full");
+}
+
+static int cmd_fault(int argc, char **argv)
+{
+    if (uos.phase != UOS_PHASE_READY || argc != 1) {
+        return uos_maint_fail("unknown command");
     }
-    return 0;
+    if (k_strcmp(argv[0], "undef") == 0) {
+        return test_post(uos_test_fault, NULL);
+    }
+    if (k_strcmp(argv[0], "pabt") == 0) {
+        return test_post(uos_test_fault, (void *)1);
+    }
+    return uos_maint_fail("unknown fault");
+}
+
+static int cmd_panic(int argc, char **argv)
+{
+    (void)argv;
+    return argc != 0 ? uos_maint_fail("unknown command") : test_post(uos_test_panic, NULL);
+}
+
+static int cmd_halt(int argc, char **argv)
+{
+    (void)argv;
+    return argc != 0 ? uos_maint_fail("unknown command") : test_post(uos_test_halt, NULL);
+}
+
+static int cmd_bench(int argc, char **argv)
+{
+    uint32_t n = 0;
+    const char *p;
+
+    if (argc != 2 || k_strcmp(argv[0], "uaf") != 0) {
+        return uos_maint_fail("usage: bench uaf <iterations>");
+    }
+    for (p = argv[1]; *p >= '0' && *p <= '9' && n <= 100000u; p++) {
+        n = n * 10u + (uint32_t)(*p - '0');
+    }
+    if (*p != '\0' || n < 1u || n > 100000u) {
+        return uos_maint_fail("iterations 1 to 100000");
+    }
+    return test_post(uos_test_bench_uaf, (void *)(uintptr_t)n);
 }
 #endif
 
-static int command(int argc, char *argv[], input_script_reply_t *reply, void *ctx)
+/*
+ * The base commands, once. uos_maint_start(), uos_maint_register() and the
+ * panic path call it, so the base commands answer even after a panic that
+ * came before uos_maint_start(). Pure table work: safe with IRQs off.
+ */
+static void fill_table(void)
 {
-    char line[128];
-
-    (void)ctx;
-    if (k_strcmp(argv[0], "state") == 0 && argc == 1) {
-        state_line(line, sizeof(line));
-        reply->write(line);
-        reply->write("\n");
-        return 0;
+    if (table_on) {
+        return;
     }
-    if (k_strcmp(argv[0], "dump") == 0 && argc == 1) {
-        if (!uos.fb_ok) {
-            reply->reason = "no screen";
-            return -1;
-        }
-        dump_reply = reply;
-        console_dump(dump_char);
-        return 0;
-    }
-    if (k_strcmp(argv[0], "type") == 0) {
-        if (uos.phase != UOS_PHASE_READY) {
-            reply->reason = "not ready";
-            return -1;
-        }
-        return cmd_type(argc, argv, reply);
-    }
-    if (k_strcmp(argv[0], "timers") == 0 && argc == 1) {
-        return cmd_timers(reply);
-    }
-    if (k_strcmp(argv[0], "reboot") == 0 && argc == 1) {
-        UOS_MARK("reboot source=maint");
-        uart_flush();
-        power_reboot();
-    }
+    table_on = 1;
+    uos_mt_init(&table);
+    (void)uos_mt_add(&table, "help", cmd_help, "lists the commands");
+    (void)uos_mt_add(&table, "state", cmd_state, "phase, screen, user, card, trust, last error");
+    (void)uos_mt_add(&table, "dump", cmd_dump, "the console cells");
+    (void)uos_mt_add(&table, "type", cmd_type, "types the words, then SELECT");
+    (void)uos_mt_add(&table, "timers", cmd_timers, "the live timers");
+    (void)uos_mt_add(&table, "reboot", cmd_reboot, "shuts the services down and restarts");
 #if defined(UOS_TEST_HOOKS) && UOS_TEST_HOOKS
-    {
-        int rc = 0;
-
-        if (uos.phase == UOS_PHASE_READY && test_command(argc, argv, reply, &rc)) {
-            return rc;
-        }
-    }
+    (void)uos_mt_add(&table, "fault", cmd_fault, "test: fault undef|pabt");
+    (void)uos_mt_add(&table, "panic", cmd_panic, "test: calls uos_panic()");
+    (void)uos_mt_add(&table, "halt", cmd_halt, "test: calls uos_halt()");
+    (void)uos_mt_add(&table, "bench", cmd_bench, "test: bench uaf <iterations>");
 #endif
-    reply->reason = "unknown command";
-    return -1;
 }
 
 void uos_maint_start(void)
 {
     int serial, script = INPUT_ERR_NO_UART;
 
+    fill_table();
     input_init();
     serial = input_serial_start(INPUT_SERIAL_MAIN);
-    input_script_set_handler(command, NULL);
+    input_script_set_handler(dispatch, NULL);
     input_on = 1;
     if (uart_mini_ready()) {
         script = input_script_start();
@@ -222,18 +380,20 @@ void uos_maint_start(void)
 /*
  * A panic can come before uos_maint_start(), from the exception hook or a
  * failed tick. The port then starts here, polled: the script channel needs
- * the mini UART and the input layer, not the tick or IRQs.
+ * the mini UART and the input layer, not the tick or IRQs. The table gets
+ * its base commands first, so help, state, dump and reboot answer.
  */
 static void late_start(void)
 {
     int mini = 0, script;
 
+    fill_table();
     if (script_on) {
         return;
     }
     if (!input_on) {
         input_init();
-        input_script_set_handler(command, NULL);
+        input_script_set_handler(dispatch, NULL);
         input_on = 1;
     }
     if (!uart_mini_ready()) {

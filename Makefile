@@ -33,15 +33,17 @@ SRCS       := $(sort $(wildcard src/*/*.c src/*/*.S))
 PURE_NAMED := src/dcl/*.c \
               src/dev/devcfg.c src/dev/devstate.c \
               src/hack/hack.c \
-              src/holo/holofmt.c \
+              src/holo/holofmt.c src/holo/holoread.c \
               src/osk/osk.c \
               src/session/lockout.c src/session/sha256.c src/session/uaf.c \
-              src/tui/tui.c \
+              src/tui/pager.c src/tui/tui.c src/tui/tuicfg.c \
               src/vfs/path.c
 PURE_KERNEL := \
               src/kernel/bootlines.c \
               src/kernel/event.c \
+              src/kernel/maintreg.c \
               src/kernel/screen.c \
+              src/kernel/service.c \
               src/kernel/settings.c \
               src/kernel/timerq.c \
 
@@ -50,11 +52,19 @@ PURE_SRCS  := $(sort $(wildcard $(PURE_NAMED))) $(PURE_KERNEL)
 
 # Host unit tests: every tests/host/test_*.c links every pure file. Each
 # source folder is an include directory, so a test includes "uos_timer.h"
-# or "kernel/uos_timer.h" alike. tests/host/*.mk are the standalone
-# makefiles of the module tasks: not part of this build.
+# or "kernel/uos_timer.h" alike. Files in tests/host/ not named test_*.c
+# are host tools, built by test-tools.
 HOST_TEST_DIR := tests/host
 HOST_SRCS     := $(PURE_SRCS)
-HOST_INCLUDES := src $(patsubst %/,%,$(sort $(dir $(wildcard src/*/*.c src/*/*.h))))
+SRC_INCLUDES  := src $(patsubst %/,%,$(sort $(dir $(wildcard src/*/*.c src/*/*.h))))
+
+# Headers the host tests need that a tool generates: the session
+# module's hash vectors, from tests/vectors/uaf.json.
+HOST_GEN      := $(BUILD)/host/gen
+HOST_GEN_HDRS := $(HOST_GEN)/uaf_vectors.h
+HOST_INCLUDES := $(SRC_INCLUDES) $(HOST_GEN)
+# Tests run from the repository root and read the shipped card files.
+HOST_DEFINES  := UAF_CARD_PATH='"card/UOS/SYSUAF.DAT"'
 
 ifeq ($(wildcard $(ROBCO_CORE)/mk/robco.mk),)
 $(error $(ROBCO_CORE) is empty: run git submodule update --init)
@@ -71,8 +81,8 @@ SDIMAGE_FILES := $(BUILD)/UOS.SYS:ROBCO/UOS.SYS \
 include $(ROBCO_CORE)/mk/robco.mk
 include $(ROBCO_CORE)/mk/host.mk
 
-# The image sees the same include directories as the host tests.
-ROBCO_CFLAGS += $(addprefix -I,$(HOST_INCLUDES))
+# The image sees the source folders as include directories.
+ROBCO_CFLAGS += $(addprefix -I,$(SRC_INCLUDES))
 
 # Target tests boot the images built here; keep top-level targets serial.
 .NOTPARALLEL:
@@ -109,11 +119,17 @@ test-target: all venv
 	    $(if $(RETROS_IMG),--retros-img $(abspath $(RETROS_IMG))) \
 	    $(if $(MFBOOT_SYS),--mfboot-sys $(abspath $(MFBOOT_SYS)))
 
-# pytest exits 5 when it collects nothing: no tool has tests yet.
-test-tools: venv
-	@if ls tests/tools/test_*.py >/dev/null 2>&1; then \
-	  $(VENV)/bin/pytest tests/tools -q -p no:cacheprovider; \
-	else echo "test-tools: no tests/tools/test_*.py"; fi
+# Host tools the tool tests call. holocheck validates tapes with the C
+# reader, so tests/tools/test_mkholo.py checks both sides agree.
+HOST_TOOLS := $(HOST_BUILD)/holocheck
+
+$(HOST_BUILD)/holocheck: tests/host/holocheck.c $(HOST_LINK) $(HOST_HDRS)
+	@mkdir -p $(dir $@)
+	$(HOST_CC) $(HOST_CFLAGS) -o $@ $< $(HOST_LINK)
+
+test-tools: venv $(HOST_TOOLS)
+	ROBCO_CORE=$(abspath $(ROBCO_CORE)) HOLO_CHECK=$(abspath $(HOST_BUILD)/holocheck) \
+	    $(VENV)/bin/pytest tests/tools -q -p no:cacheprovider
 
 # DOC_ROOT: the tree whose Markdown links check-doc-links reads.
 DOC_ROOT ?= .
@@ -125,7 +141,47 @@ check-doc-links:
 	$(ROBCO_CORE)/tools/check_doc_links.sh $(DOC_ROOT) external/robco-core
 
 # Host unit tests come from mk/host.mk. The pin check runs first.
-test-host: check-pins
+test-host: check-pins test-host-gccwarn-ci
+
+# The library's test-host-gccwarn drops the sanitizer flags and uses -O2.
+# CI's host GCC builds with -O1 and the sanitizers, and UBSan's checks
+# hide loop bounds from GCC, so -Wformat-truncation fires only there.
+# This target compiles every host C file with the cross GCC and the CI
+# host flags, minus -g. Remove it once mk/host.mk does the same.
+HOST_GWCI_SRCS := $(sort $(HOST_GW_SRCS) $(wildcard $(HOST_TEST_DIR)/*.c))
+HOST_GWCI = $(HOST_GCCWARN_CC) -c -o /dev/null $(filter-out -g,$(HOST_CFLAGS)) \
+            -Wno-pointer-to-int-cast -Wno-int-to-pointer-cast -idirafter "$$inc"
+
+.PHONY: test-host-gccwarn-ci
+test-host-gccwarn-ci: $(HOST_GEN_HDRS)
+	@set -u; \
+	skip() { echo "test-host-gccwarn-ci: skipped, $$1"; exit 0; }; \
+	defs=$$($(HOST_CC) -dM -E -x c /dev/null 2>/dev/null); \
+	case "$$defs" in *__clang__*) ;; *__GNUC__*) skip "$(HOST_CC) is GCC";; esac; \
+	command -v $(HOST_GCCWARN_CC) >/dev/null 2>&1 || skip "no $(HOST_GCCWARN_CC)"; \
+	inc="$(HOST_GCCWARN_INC)"; \
+	if [ -z "$$inc" ] && command -v xcrun >/dev/null 2>&1; then \
+	  inc="$$(xcrun --show-sdk-path 2>/dev/null)/usr/include"; \
+	fi; \
+	[ -n "$$inc" ] && [ -f "$$inc/stdio.h" ] || skip "no host headers, set HOST_GCCWARN_INC"; \
+	bad=""; \
+	for f in $(HOST_GWCI_SRCS); do $(HOST_GWCI) $$f || bad="$$bad $$f"; done; \
+	if [ -n "$$bad" ]; then echo "test-host-gccwarn-ci: FAILED:$$bad" >&2; exit 1; fi; \
+	echo "test-host-gccwarn-ci: $(HOST_GCCWARN_CC) found no warning at the CI flags"
+
+# Runs the CI build job in the robco-ci image, as GitHub Actions does.
+# The tree is copied to a scratch directory, so the container's outputs
+# never mix with the Mac's. CI_IMAGE overrides the image.
+.PHONY: ci-local
+ci-local:
+	tools/ci_local.sh
+
+# Generated headers exist before any host test builds.
+$(HOST_TESTS): $(HOST_GEN_HDRS)
+
+$(HOST_GEN)/uaf_vectors.h: tests/vectors/uaf.json tools/mkuaf.py
+	@mkdir -p $(dir $@)
+	$(PYTHON) tools/mkuaf.py vectors-h $< -o $@
 
 # ---- Cards and QEMU -----------------------------------------------------
 

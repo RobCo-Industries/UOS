@@ -1,15 +1,18 @@
 # UOS architecture
 
-This describes the kernel base. Nothing is validated on real hardware.
+This describes the kernel base and the pure modules. Nothing is validated on real hardware.
 
 ## Layout
 
 ```
-src/kernel/   entry, panic, event loop, timers, screens, settings, maintenance port, first screen
-src/vfs/ src/console/ src/dcl/ src/session/ src/cmd/ src/tui/ src/hack/ src/osk/ src/dev/ src/holo/
-              later modules, one folder each
-card/         the default card content: /UOS/UOS.CFG
-tests/host/   host tests of the pure files
+src/kernel/   entry, panic, event loop, timers, screens, settings, maintenance port, first screen,
+              the shared privilege bits, the service table
+src/dcl/ src/vfs/ src/session/ src/osk/ src/dev/ src/tui/ src/hack/ src/holo/
+              the pure modules, one folder each
+card/         the default card: /UOS/UOS.CFG, SYSUAF.DAT, DEVICES.CFG, HOME/, WORDS/, HOLO/
+tools/        card tools: mkuaf.py, mkwords.py, mkholo.py
+tests/host/   host tests of the pure files, and host tools such as holocheck.c
+tests/tools/  pytest tests of the card tools
 tests/        QEMU target tests
 ```
 
@@ -24,8 +27,34 @@ A pure file has no hardware access, no kernel calls and no allocation. Its state
 | `src/kernel/screen.c` | The screen stack, `uos_screen.h` |
 | `src/kernel/settings.c` | The `UOS.CFG` reader, `uos_settings.h` |
 | `src/kernel/bootlines.c` | The first screen's text, `bootlines.h` |
+| `src/kernel/maintreg.c` | The maintenance command table and its word splitting, `uos_maint.h` |
+| `src/kernel/service.c` | The rules that run the service table, `uos_service.h` |
 
-The hardware side is `main.c`, `loop.c`, `panic.c`, `maint.c` and `first.c`. Their services are in `uos.h`.
+The hardware side is `main.c`, `loop.c`, `panic.c`, `maint.c`, `first.c`, `services.c` and `svc_uptime.c`. Their calls are in `uos.h`, `uos_maint.h` and `uos_service.h`.
+
+The modules below are pure too. The image links them, but no kernel code calls them yet, so the linker drops them.
+
+## Modules
+
+Each module has a reference page in `docs/modules/`. The on-card formats are gathered in [FORMATS.md](FORMATS.md). No login, shell or screen uses a module yet.
+
+Every module that tests privileges uses the bits of `src/kernel/uos_privs.h`: `SYSTEM` bit 0, `OPER` bit 1, `SECURITY` bit 2, `READALL` bit 3. Each module keeps its own names, such as `DCL_PRIV_OPER` or `UAF_PRIV_OPER`, as aliases, and static asserts check them.
+
+[dcl](modules/dcl.md): the command language in the style of DCL. It splits a line into a verb, qualifiers and parameters, looks names up by the abbreviation rule, checks the privileges each verb needs and formats the system messages. Pure files: `src/dcl/dcl.c`, `msg.c`, `tables.c`. Public header: `src/dcl/dcl.h`, prefix `dcl_`.
+
+[vfs path](modules/vfs-path.md): file specifications such as `SD0:[HOME.ADMIN]A.TXT;1`. It turns them into FAT paths and back, expands logical names and wildcards, and decides file access. Pure file: `src/vfs/path.c`. Public header: `src/vfs/path.h`, prefix `vp_`.
+
+[session](modules/session.md): users and login. It holds SHA-256, the `SYSUAF.DAT` user database with its iterated password hash, and the login lockout. Pure files: `src/session/sha256.c`, `uaf.c`, `lockout.c`. Public headers: `sha256.h`, `uaf.h`, `lockout.h`, prefixes `sha_`, `uaf_`, `lk_`.
+
+[osk](modules/osk.md): the on-screen keyboard for text entry with buttons only. It keeps the highlight and the layer and emits key events for the line editor. Pure file: `src/osk/osk.c`. Public header: `src/osk/osk.h`, prefix `osk_`.
+
+[dev](modules/dev.md): device control. It parses `DEVICES.CFG`, keeps each device's state, turns commands into pin operations with their timing and formats status lines. Pure files: `src/dev/devcfg.c`, `devstate.c`. Public header: `src/dev/dev.h`, prefix `dv_`.
+
+[tui](modules/tui.md): the menu-driven terminal screen and the pager. It parses `TERMINAL.CFG`, runs the menu model and lays out the screen. Pure files: `src/tui/tuicfg.c`, `tui.c`, `pager.c`. Public header: `src/tui/tui.h`, prefixes `tui_` and `pg_`.
+
+[hack](modules/hack.md): the password minigame. It parses the word lists, picks the candidates, builds the board and runs the game with its lockout timer. Pure file: `src/hack/hack.c`. Public header: `src/hack/hack.h`, prefix `hk_`.
+
+[holo](modules/holo.md): data holotapes. It validates a tape in memory, gives its title and entries, and runs the reader model. Pure files: `src/holo/holofmt.c`, `holoread.c`. Public header: `src/holo/holofmt.h`, prefix `hf_`.
 
 ## Boot order
 
@@ -38,6 +67,7 @@ Each step prints one marker, `@RC stage=uos ev=<name> ...`, in this order:
 | `maint` | The mini UART for the maintenance port: `mini` is its init result |
 | `board` | MIDR, SoC, peripheral base, board revision |
 | `mbox` | The ARM memory from the mailbox |
+| `mmu` | `mmu_init()` and `mmu_enable()`: the MMU, the caches and branch prediction. `result=on`, `off` or `err`, with `rc`. See [Memory](#memory). |
 | `screen` | `fb_init()` at 640x480x32 and `console_init()` on a cleared screen. The scheme comes from a trusted boot info, else green: `source=bootinfo` or `default`. |
 | `tick` | IRQs and the tick at 100 Hz. A failure panics. |
 | `heap` | The heap from `robco_heap_high()`, from `0x01000000` to the top of ARM memory |
@@ -46,9 +76,12 @@ Each step prints one marker, `@RC stage=uos ev=<name> ...`, in this order:
 | `mount` | The card by `fs_mount_boot()` with markers `/UOS/UOS.CFG` and `/ROBCO/UOS.SYS`, then the `/UOS` folder: `result=ok`, `none` or `notree` |
 | `config` | `UOS.CFG`: `result=ok`, `syntax`, `missing`, `skipped` or `bad`, with every setting and the counts |
 | `rtc` | I2C and a DS1307 or DS3231 clock, if one answers |
+| `service` | One line per service, in table order: `name`, `rc`. See [Services](#services). |
 | `ready` | The first screen is drawn |
 
 When there is no card or no `/UOS` folder, UOS still reaches the first screen. The screen says what is missing, `state` reports it and the maintenance port works.
+
+A service whose init fails does not stop the boot. It sets `error=service`.
 
 A `UOS.CFG` scheme applies only when the boot info gave none. Bad values are skipped, out-of-range numbers are clamped to the range, and both set `error=config`.
 
@@ -60,6 +93,8 @@ One thread of control. `uos_loop_run()` repeats:
 2. Takes input events while the queue has room. Key releases are dropped. The rest waits in the input layer.
 3. Delivers every queued event, drawing the top screen after each one when it is dirty.
 4. Sleeps in `wfi`, through `input_wait()`, until input or the next tick.
+
+Each `TICK` event first calls the `tick` function of every started service, then goes to the screens.
 
 Event types, `uos_event.h`: `KEY`, `CHAR`, `TICK`, `TIMER` and `CALL`. `uos_post(fn, arg)` queues a call from any context. The queue holds 32 events. A full queue refuses an event and counts it in `uos_events_dropped()`: `uos_post()` then returns `UOS_EVQ_ERR_FULL`, and the call never runs unless the caller posts it again. A key that finds the queue full is dropped and counted. Under a flood the loop takes input only while there is room, so drops are rare; the PL011 console then stalls instead of dropping.
 
@@ -96,24 +131,91 @@ The banner lines are lore: in-world text, original to UOS.
 
 ## The panic path
 
-`uos_panic(fmt, ...)` and the exception hook for undefined instructions and aborts share one path. It masks IRQs, prints `ev=panic kind=<call|undef|pabt|dabt> reason=<words_joined_by_underscores>`, with the registers after an exception, clears the screen and shows the reason and the registers. Then it prints `ev=idle` and polls the maintenance port for good.
+`uos_panic(fmt, ...)` and the exception hook for undefined instructions and aborts share one path. It masks IRQs, prints `ev=panic kind=<call|undef|pabt|dabt> reason=<words_joined_by_underscores>`, with the registers after an exception, and shuts the services down with `why=panic`. It clears the screen and shows the reason and the registers. Then it prints `ev=idle` and polls the maintenance port for good.
 
-The rule: from the moment a panic is possible, the maintenance port answers. The first way into the panic path is the exception hook, set at the `handoff` step. That comes before the mini UART and before `uos_maint_start()`. A failed tick also panics before `uos_maint_start()`. So when the port is not up yet, the panic path starts it itself, polled: `input_init()`, the command handler, `uart_mini_init()` if needed and `input_script_start()`. The script channel needs no tick and no IRQs. It prints `ev=port late=1 mini=<rc> script=<rc>` before `ev=idle`. `state` and `reboot` then answer. `dump` answers once the screen is up, else `err no screen`. No `uos_panic()` call comes before the tick step.
+The rule: from the moment a panic is possible, the maintenance port answers. The first way into the panic path is the exception hook, set at the `handoff` step. That comes before the mini UART and before `uos_maint_start()`. A failed tick also panics before `uos_maint_start()`. So when the port is not up yet, the panic path starts it itself, polled: the registry's base commands, `input_init()`, the command handler, `uart_mini_init()` if needed and `input_script_start()`. The script channel needs no tick and no IRQs. It prints `ev=port late=1 mini=<rc> script=<rc>` before `ev=idle`. `help`, `state`, `timers` and `reboot` then answer. `dump` answers once the screen is up, else `err no screen`. No `uos_panic()` call comes before the tick step.
+
+A panic before the `service` markers has no service to shut down, so it prints no `ev=shutdown` marker.
+
+When the MMU is on, it stays on in the panic path. The vectors, the stacks and the framebuffer stay mapped, so the screen and the port keep working.
+
+## Reboot and halt
+
+`uos_reboot(source)` shuts the services down with `why=reboot`, prints `ev=reboot source=<source>`, turns the MMU and the data cache off with `mmu_disable()`, which cleans every dirty line to memory, and resets the board through the watchdog.
+
+`uos_halt()` masks IRQs, shuts the services down with `why=halt`, sets the phase to `halt`, prints `ev=halt`, then `ev=idle`, and polls the maintenance port for good, as the panic path does.
 
 ## The maintenance port
 
 The mini UART script channel. In QEMU it is the second serial port. On a Pi the mini UART reaches no pin. Each answer is complete lines that start with `| `, then `ok` or `err <reason>`.
 
+The library answers its built-in commands: `key`, `char`, `text`, `dial`, `wait` and `stats`. Every other line goes to the registry of `uos_maint.h`. It looks the first word up, splits the rest into words again and calls the command function. A word in double quotes keeps its spaces, and `""` inside quotes is one quote. A line holds at most 127 characters and 8 blank-separated words in all, quotes or not: the library refuses longer lines. An unknown first word gets `err unknown command`, an unclosed quote `err bad quotes`.
+
+The base commands enter the table on the first use of the registry: `uos_maint_start()`, a `uos_maint_register()` call or the panic path, whichever comes first. So the base commands answer after any panic. A service's commands exist once its init has run.
+
 | Command | Answer |
 |---|---|
+| `help` | One line per registered command, sorted by name: the name, then its help text |
 | `state` | `phase=... screen=... user=... card=... trusted=... error=...`: the phase `init`, `ready` or `panic`; the top screen's name; the user; the card `ok`, `none` or `notree`; the trust result; the last error. `none` stands for nothing. |
 | `dump` | The console cells, from `console_dump()` |
 | `key <name>` | Built in: presses and releases a key |
 | `char <c>`, `text <s>` | Built in: characters |
 | `type <words>` | The words as characters with single spaces, then SELECT. At most 30 characters, spaces included: the input queue holds 32 events, and SELECT takes a press and a release. A longer line answers `err full` and types nothing. For longer text a test sends several `type` or `text` commands. |
 | `timers` | `timers count=<n> expired=<n>`, then `timer id=<id> due=<ticks> period=<ticks>` per live timer |
-| `reboot` | `ev=reboot source=maint`, then a watchdog reset |
-| `fault undef`, `fault pabt`, `panic` | Test builds only. Refused in the shipped image. |
+| `reboot` | Shuts the services down, `ev=reboot source=maint`, then a watchdog reset |
+| `services` | `service name=<n> rc=<rc>` per service, in table order |
+| `uptime` | `uptime s=<seconds> ticks=<ticks> start=<tick> last=<tick>`: the time since the tick started, the tick at which the uptime service started, and the tick of its last `tick` call |
+| `fault undef`, `fault pabt`, `panic`, `halt` | Test builds only. They post the fault, `uos_panic()` or `uos_halt()` to the loop. |
+| `bench uaf <n>` | Test builds only. Posts `uaf_hash()` over `n` iterations, 1 to 100000, on a fixed salt and password to the loop, which prints `ev=bench name=uaf iterations=<n> rc=<rc> ticks=<ticks> us=<us>` |
+
+The test commands are not registered in the shipped image, and they answer `err unknown command` once the loop has stopped.
+
+## Services
+
+A service starts once at boot and stops before a reboot, a halt or after a panic. `src/kernel/uos_service.h` defines it:
+
+```c
+typedef struct uos_service {
+    const char *name;
+    int  (*init)(void);
+    void (*tick)(uint32_t now);
+    void (*shutdown)(int why);
+} uos_service_t;
+```
+
+- `init` runs once, in table order, after the card, the settings and the clock are read, before the loop runs. It returns 0 or a negative code. A failure does not stop the boot: the next service still starts, `state` shows `error=service`, and the failed service never gets `tick` or `shutdown`.
+- `tick`, optional, runs from the loop on every `TICK` event, with the tick count.
+- `shutdown`, optional, runs in reverse table order before a reboot, a halt and from the panic path. `why` is `UOS_SHUTDOWN_REBOOT`, `UOS_SHUTDOWN_HALT` or `UOS_SHUTDOWN_PANIC`. It runs at most once per boot and must be safe with interrupts off.
+
+Markers: `ev=service name=<n> rc=<rc>` after each init, `ev=shutdown name=<n> why=<reboot|halt|panic>` before each shutdown.
+
+The first service is `uptime`, in `src/kernel/svc_uptime.c`. Its init records the start tick and registers the `uptime` command. Its `tick` records the last tick it got. Test builds put a service named `testfail` first, whose init returns -5, so the tests see the failure policy.
+
+### How to add a service
+
+1. Write the service in its own file, for example `src/mail/svc.c`, ending with `const uos_service_t uos_svc_mail = { "mail", mail_init, NULL, mail_shutdown };`.
+2. In `src/kernel/services.c`, add one line `extern const uos_service_t uos_svc_mail;` under the comment "One extern per service".
+3. In the same file, add one line `&uos_svc_mail,` in the `services[]` array between `/* BEGIN SERVICES */` and `/* END SERVICES */`. Put it after every service it uses: the order is the start order.
+4. Add the name to `SERVICES` in `tests/uos.py`, so the boot order tests expect its marker.
+
+### How to add a maintenance command
+
+Call `uos_maint_register(name, fn, help)` from the service's `init`. A name is 1 to 12 lower-case letters. The registry holds 48 commands and refuses a duplicate or a library built-in name with `UOS_MAINT_ERR_DUP`.
+
+```c
+static int cmd_mail(int argc, char **argv)
+{
+    if (argc != 0) {
+        return uos_maint_fail("unknown command");
+    }
+    uos_maint_reply("mail count=%u", count);
+    return 0;
+}
+```
+
+`argv[0]` is the first word after the command name. `uos_maint_reply()` sends one complete line per call. `uos_maint_fail(reason)` sets the `err` text and returns a negative code.
+
+A command function runs inside the input layer's script handler. That is in the loop between two events, or after a panic or a halt in the idle poll with IRQs off. It must not block, wait for ticks or do anything that can fault. It posts such work to the loop with `uos_post()`, after it checks that `uos.phase` is `UOS_PHASE_READY`, and the posted call reports its result with a marker. `uos_maint.h` states the same rules.
 
 ## Memory
 
@@ -122,4 +224,18 @@ The mini UART script channel. In QEMU it is the second serial port. On a Pi the 
 | `0x00400000` to `0x00FFFFFF` | The OS slot: the image, its data and its stack |
 | `0x01000000` up | The heap, from `robco_heap_high()` |
 
+The MMU is on from the `mmu` step. `mmu_init()` builds the library's identity map in 1 MiB sections: all ARM memory from the mailbox as cached RAM, which holds the OS slot, the heap, the boot info area and the vectors; the peripherals as device memory; the core-local peripherals on BCM2836 and BCM2837; everything else unmapped. `fb_init()` runs after it and maps the framebuffer as normal non-cacheable memory, so every console write reaches the screen without a flush. `mbox_call()` handles the cache for its buffers. A null pointer read does not fault: the first megabyte is RAM.
+
+The step runs before the screen and before IRQs are enabled, as RobCo-Core's `memory.md` asks. The reboot path turns the MMU off first, see [Reboot and halt](#reboot-and-halt).
+
+QEMU does not model caches, so the MMU change cannot show a speed-up there. A real Pi should run the login hash and screen copies several times faster with the caches on. That is not measured: nothing is validated on real hardware.
+
 The pure files allocate nothing. The kernel base does not allocate yet; the heap is ready for the services that need it.
+
+## Pending library features
+
+These wait on RobCo-Core changes and a pin bump.
+
+- `ini_parse_sections()`. `ini_parse()` reports keys only. A section with no keys is never seen, and a repeated section header is not reported. `src/dev/devcfg.c` and `src/tui/tuicfg.c` will switch to `ini_parse_sections()` so an empty or repeated section is a counted error. Both files carry a note marked `PENDING LIBRARY FEATURE`. Nothing works around it now.
+- Data tapes in `rimg`. `rimg_validate()` cannot accept a data tape, subtype 2, because it looks up a slot first and subtype 2 has none. `tools/rimg.py seal` and `pack` refuse subtype 2 for the same reason. The holo module works around both: `holofmt.c` checks the slot rules itself, and `tools/mkholo.py` writes the header itself. See [holo](modules/holo.md).
+- The I2C expander driver. `DEVICES.CFG` already names expander pins, see [dev](modules/dev.md#expander-pins). No glue applies expander operations until the library has the driver.

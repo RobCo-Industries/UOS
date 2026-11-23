@@ -9,6 +9,8 @@ The goal is a small real system in the style of the terminals of the Fallout gam
 - The kernel base boots in QEMU on raspi0, raspi1ap, raspi2b and raspi3b, alone and after earlier stages.
 - It brings up the screen, the tick, the heap, the input layer and the card, reads `UOS.CFG` and shows a placeholder screen.
 - There is no login and no shell yet. The placeholder screen says so.
+- Eight pure modules are built and host-tested: the command language, file specifications, users and login, the on-screen keyboard, device control, the menu screen, the password minigame and holotapes. No login, shell or screen uses them yet. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#modules).
+- The default card holds a user database, sample devices, menus, word lists and holotapes. Their formats are in [docs/FORMATS.md](docs/FORMATS.md).
 - Nothing is validated on real hardware.
 
 ## Out of scope
@@ -25,6 +27,7 @@ You need `arm-none-eabi-gcc`, GNU make, Python 3 and, for the tests, QEMU and mt
 git submodule update --init
 make            # build/UOS.SYS
 make test       # host tests, then target tests on every board
+make test-tools # pytest over the card tools
 make sdimage    # build/sd.img with UOS.SYS and the card/ tree
 make run        # boot build/sd.img in QEMU on this terminal
 ```
