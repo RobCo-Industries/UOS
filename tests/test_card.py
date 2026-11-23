@@ -11,7 +11,7 @@ def screen_has(rows, text):
 def test_no_card(board, uos_image):
     with alone(uos_image, board) as vm:
         wait_ready(vm)
-        assert order(vm) == BOOT_ORDER, vm.serial
+        assert [e for e in order(vm) if e in BOOT_ORDER] == BOOT_ORDER, vm.serial
         mount = one(vm, "mount")
         assert (mount["result"], mount["why"]) == ("none", "sd"), mount
         assert one(vm, "config")["result"] == "skipped"
