@@ -31,7 +31,7 @@ SRCS       := $(sort $(wildcard src/*/*.c src/*/*.S))
 # lists: the pure files the design names, picked up when they exist, and
 # the kernel's own pure files, one per line and sorted.
 PURE_NAMED := src/dcl/*.c \
-              src/dev/devcfg.c src/dev/devstate.c \
+              src/dev/devcfg.c src/dev/devsplan.c src/dev/devstate.c \
               src/hack/hack.c \
               src/holo/holofmt.c src/holo/holoread.c \
               src/osk/osk.c \
