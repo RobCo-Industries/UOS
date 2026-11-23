@@ -137,6 +137,14 @@ int vfs_work_name(const char *path, char mark, char *out, size_t size)
     return VFS_OK;
 }
 
+int vfs_atomic_pick(int target, int work_new, int work_old)
+{
+    if (target || !work_old) {
+        return 0;
+    }
+    return work_new ? '~' : '#';
+}
+
 static int vfs_has_wild(const char *s)
 {
     for (; *s != '\0'; s++) {

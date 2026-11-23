@@ -236,6 +236,75 @@ def test_disk_full(board, hooks_image, need_mtools, tmp_path):
     assert "K2.TXT" not in names
 
 
+# Atomic writes cut between their renames: "#" holds the old content, "~"
+# the new one. Recovery keeps "~" when both exist, "#" alone, and drops a
+# lone "~" (a first write cut short).
+CUT = {f"/UOS/HOME/ADMIN/{k}": v for k, v in {
+    "#S1.TXT": b"old one\n",
+    "~S2.TXT": b"cut short",
+    "~S3.TXT": b"new three\n", "#S3.TXT": b"old three\n",
+    "#T1.TXT": b"target old\n",
+    "~T2.TXT": b"cut",
+    "~T3.TXT": b"t3 new\n", "#T3.TXT": b"t3 old\n",
+}.items()}
+
+
+def test_interrupted_writes(board, uos_image, need_mtools, tmp_path):
+    """Every state, as source and as target of a copy: the service sees the
+    recovered files under their real names, never the work names."""
+    sd = home_card(tmp_path, CUT)
+    with alone(uos_image, board, sd) as vm:
+        wait_ready(vm)
+        answer(vm, "fs who ADMIN 0")
+        # A listing changes nothing and shows what recovery will leave.
+        _, items = fs(vm, "ls *.TXT")
+        names = [e.split(";")[0] for e in entries(items)]
+        assert [n for n in names if n[0] in "ST"] == ["S1.TXT", "S3.TXT", "T1.TXT", "T3.TXT"], \
+            names
+        assert [m["size"] for m in items if m["entry"] == "S3.TXT;1"] == ["10"], items
+        # Copy sources: only "#", both, only "~".
+        ok(fs(vm, "copy S1.TXT C1.TXT")[0], files=1)
+        ok(fs(vm, "cat C1.TXT")[0], len=8, line="old_one")
+        ok(fs(vm, "copy S3.TXT C3.TXT")[0], files=1)
+        ok(fs(vm, "cat C3.TXT")[0], len=10, line="new_three")
+        err(fs(vm, "copy S2.TXT C2.TXT")[0], "notfound")
+        # Copy targets in new-only mode: recovery restores T1 and T3 first.
+        err(fs(vm, "copy A.TXT T1.TXT new")[0], "exists")
+        ok(fs(vm, "cat T1.TXT")[0], line="target_old")
+        err(fs(vm, "copy A.TXT T3.TXT new")[0], "exists")
+        ok(fs(vm, "cat T3.TXT")[0], line="t3_new")
+        ok(fs(vm, "copy A.TXT T2.TXT new")[0], files=1)
+        ok(fs(vm, "cat T2.TXT")[0], line="a")
+        ok(fs(vm, "stat S1.TXT")[0], exists=1, size=8)
+    names = card_names(sd, "UOS/HOME/ADMIN")
+    assert not [n for n in names if n[0] in "~#"], names
+    assert {"S1.TXT", "S3.TXT", "T1.TXT", "T2.TXT", "T3.TXT"} <= set(names), names
+    assert "S2.TXT" not in names, names
+
+
+def test_interrupted_writes_other_calls(board, uos_image, need_mtools, tmp_path):
+    """stat, write new, delete, rename and mkdir see the recovered state."""
+    extra = {f"/UOS/HOME/ADMIN/{k}": v for k, v in {
+        "#D1.TXT": b"d\n", "#R1.TXT": b"r\n", "#R2.TXT": b"r2\n", "#W1.TXT": b"w\n",
+        "#M1": b"file\n",
+    }.items()}
+    sd = home_card(tmp_path, extra)
+    with alone(uos_image, board, sd) as vm:
+        wait_ready(vm)
+        answer(vm, "fs who ADMIN 0")
+        ok(fs(vm, "stat R2.TXT")[0], exists=1, size=3)
+        err(fs(vm, "new W1.TXT x")[0], "exists")
+        ok(fs(vm, "cat W1.TXT")[0], line="w")
+        ok(fs(vm, "del D1.TXT")[0], files=1)
+        err(fs(vm, "ren R1.TXT R2.TXT")[0], "exists")
+        ok(fs(vm, "ren R1.TXT R3.TXT")[0], files=1)
+        ok(fs(vm, "cat R3.TXT")[0], line="r")
+        err(fs(vm, "mkdir [.M1]")[0], "exists")
+    names = card_names(sd, "UOS/HOME/ADMIN")
+    assert not [n for n in names if n[0] in "~#"], names
+    assert "D1.TXT" not in names and "R3.TXT" in names and "M1" in names, names
+
+
 def no_card_checks(vm, word):
     for cmd in ("ls *.*", "cat DUTY.TXT", "write X.TXT a", "del X.TXT", "ren A.TXT B.TXT",
                 "copy A.TXT B.TXT", "mkdir [.X]", "crc X.TXT", "stat X.TXT", "free"):

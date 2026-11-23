@@ -279,3 +279,16 @@ TEST(list_insert)
     vfs_list_insert(a, &count, 0, &n);
     CHECK_EQ(count, (size_t)0);
 }
+
+TEST(atomic_pick_follows_recovery_table)
+{
+    /* target, "~NAME", "#NAME": the library's recovery table, row by row. */
+    CHECK_EQ(vfs_atomic_pick(1, 0, 0), 0);
+    CHECK_EQ(vfs_atomic_pick(1, 1, 0), 0);
+    CHECK_EQ(vfs_atomic_pick(1, 0, 1), 0);
+    CHECK_EQ(vfs_atomic_pick(1, 1, 1), 0);
+    CHECK_EQ(vfs_atomic_pick(0, 1, 1), '~');
+    CHECK_EQ(vfs_atomic_pick(0, 0, 1), '#');
+    CHECK_EQ(vfs_atomic_pick(0, 1, 0), 0);    /* a cut first write holds nothing */
+    CHECK_EQ(vfs_atomic_pick(0, 0, 0), 0);
+}

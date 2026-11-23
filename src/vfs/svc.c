@@ -235,7 +235,7 @@ static void copy_next(void *arg)
         copy_finish(VFS_OK);
         return;
     }
-    rc = vfs_copy_begin(&copy, &ctx, privs, spec, req.b, 0);
+    rc = vfs_copy_begin(&copy, &ctx, privs, spec, req.b, (unsigned)req.n);
     if (rc != VFS_OK) {
         copy_finish(rc);
         return;
@@ -420,8 +420,9 @@ static int cmd_fs(int argc, char **argv)
     if (argc == 3 && k_strcmp(sub, "ren") == 0) {
         return post(OP_REN, argv[1], argv[2], 0);
     }
-    if (argc == 3 && k_strcmp(sub, "copy") == 0) {
-        return post(OP_COPY, argv[1], argv[2], 0);
+    if (k_strcmp(sub, "copy") == 0 &&
+        (argc == 3 || (argc == 4 && k_strcmp(argv[3], "new") == 0))) {
+        return post(OP_COPY, argv[1], argv[2], argc == 4 ? VFS_W_NEW : 0);
     }
     if (argc >= 3 && (k_strcmp(sub, "write") == 0 || k_strcmp(sub, "new") == 0)) {
         return post(sub[0] == 'w' ? OP_WRITE : OP_NEW, argv[1],

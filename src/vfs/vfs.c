@@ -135,6 +135,47 @@ static int stat_res(const vp_res_t *r)
     return vfs_from_fs(rc, 0);
 }
 
+/* 1 when `path` exists. */
+static int present(const char *path)
+{
+    return fs_stat(path, &st_b) == FS_OK;
+}
+
+/*
+ * Brings file `r` to the state recovery of an interrupted atomic write
+ * leaves. On a writable card fs_atomic_recover() finishes or undoes the
+ * write. On a read-only card nothing changes: *ro is set and, when a work
+ * file holds the content, r->path names it; r's name parts stay. Wildcards,
+ * DEV: and the tree root are left alone. Every entry point that stats,
+ * reads, renames, deletes or creates one path calls it once per path,
+ * before anything else looks at the card.
+ */
+static void settle(vp_res_t *r, int *ro)
+{
+    char w[VP_PATH_MAX];
+    int mark;
+
+    *ro = 0;
+    if (r->tree == VP_TREE_DEV || r->wild || (r->is_dir && r->depth == 0)) {
+        return;
+    }
+    if (fs_atomic_recover(r->path) != FS_ERR_RO) {
+        return;     /* clean, recovered, or an error the stat that follows reports */
+    }
+    *ro = 1;
+    if (vfs_work_name(r->path, '~', w, sizeof(w)) != VFS_OK) {
+        return;
+    }
+    mark = present(w);
+    if (vfs_work_name(r->path, '#', w, sizeof(w)) != VFS_OK) {
+        return;
+    }
+    mark = vfs_atomic_pick(present(r->path), mark, present(w));
+    if (mark != 0 && vfs_work_name(r->path, (char)mark, w, sizeof(w)) == VFS_OK) {
+        k_memcpy(r->path, w, sizeof(r->path));
+    }
+}
+
 /* The folder a result names, or holds. */
 static int folder_of(const vp_res_t *r, vp_res_t *dir)
 {
@@ -228,16 +269,13 @@ static int dev_write(const vp_res_t *r, const void *data, size_t len, uint32_t p
 /* ---- Whole files --------------------------------------------------------------- */
 
 /* Reads `path`, already checked, into a heap buffer. */
-static int read_path(const vp_res_t *r, size_t max_bytes, char **buf, size_t *len)
+static int read_path(vp_res_t *r, size_t max_bytes, char **buf, size_t *len)
 {
     size_t got = 0;
     char *p;
-    int rc;
+    int rc, ro;
 
-    if (r->tree == VP_TREE_UOS) {
-        /* Finishes or undoes an interrupted atomic write of this file. */
-        (void)fs_atomic_recover(r->path);
-    }
+    settle(r, &ro);
     rc = stat_res(r);
     if (rc != VFS_OK) {
         return rc;
@@ -295,7 +333,7 @@ int vfs_write_all(const vp_ctx_t *ctx, uint32_t privs, const char *spec, const c
                   const void *data, size_t len, unsigned flags)
 {
     vp_res_t r;
-    int rc;
+    int rc, ro;
 
     if (data == NULL && len != 0) {
         return VFS_E_ARG;
@@ -312,6 +350,10 @@ int vfs_write_all(const vp_ctx_t *ctx, uint32_t privs, const char *spec, const c
     }
     if (r.tree == VP_TREE_DEV) {
         return dev_write(&r, data, len, privs);
+    }
+    settle(&r, &ro);
+    if (ro) {
+        return VFS_E_READONLY;
     }
     rc = stat_res(&r);
     if (rc == VFS_OK) {
@@ -332,6 +374,7 @@ int vfs_write_all(const vp_ctx_t *ctx, uint32_t privs, const char *spec, const c
 int vfs_delete(const vp_ctx_t *ctx, uint32_t privs, const char *spec)
 {
     vp_res_t r;
+    int ro = 0;
     int rc = resolve(ctx, spec, NULL, VP_R_NEED_NAME, &r);
 
     if (rc == VFS_OK) {
@@ -341,7 +384,8 @@ int vfs_delete(const vp_ctx_t *ctx, uint32_t privs, const char *spec)
         rc = check_access(ctx, privs, &r, VP_OP_DELETE);
     }
     if (rc == VFS_OK) {
-        rc = stat_res(&r);
+        settle(&r, &ro);
+        rc = ro ? VFS_E_READONLY : stat_res(&r);
     }
     if (rc != VFS_OK) {
         return rc;
@@ -355,6 +399,7 @@ int vfs_delete(const vp_ctx_t *ctx, uint32_t privs, const char *spec)
 int vfs_rename(const vp_ctx_t *ctx, uint32_t privs, const char *from, const char *to)
 {
     vp_res_t s, t;
+    int ro = 0;
     int rc = resolve(ctx, from, NULL, VP_R_NEED_NAME, &s);
 
     if (rc == VFS_OK && s.tree == VP_TREE_DEV) {
@@ -364,7 +409,8 @@ int vfs_rename(const vp_ctx_t *ctx, uint32_t privs, const char *from, const char
         rc = check_access(ctx, privs, &s, VP_OP_WRITE);
     }
     if (rc == VFS_OK) {
-        rc = stat_res(&s);
+        settle(&s, &ro);
+        rc = ro ? VFS_E_READONLY : stat_res(&s);
     }
     if (rc == VFS_OK && st_a.is_dir) {
         rc = VFS_E_ISDIR;
@@ -381,7 +427,8 @@ int vfs_rename(const vp_ctx_t *ctx, uint32_t privs, const char *from, const char
     if (rc != VFS_OK) {
         return rc;
     }
-    rc = stat_res(&t);
+    settle(&t, &ro);
+    rc = ro ? VFS_E_READONLY : stat_res(&t);
     if (rc == VFS_OK) {
         return VFS_E_EXISTS;
     }
@@ -394,6 +441,7 @@ int vfs_rename(const vp_ctx_t *ctx, uint32_t privs, const char *from, const char
 int vfs_mkdir(const vp_ctx_t *ctx, uint32_t privs, const char *spec)
 {
     vp_res_t r;
+    int ro;
     int rc = resolve(ctx, spec, NULL, 0, &r);
 
     if (rc == VFS_OK) {
@@ -407,6 +455,11 @@ int vfs_mkdir(const vp_ctx_t *ctx, uint32_t privs, const char *spec)
     }
     if (rc != VFS_OK) {
         return rc;
+    }
+    /* A file cut mid-write under this name comes back first. */
+    settle(&r, &ro);
+    if (ro) {
+        return VFS_E_READONLY;
     }
     rc = vfs_from_fs(fs_stat(r.path, &st_a), 0);
     if (rc == VFS_OK) {
@@ -459,6 +512,7 @@ int vfs_exists(const vp_ctx_t *ctx, uint32_t privs, const char *spec)
 {
     vp_res_t r;
     char line[VFS_DEV_LINE];
+    int ro;
     int rc = find(ctx, privs, spec, &r);
 
     if (rc != VFS_OK) {
@@ -477,6 +531,7 @@ int vfs_exists(const vp_ctx_t *ctx, uint32_t privs, const char *spec)
     if (r.depth == 0 && r.is_dir) {
         return 1;
     }
+    settle(&r, &ro);
     rc = vfs_from_fs(fs_stat(r.path, &st_a), 0);
     if (rc == VFS_OK) {
         return (!r.is_dir || st_a.is_dir) ? 1 : 0;
@@ -487,7 +542,7 @@ int vfs_exists(const vp_ctx_t *ctx, uint32_t privs, const char *spec)
 int vfs_stat(const vp_ctx_t *ctx, uint32_t privs, const char *spec, vfs_entry_t *out)
 {
     vp_res_t r;
-    int rc;
+    int rc, ro;
 
     if (out == NULL) {
         return VFS_E_ARG;
@@ -497,6 +552,7 @@ int vfs_stat(const vp_ctx_t *ctx, uint32_t privs, const char *spec, vfs_entry_t 
         rc = VFS_E_SPEC;
     }
     if (rc == VFS_OK) {
+        settle(&r, &ro);
         rc = stat_res(&r);
     }
     if (rc == VFS_OK && r.is_dir && !st_a.is_dir) {
@@ -534,6 +590,29 @@ int vfs_free_space(uint64_t *total, uint64_t *free_bytes)
 /* Walks a folder: calls fn for every entry the filter keeps. */
 typedef void (*walk_fn)(const vp_res_t *er, const fs_stat_t *s, void *arg);
 
+/*
+ * 1 when the work file `name` of folder `dir` holds the content its file
+ * has after recovery: a listing shows it under the file's name, the other
+ * work files never. Changes nothing, so it works on a read-only card.
+ */
+static int holds_content(const vp_res_t *dir, const char *name)
+{
+    vp_res_t f;
+    char w[VP_PATH_MAX];
+    int n;
+
+    if ((name[0] != '~' && name[0] != '#') ||
+        vfs_entry_res(dir, name + 1, 0, &f) != VFS_OK ||
+        vfs_work_name(f.path, '~', w, sizeof(w)) != VFS_OK) {
+        return 0;
+    }
+    n = present(w);
+    if (vfs_work_name(f.path, '#', w, sizeof(w)) != VFS_OK) {
+        return 0;
+    }
+    return vfs_atomic_pick(present(f.path), n, present(w)) == name[0];
+}
+
 static int walk(const vp_ctx_t *ctx, uint32_t privs, const vp_res_t *dir, const char *pname,
                 const char *ptype, int op, walk_fn fn, void *arg)
 {
@@ -554,7 +633,14 @@ static int walk(const vp_ctx_t *ctx, uint32_t privs, const vp_res_t *dir, const 
         return rc == FS_ERR_NOENT ? VFS_E_DIRNF : vfs_from_fs(rc, 0);
     }
     while ((rc = fs_readdir(&dir_h, &st_a)) == 1) {
-        if (vfs_list_keep(dir, st_a.name, st_a.is_dir, st_a.leftover, pname, ptype,
+        const char *name = st_a.name;
+        int left = st_a.leftover;
+
+        if (left && !st_a.is_dir && holds_content(dir, name)) {
+            name++;     /* shown under the name recovery gives it */
+            left = 0;
+        }
+        if (vfs_list_keep(dir, name, st_a.is_dir, left, pname, ptype,
                           ctx->home, privs, op, &er)) {
             fn(&er, &st_a, arg);
         }
@@ -684,7 +770,7 @@ int vfs_iter_begin(vfs_iter_t *it, const vp_ctx_t *ctx, uint32_t privs, const ch
     const char *pname, *ptype;
     char path[VP_PATH_MAX];
     size_t i;
-    int rc;
+    int rc, ro;
 
     if (it == NULL) {
         return VFS_E_ARG;
@@ -710,6 +796,7 @@ int vfs_iter_begin(vfs_iter_t *it, const vp_ctx_t *ctx, uint32_t privs, const ch
         return rc;
     }
     if (!r.wild) {
+        settle(&r, &ro);
         rc = stat_res(&r);
         if (rc == VFS_OK && st_a.is_dir) {
             rc = VFS_E_ISDIR;
@@ -793,7 +880,7 @@ int vfs_copy_begin(vfs_copy_t *c, const vp_ctx_t *ctx, uint32_t privs, const cha
                    const char *to, unsigned flags)
 {
     vp_res_t s, t;
-    int rc;
+    int rc, ro = 0;
 
     if (c == NULL) {
         return VFS_E_ARG;
@@ -810,6 +897,8 @@ int vfs_copy_begin(vfs_copy_t *c, const vp_ctx_t *ctx, uint32_t privs, const cha
         rc = check_access(ctx, privs, &s, VP_OP_READ);
     }
     if (rc == VFS_OK) {
+        /* Before the stat: the source may sit under its work name. */
+        settle(&s, &ro);
         rc = stat_res(&s);
     }
     if (rc == VFS_OK && st_a.is_dir) {
@@ -825,6 +914,12 @@ int vfs_copy_begin(vfs_copy_t *c, const vp_ctx_t *ctx, uint32_t privs, const cha
     }
     if (rc == VFS_OK && k_strcmp(s.path, t.path) == 0) {
         rc = VFS_E_EXISTS;
+    }
+    if (rc == VFS_OK && !ro) {
+        settle(&t, &ro);
+    }
+    if (rc == VFS_OK && ro) {
+        rc = VFS_E_READONLY;
     }
     if (rc == VFS_OK) {
         rc = stat_res(&t);
@@ -842,8 +937,7 @@ int vfs_copy_begin(vfs_copy_t *c, const vp_ctx_t *ctx, uint32_t privs, const cha
         return rc;
     }
     k_memcpy(c->to, t.path, sizeof(c->to));
-    /* Clears work files an earlier cut left behind, then starts clean. */
-    (void)fs_atomic_recover(c->to);
+    /* settle() recovered the target: no "~NAME" is left, start clean. */
     (void)fs_unlink(c->work);
     c->buf = vfs_alloc(VFS_COPY_CHUNK);
     if (c->buf == NULL) {

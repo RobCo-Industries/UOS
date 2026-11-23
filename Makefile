@@ -68,6 +68,8 @@ HOST_GEN_HDRS := $(HOST_GEN)/uaf_vectors.h
 HOST_INCLUDES := $(SRC_INCLUDES) $(HOST_GEN)
 # Tests run from the repository root and read the shipped card files.
 HOST_DEFINES  := UAF_CARD_PATH='"card/UOS/SYSUAF.DAT"'
+# The library's FatFs glue over a host file: test_vfs_card.c runs vfs.c on it.
+HOST_CORE_SETS := fs fatfs
 
 ifeq ($(wildcard $(ROBCO_CORE)/mk/robco.mk),)
 $(error $(ROBCO_CORE) is empty: run git submodule update --init)
@@ -181,6 +183,8 @@ ci-local:
 
 # Generated headers exist before any host test builds.
 $(HOST_TESTS): $(HOST_GEN_HDRS)
+# test_vfs_card.c includes vfs.c: rebuild it when vfs.c changes.
+$(HOST_BUILD)/test_vfs_card: src/vfs/vfs.c
 
 $(HOST_GEN)/uaf_vectors.h: tests/vectors/uaf.json tools/mkuaf.py
 	@mkdir -p $(dir $@)

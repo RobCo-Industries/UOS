@@ -27,6 +27,15 @@ int vfs_fmt_datetime(uint16_t date, uint16_t time, char *buf, size_t size);
 int vfs_work_name(const char *path, char mark, char *out, size_t size);
 
 /*
+ * Which name holds a file's content after an interrupted atomic write,
+ * by the library's recovery table, from which of the three names exist:
+ * 0 for the file itself (present, or nothing to find), '~' when "~NAME"
+ * and "#NAME" both exist, '#' when only "#NAME" does. "~NAME" alone holds
+ * nothing: recovery removes it.
+ */
+int vfs_atomic_pick(int target, int work_new, int work_old);
+
+/*
  * The target name of a copy or rename. `tname` and `ttype` are the
  * resolved target's parts; an empty name with `tdir` set means a folder
  * only, which keeps the source's name and type. A part that is exactly "*"
