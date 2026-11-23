@@ -1,6 +1,12 @@
 /*
  * OpenVMS-style file specifications mapped to FAT paths (pure).
  * No hardware, no globals, no allocation. See docs/modules/vfs-path.md.
+ *
+ * Depth: the number of folders between the tree root and the named object.
+ * A file's own name does not count; a directory counts itself. The root
+ * "[000000]" is depth 0, "[A]X.TXT" is depth 1 and the directory "[A.B]" is
+ * depth 2. A logical root counts its own folders. Every function accepts
+ * depth 0 to VP_DEPTH_MAX and rejects anything deeper.
  */
 #include "path.h"
 
@@ -666,7 +672,8 @@ int vp_format(int tree, const char *path, int is_dir, char *buf, size_t size)
         }
         goto done;
     }
-    if (ncomp - 1 > VP_DEPTH_MAX) {
+    /* A directory counts every component; a file all but its name. */
+    if ((is_dir ? ncomp : ncomp - 1) > VP_DEPTH_MAX) {
         return VP_E_BADPATH;
     }
     if (vp_put(buf, size, &pos, vp_treedev(tree)) != VP_OK ||

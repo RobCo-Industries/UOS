@@ -46,6 +46,7 @@ Any other device name is `VP_E_NODEV`.
 - `SD0:` or `BOOT:`: relative forms start at the current directory when the context is on that tree, otherwise at the tree root.
 - Logical names are rooted. `[A]` and `[.A]` both mean a folder under the logical root. `[-]` cannot climb above the logical root: `SYS$LOGIN:[-]` is `VP_E_ROOT`.
 - `[-]` above the device root is `VP_E_ROOT`. More than 8 levels is `VP_E_DEPTH`.
+- Depth is the number of folders between the tree root and the named object. A file's own name does not count. A directory counts itself. `[000000]` is depth 0, `[A]X.TXT` is depth 1, the directory `[A.B]` is depth 2. A logical name counts its root folders, so `SYS$LOGIN:` is already depth 2. Parse, resolve, set default and format all accept depth 0 to 8.
 - `DEV:` takes a device name only. A directory, a dot or a wildcard is `VP_E_DEVDIR`. The path is the device name. `DEV:` alone is the device table, a directory-only result.
 - No name and no dot: a directory-only result, `is_dir` set, path is the folder. With `VP_R_NEED_NAME` it is `VP_E_NONAME`.
 - A dot or a version with no name is `VP_E_NONAME`.
@@ -74,7 +75,7 @@ Paths: `SD0:[HOME.ADMIN]A.TXT` is `/UOS/HOME/ADMIN/A.TXT`. A name with no type h
 - A directory `/UOS/HOME/ADMIN/MAIL` gives `SD0:[HOME.ADMIN]MAIL.DIR;1`. `/UOS` gives `SD0:[000000]000000.DIR;1`.
 - `DOOR1` in DEV gives `DEV:DOOR1;1`.
 
-A path outside the tree root, an empty component, a component that is not 8.3, or more than 8 folders is `VP_E_BADPATH`. `VP_DISPLAY_MAX` (128) always fits.
+A path outside the tree root, an empty component, a component that is not 8.3, or a depth over 8 is `VP_E_BADPATH`. A directory path counts all its components, a file path all but the last. `VP_DISPLAY_MAX` (128) always fits.
 
 Every function that fills a buffer returns `VP_E_BUF` when the result plus its terminator does not fit, and leaves an empty string.
 

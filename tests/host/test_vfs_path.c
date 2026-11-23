@@ -799,3 +799,100 @@ TEST(error_texts)
         CHECK(vp_strerror(i) != NULL && vp_strerror(i)[0] != '\0');
     }
 }
+
+/* Depth limit: files and directories, at VP_DEPTH_MAX and one past it. */
+TEST(depth_limit)
+{
+    vp_ctx_t c = std_ctx();
+    vp_ctx_t deep;
+    vp_ctx_t before;
+    vp_spec_t s;
+    vp_res_t r;
+    vp_res_t r2;
+    char disp[VP_DISPLAY_MAX];
+
+    CHECK_EQ(VP_DEPTH_MAX, 8);
+
+    /* parse */
+    CHECK_EQ(vp_parse("[A.B.C.D.E.F.G.H]X.TXT", 0, &s), VP_OK);
+    CHECK_EQ(s.ndir, 8);
+    CHECK_EQ(vp_parse("[A.B.C.D.E.F.G.H.I]X.TXT", 0, &s), VP_E_DEPTH);
+    CHECK_EQ(vp_parse("[A.B.C.D.E.F.G.H]", 0, &s), VP_OK);
+    CHECK_EQ(vp_parse("[A.B.C.D.E.F.G.H.I]", 0, &s), VP_E_DEPTH);
+    CHECK_EQ(vp_parse("[-.-.-.-.-.-.-.-]", 0, &s), VP_OK);
+    CHECK_EQ(vp_parse("[-.-.-.-.-.-.-.-.-]", 0, &s), VP_E_DEPTH);
+
+    /* resolve from the root */
+    CHECK_EQ(vp_resolve(&c, "SD0:[A.B.C.D.E.F.G.H]X.TXT", NULL, 0, &r), VP_OK);
+    CHECK_EQ(r.depth, 8);
+    CHECK_EQ(vp_resolve(&c, "SD0:[A.B.C.D.E.F.G.H]", NULL, 0, &r), VP_OK);
+    CHECK_EQ(r.depth, 8);
+    CHECK(r.is_dir);
+    CHECK_EQ(vp_resolve(&c, "SD0:[A.B.C.D.E.F.G.H.I]X.TXT", NULL, 0, &r), VP_E_DEPTH);
+    CHECK_EQ(vp_resolve(&c, "SD0:[A.B.C.D.E.F.G.H.I]", NULL, 0, &r), VP_E_DEPTH);
+
+    /* set default at the limit, then relative forms from there */
+    deep = c;
+    CHECK_EQ(vp_set_default(&deep, "SD0:[A.B.C.D.E.F.G.H]"), VP_OK);
+    CHECK_EQ(deep.depth, 8);
+    before = deep;
+    CHECK_EQ(vp_set_default(&deep, "[.I]"), VP_E_DEPTH);
+    CHECK(memcmp(&before, &deep, sizeof(deep)) == 0);
+    CHECK_EQ(vp_set_default(&deep, "SD0:[A.B.C.D.E.F.G.H.I]"), VP_E_DEPTH);
+    CHECK_EQ(vp_resolve(&deep, "X.TXT", NULL, 0, &r), VP_OK);
+    CHECK_EQ(r.depth, 8);
+    CHECK_EQ(vp_resolve(&deep, "[]", NULL, 0, &r), VP_OK);
+    CHECK_EQ(r.depth, 8);
+    CHECK_EQ(vp_resolve(&deep, "[.I]X.TXT", NULL, 0, &r), VP_E_DEPTH);
+    CHECK_EQ(vp_resolve(&deep, "[.I]", NULL, 0, &r), VP_E_DEPTH);
+    CHECK_EQ(vp_resolve(&deep, "[-.I]", NULL, 0, &r), VP_OK);
+    CHECK_EQ(r.depth, 8);
+    CHECK_EQ(vp_resolve(&deep, "[-.I.J]", NULL, 0, &r), VP_E_DEPTH);
+    /* from depth 2, a relative spec of 6 fits and 7 does not */
+    CHECK_EQ(vp_resolve(&c, "[.A.B.C.D.E.F]", NULL, 0, &r), VP_OK);
+    CHECK_EQ(r.depth, 8);
+    CHECK_EQ(vp_resolve(&c, "[.A.B.C.D.E.F.G]", NULL, 0, &r), VP_E_DEPTH);
+
+    /* logical names count their root folders */
+    CHECK_EQ(vp_resolve(&c, "SYS$LOGIN:[A.B.C.D.E.F]X.TXT", NULL, 0, &r), VP_OK);
+    CHECK_EQ(r.depth, 8);
+    CHECK_EQ(vp_resolve(&c, "SYS$LOGIN:[A.B.C.D.E.F]", NULL, 0, &r), VP_OK);
+    CHECK_EQ(r.depth, 8);
+    CHECK_EQ(vp_resolve(&c, "SYS$LOGIN:[A.B.C.D.E.F.G]X.TXT", NULL, 0, &r), VP_E_DEPTH);
+    CHECK_EQ(vp_resolve(&c, "SYS$LOGIN:[A.B.C.D.E.F.G]", NULL, 0, &r), VP_E_DEPTH);
+    CHECK_EQ(vp_resolve(&c, "SYS$HELP:[A.B.C.D.E.F]", NULL, 0, &r), VP_OK);
+    CHECK_EQ(vp_resolve(&c, "SYS$HELP:[A.B.C.D.E.F.G]", NULL, 0, &r), VP_E_DEPTH);
+    CHECK_EQ(vp_resolve(&c, "SYS$SYSTEM:[A.B.C.D.E.F.G]", NULL, 0, &r), VP_OK);
+    CHECK_EQ(vp_resolve(&c, "SYS$SYSTEM:[A.B.C.D.E.F.G.H]", NULL, 0, &r), VP_E_DEPTH);
+
+    /* format: a file counts its folders, a directory counts itself */
+    CHECK_EQ(vp_format(VP_TREE_UOS, "/UOS/A/B/C/D/E/F/G/H/X.TXT", 0, disp, sizeof(disp)), VP_OK);
+    CHECK_STR(disp, "SD0:[A.B.C.D.E.F.G.H]X.TXT;1");
+    CHECK_EQ(vp_format(VP_TREE_UOS, "/UOS/A/B/C/D/E/F/G/H/I/X.TXT", 0, disp, sizeof(disp)),
+             VP_E_BADPATH);
+    CHECK_STR(disp, "");
+    CHECK_EQ(vp_format(VP_TREE_UOS, "/UOS/A/B/C/D/E/F/G/H", 1, disp, sizeof(disp)), VP_OK);
+    CHECK_STR(disp, "SD0:[A.B.C.D.E.F.G]H.DIR;1");
+    CHECK_EQ(vp_format(VP_TREE_UOS, "/UOS/A/B/C/D/E/F/G/H/I", 1, disp, sizeof(disp)),
+             VP_E_BADPATH);
+    CHECK_STR(disp, "");
+    CHECK_EQ(vp_format(VP_TREE_BOOT, "/ROBCO/A/B/C/D/E/F/G/H/I", 1, disp, sizeof(disp)),
+             VP_E_BADPATH);
+
+    /* round trip at the limit: file */
+    CHECK_EQ(vp_resolve(&c, "SD0:[A.B.C.D.E.F.G.H]X.TXT", NULL, 0, &r), VP_OK);
+    CHECK_EQ(vp_format(r.tree, r.path, 0, disp, sizeof(disp)), VP_OK);
+    CHECK_EQ(vp_resolve(&c, disp, NULL, 0, &r2), VP_OK);
+    CHECK_STR(r2.path, r.path);
+    /* round trip at the limit: directory, shown as H.DIR in its parent */
+    CHECK_EQ(vp_resolve(&c, "SD0:[A.B.C.D.E.F.G.H]", NULL, 0, &r), VP_OK);
+    CHECK_EQ(vp_format(r.tree, r.path, 1, disp, sizeof(disp)), VP_OK);
+    CHECK_EQ(vp_resolve(&c, disp, NULL, 0, &r2), VP_OK);
+    CHECK_STR(r2.path, "/UOS/A/B/C/D/E/F/G/H.DIR");
+    CHECK_EQ(r2.depth, 7);
+    CHECK_EQ(vp_set_default(&deep, "SD0:[A.B.C.D.E.F.G.H]"), VP_OK);
+    CHECK_EQ(vp_show_default(&deep, disp, sizeof(disp)), VP_OK);
+    CHECK_STR(disp, "SD0:[A.B.C.D.E.F.G.H]");
+    CHECK_EQ(vp_resolve(&c, disp, NULL, 0, &r2), VP_OK);
+    CHECK_STR(r2.path, r.path);
+}
