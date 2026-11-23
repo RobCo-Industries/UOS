@@ -1,0 +1,8 @@
+1. Close the discharge valve to one quarter over one minute.
+2. Press STOP on the control panel.
+3. Wait until the shaft has stopped turning before you touch any valve
+   on the suction side.
+4. Record the stop time and the reason in the station log.
+
+Never stop both pumps at once unless the district office has agreed.
+The reservoir on the hill holds about six hours of supply.

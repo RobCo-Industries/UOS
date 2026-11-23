@@ -1,0 +1,9 @@
+When the alarm horn sounds, press ACKNOWLEDGE first. This silences the
+horn but keeps the alarm lamp lit.
+
+Read the alarm text on the panel and find it in the alarm binder. Each
+alarm has one page with its likely causes in order. Work down the page.
+
+If the cause is not on the page, or the alarm returns within an hour,
+call the duty engineer. Write every alarm in the station log, even
+those that clear by themselves.
