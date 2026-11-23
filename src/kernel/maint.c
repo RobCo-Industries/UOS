@@ -7,7 +7,8 @@
  * Commands, besides the library's built-in ones (key, char, text, dial):
  *   state          one line: phase, screen, user, card, last error
  *   dump           the console cells, through console_dump()
- *   type <words>   the words as characters, then SELECT: one typed line
+ *   type <words>   the words as characters, then SELECT: one typed line of
+ *                  at most 30 characters, or "err full"
  *   timers         the live timers, one line each after a count line
  *   reboot         restarts the board through the watchdog
  * Test builds only (UOS_TEST_HOOKS=1):
@@ -70,10 +71,10 @@ static int cmd_type(int argc, char *argv[], input_script_reply_t *reply)
     int i;
     const char *p;
 
+    /* One event per character, a space between words, SELECT pressed and released. */
     for (i = 1; i < argc; i++) {
-        n += (unsigned)k_strlen(argv[i]) * 2u + 2u;
+        n += (unsigned)k_strlen(argv[i]) + (i > 1 ? 1u : 0u);
     }
-    /* Each character and the key: a press and maybe a release in the queue. */
     if (!input_room(n)) {
         reply->reason = "full";
         return -1;

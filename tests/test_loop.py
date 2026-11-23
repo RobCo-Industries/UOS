@@ -29,6 +29,10 @@ BANNER_TICKS = 50
 # More characters than the event queue holds, UOS_EVQ_LEN in uos_event.h.
 EVQ_LEN = 32
 FLOOD_LINES = 1500
+# The longest `type`: the input queue, INPUT_QUEUE_LEN in RobCo-Core,
+# holds the characters, the SELECT press and its release.
+INPUT_QUEUE_LEN = 32
+TYPE_MAX = INPUT_QUEUE_LEN - 2
 
 INPUT_MARK = re.compile(r"@RC stage=uos ev=input [^\n]*\n")
 PROBE_DONE = re.compile(r"@RC stage=uos ev=timer name=probe done=1 [^\n]*\n")
@@ -74,6 +78,31 @@ def test_keys_flood_during_the_banner(board, uos_image, need_mtools, tmp_path):
         banner = int(ready["banner"])
         assert BANNER_TICKS <= banner <= BANNER_TICKS + LOOP_LATENCY_TICKS + \
             HOST_ALLOWANCE_TICKS, ready
+
+
+def type_line(vm, n):
+    """`type` with n characters; returns the reply status."""
+    text = "".join(chr(ord("A") + i % 26) for i in range(n))
+    return text, vm.script(f"type {text}", timeout=TIMEOUT).status
+
+
+def test_type_lengths(board, uos_image, need_mtools, tmp_path):
+    with alone(uos_image, board, uos_card(tmp_path)) as vm:
+        wait_ready(vm)
+        total = 0
+        for n in (1, 15, TYPE_MAX):
+            text, status = type_line(vm, n)
+            assert status == "ok", (n, status)
+            total += n + 1
+            vm.wait_for(re.compile(rf"ev=key [^\n]*keys={total}\r?\n"), timeout=TIMEOUT)
+            names = [m["name"] for m in events(vm, "key")][-(n + 1):]
+            assert names == [f"'{c}'" for c in text] + ["select"], (n, names)
+        # One more than fits: refused whole, nothing typed.
+        _, status = type_line(vm, TYPE_MAX + 1)
+        assert status == "err full", status
+        answer(vm, "char Q")
+        vm.wait_for(re.compile(rf"ev=key [^\n]*keys={total + 1}\r?\n"), timeout=TIMEOUT)
+        assert events(vm, "key")[-1]["name"] == "'Q'"
 
 
 def test_serial_console_keys(board, uos_image, need_mtools, tmp_path):

@@ -108,7 +108,7 @@ The mini UART script channel. In QEMU it is the second serial port. On a Pi the 
 | `dump` | The console cells, from `console_dump()` |
 | `key <name>` | Built in: presses and releases a key |
 | `char <c>`, `text <s>` | Built in: characters |
-| `type <words>` | The words as characters with single spaces, then SELECT |
+| `type <words>` | The words as characters with single spaces, then SELECT. At most 30 characters, spaces included: the input queue holds 32 events, and SELECT takes a press and a release. A longer line answers `err full` and types nothing. For longer text a test sends several `type` or `text` commands. |
 | `timers` | `timers count=<n> expired=<n>`, then `timer id=<id> due=<ticks> period=<ticks>` per live timer |
 | `reboot` | `ev=reboot source=maint`, then a watchdog reset |
 | `fault undef`, `fault pabt`, `panic` | Test builds only. Refused in the shipped image. |
