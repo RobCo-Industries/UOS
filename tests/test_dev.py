@@ -186,6 +186,9 @@ def test_set_every_action(board, uos_image, need_mtools, tmp_path):
         assert vm.script("dev set X", timeout=TIMEOUT).status.startswith("err usage")
         assert vm.script("dev set DOOR1 ON 12z", timeout=TIMEOUT).status == "err bad privs"
         assert vm.script("dev", timeout=TIMEOUT).status.startswith("err usage")
+        # The shipped image has no `dev fail`.
+        assert vm.script("dev fail DOOR1 1", timeout=TIMEOUT).status == \
+            "err usage: dev list|set|rec"
         assert marks(vm, "dev", name="DOOR1", state="OPEN", by="maint")
 
 
@@ -451,3 +454,51 @@ def test_watchdog_resets_hung_loop(board, hooks_image, need_mtools, tmp_path):
         # The new boot's record starts from the initial levels.
         assert pins(record(vm)) == ALL_BOOT
         assert hang
+
+
+PINFAULT = "err %DEVICE-E-PINFAULT, a pin write failed and is retried; command refused"
+
+
+def test_pulse_end_fault(board, hooks_image, need_mtools, tmp_path):
+    """The pulse end's write fails 300 times: the status says UNLOCKED with
+    the fault, commands are refused, each tick retries, success clears it."""
+    with alone(hooks_image, board, boot_card(tmp_path)) as vm:
+        wait_ready(vm)
+        assert dev_set(vm, "BOLT", "UNLOCK").status == "ok"
+        assert answer(vm, "dev fail BOLT 300") == ["dev name=BOLT fail=300"]
+        wait_mark(vm, "devfault name=BOLT result=failing")
+        f = one(vm, "devfault")
+        assert (f["op"], f["owed"], f["why"]) == ("pulse", "0", "IOERR"), f
+        row = dev_list(vm)["BOLT"]
+        assert " UNLOCKED " in row and " FAULT=" in row, row
+        assert dev_set(vm, "BOLT", "LOCK").status == PINFAULT
+        wait_mark(vm, "devfault name=BOLT result=cleared")
+        done = marks(vm, "devfault", result="cleared")
+        assert len(done) == 1 and (done[0]["fails"], done[0]["state"]) == ("300", "LOCKED"), done
+        # One marker at each end, none per retry.
+        assert len(events(vm, "devfault")) == 2, vm.serial
+        row = dev_list(vm)["BOLT"]
+        assert " LOCKED " in row and "FAULT" not in row, row
+        assert pins(record(vm))[-1] == (23, 0)
+        assert dev_set(vm, "BOLT", "LOCK").status == "ok"
+        assert vm.script("dev fail PIR x", timeout=TIMEOUT).status.startswith("err usage")
+
+
+def test_safe_state_arm_fails(board, hooks_image, need_mtools, tmp_path):
+    """ARM's off write fails at reboot: 3 tries, then every other output
+    still goes to its initial level."""
+    with alone(hooks_image, board, boot_card(tmp_path)) as vm:
+        wait_ready(vm)
+        assert dev_set(vm, "DOOR1", "OPEN").status == "ok"
+        assert answer(vm, "dev fail ARM 1000") == ["dev name=ARM fail=1000"]
+        vm.send("reboot\n", port=1)
+        vm.wait_for(READY_TWICE, timeout=TIMEOUT)
+        vm.wait_for(re.compile(r"(@RC stage=uos ev=wdog result=on[^\n]*\n[\s\S]*){2}"),
+                    timeout=TIMEOUT)
+        safe = events(vm, "devsafe")
+        assert [(int(m["pin"]), int(m["level"])) for m in safe] == ALL_SAFE, vm.serial
+        assert (safe[0]["name"], safe[0]["tries"]) == ("ARM", "3") and safe[0]["rc"] != "0"
+        assert all((m["rc"], m["tries"]) == ("0", "1") for m in safe[1:]), safe
+        assert events(vm, "devdown")[0]["count"] == str(len(ALL_SAFE))
+        # The new boot clears the hook: a normal boot record.
+        assert pins(record(vm)) == ALL_BOOT
