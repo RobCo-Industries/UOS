@@ -252,47 +252,136 @@ TEST(cfg_refused_pins_each)
     CHECK_EQ(free_count, 7);
 }
 
-TEST(cfg_seventeen_devices)
+TEST(cfg_one_device_over_the_limit)
 {
     static char buf[4096];
     static const unsigned pins[] = { 4, 12, 13, 19, 20, 21, 25 };
     size_t n = 0;
     unsigned i;
 
-    /* Only 7 pins are free: 7 load, sections 8 to 16 share a pin and are
-     * skipped, section 17 is ignored without checks. */
-    for (i = 0; i < 17; i++) {
+    CHECK_EQ(DV_MAX_DEVICES, 24);
+    /* Only 7 pins are free: 7 load, sections 8 to 24 share a pin and are
+     * skipped, section 25 is ignored without checks. */
+    for (i = 0; i < DV_MAX_DEVICES + 1; i++) {
         n += (size_t)snprintf(buf + n, sizeof(buf) - n,
                               "[device D%u]\ntype = relay\ngpio = %u\n", i, pins[i % 7]);
     }
     CHECK_EQ(parse(buf), DV_OK);
     CHECK_EQ(g_res.loaded, 7);
-    CHECK_EQ(g_res.skipped, 9);
+    CHECK_EQ(g_res.skipped, DV_MAX_DEVICES - 7);
     CHECK_EQ(g_res.ignored, 1);
-    CHECK_EQ(g_res.err_count, 9);
+    CHECK_EQ(g_res.err_count, DV_MAX_DEVICES - 7);
     CHECK_EQ(g_res.errs[DV_MAX_ERRORS - 1].code, DV_ERR_PINSHARED);
 }
 
-TEST(cfg_sixteenth_checked_seventeenth_ignored)
+TEST(cfg_last_checked_next_ignored)
 {
     static char buf[4096];
     size_t n = 0;
     unsigned i;
 
-    /* 15 bad sections, a good 16th, a good 17th with another pin. */
-    for (i = 0; i < 15; i++) {
+    /* 23 bad sections, a good 24th, a good 25th with another pin. */
+    for (i = 0; i < DV_MAX_DEVICES - 1; i++) {
         n += (size_t)snprintf(buf + n, sizeof(buf) - n, "[device B%u]\ntype = x\n", i);
     }
     n += (size_t)snprintf(buf + n, sizeof(buf) - n,
-                          "[device G16]\ntype = door\ngpio = 4\n"
-                          "[device G17]\ntype = door\ngpio = 25\nbogus = 1\n");
+                          "[device G24]\ntype = door\ngpio = 12\n"
+                          "[device G25]\ntype = door\ngpio = 25\nbogus = 1\n");
     CHECK_EQ(parse(buf), DV_OK);
     CHECK_EQ(g_res.loaded, 1);
-    CHECK_STR(g_set.dev[0].name, "G16");
-    CHECK_EQ(g_res.skipped, 15);
+    CHECK_STR(g_set.dev[0].name, "G24");
+    CHECK_EQ(g_res.skipped, DV_MAX_DEVICES - 1);
     CHECK_EQ(g_res.ignored, 1);
     CHECK_EQ(g_res.unknown, 0);
-    CHECK_EQ(dv_find(&g_set, "G17"), DV_ERR_NOSUCHDEV);
+    CHECK_EQ(dv_find(&g_set, "G25"), DV_ERR_NOSUCHDEV);
+}
+
+TEST(cfg_refused_mask_is_a_parameter)
+{
+    static const unsigned dial[] = { 16, 23, 24 };
+    static const unsigned buttons[] = { 5, 6, 17, 22, 26, 27 };
+    char buf[128];
+    unsigned i;
+    unsigned free_uos = 0;
+
+    for (i = 0; i < 3; i++) {
+        CHECK(dv_pin_refused(dial[i]));
+        CHECK(!dv_pin_refused_in(DV_REFUSED_UOS, dial[i]));
+        snprintf(buf, sizeof(buf), "[device P]\ntype = relay\ngpio = %u\n", dial[i]);
+        CHECK_EQ(dv_cfg_parse(buf, strlen(buf), &g_set, &g_res), DV_OK);
+        CHECK_EQ(g_res.errs[0].code, DV_ERR_PINUSED);
+        CHECK_EQ(dv_cfg_parse_pins(buf, strlen(buf), DV_REFUSED_UOS, &g_set, &g_res), DV_OK);
+        CHECK_EQ(g_res.loaded, 1);
+        CHECK_EQ(g_set.dev[0].pin, dial[i]);
+    }
+    for (i = 0; i < 6; i++) {
+        CHECK(dv_pin_refused_in(DV_REFUSED_UOS, buttons[i]));
+        snprintf(buf, sizeof(buf), "[device P]\ntype = relay\ngpio = %u\n", buttons[i]);
+        CHECK_EQ(dv_cfg_parse_pins(buf, strlen(buf), DV_REFUSED_UOS, &g_set, &g_res), DV_OK);
+        CHECK_EQ(g_res.errs[0].code, DV_ERR_PINUSED);
+    }
+    /* An empty mask still refuses pins from DV_PIN_LIMIT up. */
+    CHECK(!dv_pin_refused_in(0, 0));
+    CHECK(dv_pin_refused_in(0, DV_PIN_LIMIT));
+    CHECK(dv_pin_refused_in(0xFFFFFFFFu, 4));
+    CHECK_EQ(DV_REFUSED_DEFAULT, DV_REFUSED_UOS | DV_PINS_DIAL);
+    for (i = 0; i < 64; i++) {
+        free_uos += !dv_pin_refused_in(DV_REFUSED_UOS, i);
+    }
+    CHECK_EQ(free_uos, 10);
+}
+
+TEST(cfg_warns_active_high_output_on_reset_pullup)
+{
+    char buf[128];
+    unsigned pin;
+
+    /* Pins 0 to 8 are pulled up at reset; 4 is the only one free. */
+    CHECK_EQ(parse("[device D1]\ntype = door\ngpio = 4\n"), DV_OK);
+    CHECK_EQ(g_res.loaded, 1);
+    CHECK_EQ(g_res.warn_count, 1);
+    CHECK_EQ(g_res.warns[0].code, DV_WARN_PULLUP);
+    CHECK_EQ(g_res.warns[0].line, 2);
+    CHECK_STR(g_res.warns[0].name, "D1");
+    CHECK_EQ(g_res.err_count, 0);
+    /* No warning: active low, a sensor, or a pin pulled down at reset. */
+    CHECK_EQ(parse("[device D1]\ntype = door\ngpio = 4\nactive = low\n"), DV_OK);
+    CHECK_EQ(g_res.warn_count, 0);
+    CHECK_EQ(parse("[device S1]\ntype = sensor\ngpio = 4\n"), DV_OK);
+    CHECK_EQ(g_res.warn_count, 0);
+    for (pin = 9; pin < DV_PIN_LIMIT; pin++) {
+        if (dv_pin_refused_in(0, pin)) {
+            continue;
+        }
+        snprintf(buf, sizeof(buf), "[device D1]\ntype = door\ngpio = %u\n", pin);
+        CHECK_EQ(dv_cfg_parse_pins(buf, strlen(buf), 0, &g_set, &g_res), DV_OK);
+        CHECK_EQ(g_res.warn_count, 0);
+    }
+    for (pin = 0; pin <= 8; pin++) {
+        snprintf(buf, sizeof(buf), "[device D1]\ntype = relay\ngpio = %u\n", pin);
+        CHECK_EQ(dv_cfg_parse_pins(buf, strlen(buf), 0, &g_set, &g_res), DV_OK);
+        CHECK_EQ(g_res.warn_count, 1);
+    }
+    CHECK_STR(dv_strerror(DV_WARN_PULLUP),
+              "%DEVICE-W-PULLUP, active-high output on a pin pulled up at reset");
+}
+
+TEST(cfg_warnings_counted_past_the_details)
+{
+    static char buf[4096];
+    size_t n = 0;
+    unsigned i;
+
+    /* Ten warned outputs with an empty mask: pins 0 to 8, then 0 again. */
+    for (i = 0; i < 10; i++) {
+        n += (size_t)snprintf(buf + n, sizeof(buf) - n,
+                              "[device W%u]\ntype = relay\ngpio = %u\n", i, i < 9 ? i : 20);
+    }
+    n += (size_t)snprintf(buf + n, sizeof(buf) - n, "[device W10]\ntype = relay\ngpio = 21\n");
+    CHECK_EQ(dv_cfg_parse_pins(buf, n, 0, &g_set, &g_res), DV_OK);
+    CHECK_EQ(g_res.loaded, 11);
+    CHECK_EQ(g_res.warn_count, 9);
+    CHECK_STR(g_res.warns[DV_MAX_ERRORS - 1].name, "W7");
 }
 
 TEST(cfg_unknown_keys)
@@ -366,7 +455,7 @@ TEST(cfg_summary)
 
     CHECK_EQ(parse(four), DV_OK);
     CHECK(dv_cfg_summary(&g_res, buf, sizeof(buf)) > 0);
-    CHECK_STR(buf, "loaded=4 skipped=0 unknown=0 ignored=0 errors=0 parse=0");
+    CHECK_STR(buf, "loaded=4 skipped=0 unknown=0 ignored=0 errors=0 parse=0 warnings=1");
     CHECK_EQ(dv_cfg_summary(&g_res, small, sizeof(small)), DV_ERR_SPACE);
     CHECK_STR(small, "");
     CHECK_EQ(dv_cfg_summary(NULL, buf, sizeof(buf)), DV_ERR_ARG);
@@ -795,6 +884,12 @@ TEST(card_devices_cfg_loads)
     CHECK_EQ(dv_cfg_parse(buf, n, &g_set, &g_res), DV_OK);
     CHECK_EQ(g_res.loaded, 4);
     CHECK_EQ(g_res.err_count, 0);
+    CHECK_EQ(g_res.warn_count, 0);
+    CHECK_EQ(dv_cfg_parse_pins(buf, n, DV_REFUSED_UOS, &g_set, &g_res), DV_OK);
+    CHECK_EQ(g_res.loaded, 4);
+    CHECK_EQ(g_res.err_count, 0);
+    /* No active-high output on a pin pulled up at reset. */
+    CHECK_EQ(g_res.warn_count, 0);
     CHECK_EQ(g_res.unknown, 0);
     CHECK_EQ(g_set.dev[2].pulse_ms, 2000);
     CHECK_EQ(g_set.dev[3].type, DV_TYPE_SENSOR);

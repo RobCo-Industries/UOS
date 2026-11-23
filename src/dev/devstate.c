@@ -352,6 +352,8 @@ const char *dv_strerror(int code)
         return "%DEVICE-W-NOPULSE, device has no pulse length";
     case DV_ERR_SPACE:
         return "%DEVICE-F-NOSPACE, output buffer too small";
+    case DV_WARN_PULLUP:
+        return "%DEVICE-W-PULLUP, active-high output on a pin pulled up at reset";
     default:
         return "%DEVICE-F-UNKNOWN, unknown error";
     }

@@ -9,7 +9,7 @@
 ```
 [device DOOR1]
 type = door
-gpio = 4
+gpio = 12
 active = high
 initial = off
 pulse_ms = 0
@@ -32,30 +32,37 @@ Keys are lower-case. Rules:
 
 - A device with a bad field is skipped. The others still load. Each skipped device adds one error with its code, line and name.
 - Unknown keys are skipped and counted. Keys outside a `[device NAME]` section count as unknown.
-- Only the first 16 device sections are read. Later ones are ignored and counted without checks.
+- Only the first 24 device sections are read, `DV_MAX_DEVICES`. Later ones are ignored and counted without checks.
 - Two devices may not share a name or a pin. The later one is skipped.
 - A sensor with `pulse_ms` other than 0 is skipped.
-- A section with no keys is never seen by the reader, so it is not counted.
+- A section with no keys is never seen by the reader, so it is not counted. This waits on a library feature, see [Pending library features](../ARCHITECTURE.md#pending-library-features).
 - Two sections with the same name in a row merge into one, because the reader reports keys only.
 - If the INI reader stops on a bad line, devices finished before that line stay loaded. The device in progress is dropped.
 
-`dv_cfg_summary()` formats the result for the `ev=config` marker: `loaded=4 skipped=0 unknown=0 ignored=0 errors=0 parse=0`.
+- An output with `active = high` on a pin pulled up at reset loads with a warning. Each warning adds its code, line and name to `warns`, and `warn_count` counts them all.
+
+`dv_cfg_summary()` formats the result for the `ev=config` marker: `loaded=4 skipped=0 unknown=0 ignored=0 errors=0 parse=0 warnings=0`.
 
 ## Refused pins
 
-From RobCo-Core `docs/spec/BOARD_SUPPORT.md`, section "Pins":
+`dv_cfg_parse_pins()` takes the refused pin mask: bit n refuses GPIO n. `dv_cfg_parse()` uses `DV_REFUSED_DEFAULT`. The masks come from RobCo-Core `docs/spec/BOARD_SUPPORT.md`, section "Pins", and the input mapping it lists:
 
-| Pins | Why |
-|---|---|
-| 0, 1 | ID EEPROM. The input example avoids them. |
-| 2, 3 | I2C |
-| 5, 6, 16, 17, 22, 23, 24, 26, 27 | input buttons and dial |
-| 7 to 11 | SPI0 |
-| 14, 15 | UART |
-| 18 | PWM audio on the Zero |
-| 28 and up | PWM audio on Pi 1 to 3 (40, 41, 45), SD routing (34 to 39, 48 to 53), pins not on the header |
+| Pins | Why | Mask |
+|---|---|---|
+| 0, 1 | ID EEPROM. The input example avoids them. | `DV_PINS_FIXED` |
+| 2, 3 | I2C | `DV_PINS_FIXED` |
+| 7 to 11 | SPI0 | `DV_PINS_FIXED` |
+| 14, 15 | UART | `DV_PINS_FIXED` |
+| 18 | PWM audio on the Zero. Refused on every board, so one card works on all of them. | `DV_PINS_FIXED` |
+| 5, 6, 17, 22, 26, 27 | the six buttons: UP, DOWN, LEFT, RIGHT, SELECT, BACK | `DV_PINS_BUTTONS` |
+| 16, 23, 24 | the dial: push, A, B | `DV_PINS_DIAL` |
+| 28 and up | PWM audio on Pi 1 to 3 (40, 41, 45), SD routing (34 to 39, 48 to 53), pins not on the header | always |
 
-The free pins are 4, 12, 13, 19, 20, 21 and 25. So at most 7 devices can load at once.
+`DV_REFUSED_DEFAULT` refuses all of these. It leaves 7 free pins: 4, 12, 13, 19, 20, 21 and 25. UOS has six buttons and no dial, so its glue passes `DV_REFUSED_UOS`, which frees the dial's pins. That leaves 10 free Pi pins: 4, 12, 13, 16, 19, 20, 21, 23, 24 and 25. So at most 10 devices can load on Pi pins.
+
+## Pins pulled up at reset
+
+GPIO 0 to 8 have a pull-up at reset, before any code runs, and GPIO 9 to 27 a pull-down. This comes from the BCM2835 reset defaults. No file in this tree states the table, so it is to verify. An `active = high` output on a pulled-up pin is on from power up until boot sets its initial level: a relay board may switch its load on. The parser loads such a device and adds a `DV_WARN_PULLUP` warning, `%DEVICE-W-PULLUP, active-high output on a pin pulled up at reset`. `DV_PINS_RESET_PULLUP` holds the list. Of the free pins, only GPIO 4 is in it. The shipped `DEVICES.CFG` puts its active-high door on GPIO 12.
 
 ## Commands per type
 
@@ -91,7 +98,7 @@ A device with `pulse_ms` above 0 pulses for every word that turns it on: `ON`, `
 
 ```
 NAME     TYPE   LABEL                           STATE    PIN
-DOOR1    DOOR   Workshop door                   CLOSED   GPIO 4
+DOOR1    DOOR   Workshop door                   CLOSED   GPIO 12
 ```
 
 `dv_state_word()` gives the one word for a `DEV:NAME` read.

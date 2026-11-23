@@ -1,5 +1,11 @@
 /*
  * DEVICES.CFG parser. Pure: text in, device table out.
+ *
+ * PENDING LIBRARY FEATURE: ini_parse() reports keys only, so a section
+ * with no keys is never seen, and a repeated section header is not
+ * reported. RobCo-Core will add ini_parse_sections() in a later pin
+ * bump. Then switch to it so an empty or repeated section is a counted
+ * error. See docs/ARCHITECTURE.md, "Pending library features".
  */
 
 #include <robco/ini.h>
@@ -10,6 +16,7 @@
 typedef struct {
     dv_set_t *set;
     dv_cfg_result_t *res;
+    uint32_t refused;       /* refused pin mask */
     char section[INI_MAX_SECTION + 1];
     int have_section;       /* section[] holds the current one */
     int is_device;          /* the current section is [device NAME] */
@@ -46,25 +53,21 @@ static int dv_eq_nocase(const char *a, const char *b)
 }
 
 /*
- * Refused pins, from RobCo-Core docs/spec/BOARD_SUPPORT.md, section "Pins":
- * 0, 1 ID EEPROM; 2, 3 I2C; 5, 6, 16, 17, 22, 23, 24, 26, 27 input
- * buttons and dial; 7 to 11 SPI0; 14, 15 UART; 18 audio on the Zero;
- * 28 and up: audio on Pi 1 to 3 (40, 41, 45), SD routing (34 to 39,
- * 48 to 53) and pins not on the header.
+ * The masks in dev.h name the refused pins below DV_PIN_LIMIT. Pins 28
+ * and up are always refused: audio on Pi 1 to 3 (40, 41, 45), SD routing
+ * (34 to 39, 48 to 53) and pins not on the header.
  */
-int dv_pin_refused(unsigned pin)
+int dv_pin_refused_in(uint32_t refused, unsigned pin)
 {
-    static const uint32_t mask =
-        (1u << 0) | (1u << 1) | (1u << 2) | (1u << 3) |
-        (1u << 5) | (1u << 6) |
-        (1u << 7) | (1u << 8) | (1u << 9) | (1u << 10) | (1u << 11) |
-        (1u << 14) | (1u << 15) | (1u << 16) | (1u << 17) | (1u << 18) |
-        (1u << 22) | (1u << 23) | (1u << 24) | (1u << 26) | (1u << 27);
-
     if (pin >= DV_PIN_LIMIT) {
         return 1;
     }
-    return (mask >> pin) & 1u;
+    return (refused >> pin) & 1u;
+}
+
+int dv_pin_refused(unsigned pin)
+{
+    return dv_pin_refused_in(DV_REFUSED_DEFAULT, pin);
 }
 
 static void dv_add_err(dv_cfg_result_t *res, int code, unsigned line, const char *name)
@@ -78,6 +81,19 @@ static void dv_add_err(dv_cfg_result_t *res, int code, unsigned line, const char
         e->name[DV_NAME_MAX] = '\0';
     }
     res->err_count++;
+}
+
+static void dv_add_warn(dv_cfg_result_t *res, int code, unsigned line, const char *name)
+{
+    if (res->warn_count < DV_MAX_ERRORS) {
+        dv_cfg_err_t *e = &res->warns[res->warn_count];
+
+        e->code = code;
+        e->line = line;
+        k_strncpy(e->name, name, DV_NAME_MAX);
+        e->name[DV_NAME_MAX] = '\0';
+    }
+    res->warn_count++;
 }
 
 static void dv_field_err(dv_parse_t *p, int code, unsigned line)
@@ -127,6 +143,10 @@ static void dv_finish(dv_parse_t *p)
         p->res->skipped++;
         dv_add_err(p->res, p->err, p->err_line, p->raw);
         return;
+    }
+    if (p->d.type != DV_TYPE_SENSOR && p->d.active_high &&
+        ((DV_PINS_RESET_PULLUP >> p->d.pin) & 1u)) {
+        dv_add_warn(p->res, DV_WARN_PULLUP, p->first_line, p->d.name);
     }
     set->dev[set->count] = p->d;
     set->count++;
@@ -243,7 +263,7 @@ static void dv_key(dv_parse_t *p, const char *key, const char *value, unsigned l
         p->seen_gpio = 1;
         if (k_strlen(value) > 3 || dv_parse_u32(value, 0, &v) != 0) {
             dv_field_err(p, DV_ERR_GPIO, line);
-        } else if (dv_pin_refused(v)) {
+        } else if (dv_pin_refused_in(p->refused, v)) {
             dv_field_err(p, DV_ERR_PINUSED, line);
         } else {
             p->d.pin = (uint8_t)v;
@@ -318,6 +338,12 @@ static int dv_handler(const char *section, const char *key, const char *value,
 
 int dv_cfg_parse(const char *text, size_t len, dv_set_t *set, dv_cfg_result_t *res)
 {
+    return dv_cfg_parse_pins(text, len, DV_REFUSED_DEFAULT, set, res);
+}
+
+int dv_cfg_parse_pins(const char *text, size_t len, uint32_t refused,
+                      dv_set_t *set, dv_cfg_result_t *res)
+{
     dv_parse_t p;
     unsigned line = 0;
     int rc;
@@ -330,6 +356,7 @@ int dv_cfg_parse(const char *text, size_t len, dv_set_t *set, dv_cfg_result_t *r
     k_memset(&p, 0, sizeof(p));
     p.set = set;
     p.res = res;
+    p.refused = refused;
     if (len == 0) {
         return DV_OK;
     }
@@ -351,9 +378,9 @@ int dv_cfg_summary(const dv_cfg_result_t *res, char *buf, size_t size)
     if (res == NULL || buf == NULL) {
         return DV_ERR_ARG;
     }
-    n = k_snprintf(buf, size, "loaded=%u skipped=%u unknown=%u ignored=%u errors=%u parse=%d",
+    n = k_snprintf(buf, size, "loaded=%u skipped=%u unknown=%u ignored=%u errors=%u parse=%d warnings=%u",
                    res->loaded, res->skipped, res->unknown, res->ignored,
-                   res->err_count, res->parse_rc);
+                   res->err_count, res->parse_rc, res->warn_count);
     if (n < 0 || (size_t)n >= size) {
         if (size > 0) {
             buf[0] = '\0';
