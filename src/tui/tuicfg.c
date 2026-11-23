@@ -1,5 +1,11 @@
 /*
  * TERMINAL.CFG parser. Pure: text in, tui_menu_t out.
+ *
+ * PENDING LIBRARY FEATURE: ini_parse() reports keys only, so a section
+ * with no keys is never seen, and a repeated section header is not
+ * reported. RobCo-Core will add ini_parse_sections() in a later pin
+ * bump. Then switch to it so an empty or repeated section is a counted
+ * error. See docs/ARCHITECTURE.md, "Pending library features".
  */
 
 #include "tui.h"

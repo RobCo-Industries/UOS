@@ -114,3 +114,11 @@ The mini UART script channel. In QEMU it is the second serial port. On a Pi the 
 | `0x01000000` up | The heap, from `robco_heap_high()` |
 
 The pure files allocate nothing. The kernel base does not allocate yet; the heap is ready for the services that need it.
+
+## Pending library features
+
+These wait on RobCo-Core changes and a pin bump.
+
+- `ini_parse_sections()`. `ini_parse()` reports keys only. A section with no keys is never seen, and a repeated section header is not reported. `src/dev/devcfg.c` and `src/tui/tuicfg.c` will switch to `ini_parse_sections()` so an empty or repeated section is a counted error. Both files carry a note marked `PENDING LIBRARY FEATURE`. Nothing works around it now.
+- Data tapes in `rimg`. `rimg_validate()` cannot accept a data tape, subtype 2, because it looks up a slot first and subtype 2 has none. `tools/rimg.py seal` and `pack` refuse subtype 2 for the same reason. The holo module works around both: `holofmt.c` checks the slot rules itself, and `tools/mkholo.py` writes the header itself. See [holo](modules/holo.md).
+- The I2C expander driver. `DEVICES.CFG` already names expander pins, see [dev](modules/dev.md#expander-pins). No glue applies expander operations until the library has the driver.
