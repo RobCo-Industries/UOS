@@ -15,8 +15,6 @@
  *     ends a pulse late, never not at all.
  */
 
-#include <robco/alloc.h>
-#include <robco/fs.h>
 #include <robco/gpio.h>
 #include <robco/input.h>
 #include <robco/klibc.h>
@@ -253,23 +251,17 @@ static void load(void)
         UOS_MARK("devcfg result=skipped loaded=0");
         return;
     }
-    buf = k_malloc(DEVS_CFG_MAX);
-    if (buf == NULL) {
-        UOS_MARK("devcfg result=bad why=nomem loaded=0");
+    rc = vfs_sys_read_all(DEVS_CFG_PATH, DEVS_CFG_MAX, &buf, &len);
+    if (rc == VFS_E_NOTFOUND || rc == VFS_E_NOTREE) {
+        UOS_MARK("devcfg result=missing loaded=0");
         return;
     }
-    rc = fs_read_file(DEVS_CFG_PATH, buf, DEVS_CFG_MAX, &len);
-    if (rc != FS_OK) {
-        k_free(buf);
-        if (rc == FS_ERR_NOENT) {
-            UOS_MARK("devcfg result=missing loaded=0");
-        } else {
-            UOS_MARK("devcfg result=bad why=read rc=%d loaded=0", rc);
-        }
+    if (rc != VFS_OK) {
+        UOS_MARK("devcfg result=bad why=%s loaded=0", vfs_strerror(rc));
         return;
     }
     rc = dv_cfg_parse_pins(buf, len, refused_mask(), &set, &res);
-    k_free(buf);
+    vfs_free(buf);
     if (dv_cfg_summary(&res, summary, sizeof(summary)) < 0) {
         summary[0] = '\0';
     }
