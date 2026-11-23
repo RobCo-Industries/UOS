@@ -1,0 +1,30 @@
+ Long test text
+ Line 1 of the long test text.
+ Line 2 of the long test text.
+ Line 3 of the long test text.
+ Line 4 of the long test text.
+ Line 5 of the long test text.
+ Line 6 of the long test text.
+ Line 7 of the long test text.
+ Line 8 of the long test text.
+ Line 9 of the long test text.
+ Line 10 is long on purpose so that the pager has to break it at a blank before
+ the right edge of the screen.
+ Line 11 of the long test text.
+ Line 12 of the long test text.
+ Line 13 of the long test text.
+ Line 14 of the long test text.
+ Line 15 of the long test text.
+ Line 16 of the long test text.
+ Line 17 of the long test text.
+ Line 18 of the long test text.
+ Line 19 of the long test text.
+ Line 20 is long on purpose so that the pager has to break it at a blank before
+ the right edge of the screen.
+ Line 21 of the long test text.
+ Line 22 of the long test text.
+ Line 23 of the long test text.
+ Line 24 of the long test text.
+ Line 25 of the long test text.
+ Line 26 of the long test text.
+line 1 to 28 of 132  UP/DN line  LT/RT page  F3/F4 ends  BACK quit
