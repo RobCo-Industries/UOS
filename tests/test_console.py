@@ -246,3 +246,41 @@ def test_command_errors(board, uos_image, need_mtools, tmp_path):
         line = answer(vm, "osk state")[0]
         assert line == "osk open=0 layer=0 row=0 col=0 line=0 reading=0", line
         assert "line result" not in vm.serial
+
+
+def echo_bytes(vm, start):
+    """The PL011 text since `start` without the marker lines and line ends:
+    what the read screen echoed for a serial terminal."""
+    text = vm.serial[start:]
+    text = text[:text.rindex("\n") + 1]
+    return "".join(line for line in text.split("\n") if not line.startswith("@RC "))
+
+
+# Each redraw: CR, the prompt, the window, erase to the end of the line, and
+# when the cursor is not at the end, CR, the prompt and the text up to it.
+EL = "\x1b[K"
+
+
+def test_serial_echo(board, uos_image, need_mtools, tmp_path):
+    with alone(uos_image, board, uos_card(tmp_path)) as vm:
+        wait_ready(vm)
+        start = len(vm.serial)
+        start_read(vm, "- 40 Name:", 1)
+        answer(vm, "text abc")
+        key(vm, "left")
+        key(vm, "back")
+        key(vm, "select")
+        wait_marker(vm, "line result=ok", 1)
+        assert echo_bytes(vm, start) == (
+            "\rName: " + EL + "\rName: a" + EL + "\rName: ab" + EL + "\rName: abc" + EL +
+            "\rName: ab" + "\rName: ac" + EL + "\rName: a"), repr(echo_bytes(vm, start))
+
+        start = len(vm.serial)
+        start_read(vm, "m 32 Password:", 2)
+        answer(vm, "text s3c")
+        key(vm, "select")
+        wait_marker(vm, "line result=ok", 2)
+        assert echo_bytes(vm, start) == (
+            "\rPassword: " + EL + "\rPassword: *" + EL + "\rPassword: **" + EL +
+            "\rPassword: ***" + EL), repr(echo_bytes(vm, start))
+        assert "s3c" not in vm.serial

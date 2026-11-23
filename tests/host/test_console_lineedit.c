@@ -509,3 +509,71 @@ TEST(le_kill_with_scroll)
     /* The window pulls back so no more than the cursor cell is blank. */
     disp(&e, "<ijklmno  ", 8);
 }
+
+/* Exact serial bytes of a redraw. */
+static void ser(const le_t *e, unsigned what, const char *want)
+{
+    char out[LE_SERIAL_SIZE];
+
+    CHECK_EQ(le_serial(e, "Name: ", what, out, sizeof(out)), (int)strlen(want));
+    CHECK_STR(out, want);
+}
+
+TEST(le_serial_bytes)
+{
+    le_t e;
+    le_redraw_t rd;
+    char small[12];
+
+    le_hist_init(&hist);
+    start(&e, 20, 0, 10);
+    ser(&e, LE_RD_ALL, "\rName: \x1b[K");
+    ser(&e, LE_RD_NONE, "");
+    CHECK_EQ(ev(&e, INPUT_EV_CHAR, 'a', 0, &rd), LE_EDITING);
+    ser(&e, rd.what, "\rName: a\x1b[K");
+    type(&e, "bc");
+    ser(&e, LE_RD_FROM, "\rName: abc\x1b[K");
+    /* A move: only the cursor, by writing up to it again. */
+    CHECK_EQ(ev(&e, INPUT_EV_KEY, INPUT_KEY_LEFT, INPUT_PRESS, &rd), LE_EDITING);
+    CHECK_EQ(rd.what, LE_RD_CURSOR);
+    ser(&e, rd.what, "\rName: ab");
+    /* An edit in the middle: the line, then the cursor back in place. */
+    CHECK_EQ(ev(&e, INPUT_EV_KEY, INPUT_KEY_BACK, INPUT_PRESS, &rd), LE_EDITING);
+    ser(&e, rd.what, "\rName: ac\x1b[K\rName: a");
+    /* Trailing blanks of the line are typed back up to the cursor. */
+    CHECK_EQ(key(&e, INPUT_KEY_F2), LE_EDITING);
+    type(&e, "  ");
+    ser(&e, LE_RD_FROM, "\rName: ac\x1b[K\rName: ac  ");
+    /* Too small an output is refused, empty. */
+    CHECK_EQ(le_serial(&e, "Name: ", LE_RD_ALL, small, sizeof(small)), LE_ERR_ARG);
+    CHECK_EQ(le_serial(NULL, "x", LE_RD_ALL, small, sizeof(small)), LE_ERR_ARG);
+    CHECK_EQ(le_serial(&e, NULL, LE_RD_ALL, small, sizeof(small)), LE_ERR_ARG);
+}
+
+TEST(le_serial_masked_and_scrolled)
+{
+    le_t e;
+    char out[LE_SERIAL_SIZE];
+
+    le_hist_init(&hist);
+    start(&e, 20, LE_F_MASK, 10);
+    type(&e, "s3cret");
+    ser(&e, LE_RD_FROM, "\rName: ******\x1b[K");
+    CHECK(strstr(out, "s3cret") == NULL);
+    start(&e, 30, 0, 6);
+    type(&e, "abcdefghij");
+    /* The window, cut with '<', as the screen shows it. */
+    disp(&e, "<hij  ", 4);
+    ser(&e, LE_RD_ALL, "\rName: <hij\x1b[K");
+    CHECK_EQ(key(&e, INPUT_KEY_F1), LE_EDITING);
+    disp(&e, "abcde>", 0);
+    ser(&e, LE_RD_ALL, "\rName: abcde>\x1b[K\rName: ");
+    /* The worst case fits LE_SERIAL_SIZE: a 40-character prompt, 80 columns. */
+    start(&e, LE_MAX, 0, LE_MAX_WIDTH);
+    for (unsigned i = 0; i < LE_MAX; i++) {
+        CHECK_EQ(le_char(&e, 'x', NULL), LE_EDITING);
+    }
+    CHECK_EQ(key(&e, INPUT_KEY_LEFT), LE_EDITING);
+    CHECK_EQ(le_serial(&e, "0123456789012345678901234567890123456789", LE_RD_ALL, out,
+                       sizeof(out)), 1 + 40 + 79 + 3 + 1 + 40 + 76);
+}

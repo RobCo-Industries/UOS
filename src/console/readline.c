@@ -12,6 +12,7 @@
 
 #include <robco/console.h>
 #include <robco/klibc.h>
+#include <robco/uart.h>
 
 #include "conint.h"
 #include "conview.h"
@@ -58,6 +59,20 @@ static void paint_line(int whole, unsigned from)
     place_cursor();
 }
 
+/* The line on the PL011, as le_serial() says: a person on a serial
+ * terminal sees what they type. Masked lines show '*'. The keyboard's
+ * rows are never echoed. */
+static void echo(unsigned what)
+{
+    char out[LE_SERIAL_SIZE];
+    int n = le_serial(&rl.le, rl.prompt, what, out, sizeof(out));
+
+    if (n > 0) {
+        uart_puts(out);
+        uos_serial_open_line(1);
+    }
+}
+
 static void paint_osk(void)
 {
     char text[OSK_ROW_BUF];
@@ -92,6 +107,7 @@ static void rl_draw(uos_screen_t *s)
     rl.redraw_below = 0;
     paint_osk();
     paint_line(1, 0);
+    echo(LE_RD_ALL);
     if (uos.fb_ok) {
         console_cursor_show(1);
     }
@@ -105,6 +121,7 @@ static int feed(const input_event_t *ev)
     if (r != LE_EDITING) {
         return r;
     }
+    echo(rd.what);
     switch (rd.what) {
     case LE_RD_CURSOR:
         place_cursor();
@@ -134,6 +151,8 @@ static void finish(int r)
     if (uos.fb_ok) {
         console_cursor_show(0);
     }
+    /* The serial line ends with the read. */
+    uos_serial_break();
     rl.active = 0;
     (void)uos_screen_pop();
     if (cb != NULL) {

@@ -46,6 +46,21 @@ static char cfg_text[UOS_CFG_FILE_MAX];
 /* The files that mark the UOS boot volume. */
 static const char *const vol_markers[] = { UOS_CFG_PATH, "/ROBCO/UOS.SYS" };
 
+static volatile int serial_open;
+
+void uos_serial_open_line(int open)
+{
+    serial_open = open;
+}
+
+void uos_serial_break(void)
+{
+    if (serial_open) {
+        serial_open = 0;
+        uart_putc('\n');
+    }
+}
+
 void uos_mark(const char *fmt, ...)
 {
     char buf[224];
@@ -54,6 +69,7 @@ void uos_mark(const char *fmt, ...)
     va_start(ap, fmt);
     k_vsnprintf(buf, sizeof(buf), fmt, ap);
     va_end(ap);
+    uos_serial_break();
     k_printf("@RC stage=" ROBCO_STAGE_NAME " ev=%s\n", buf);
 }
 
@@ -63,6 +79,7 @@ void uos_say(const char *line)
         console_puts(line);
         console_putc('\n');
     }
+    uos_serial_break();
     uart_puts(line);
     uart_putc('\n');
 }

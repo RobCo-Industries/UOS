@@ -182,6 +182,54 @@ int le_display(const le_t *e, char *out, size_t size, unsigned *col)
     return (int)w;
 }
 
+/* Appends n bytes of s, if they fit with the NUL. */
+static int ser_put(char *out, size_t size, size_t *at, const char *s, size_t n)
+{
+    if (*at + n + 1u > size) {
+        return -1;
+    }
+    for (size_t i = 0; i < n; i++) {
+        out[(*at)++] = s[i];
+    }
+    out[*at] = 0;
+    return 0;
+}
+
+int le_serial(const le_t *e, const char *prompt, unsigned what, char *out, size_t size)
+{
+    char disp[LE_MAX_WIDTH + 1];
+    size_t at = 0, plen, vis;
+    unsigned col = 0;
+    int bad = 0;
+
+    if (e == NULL || prompt == NULL || out == NULL || size == 0 ||
+        le_display(e, disp, sizeof(disp), &col) < 0) {
+        return LE_ERR_ARG;
+    }
+    out[0] = 0;
+    for (plen = 0; prompt[plen] != 0; plen++) {
+    }
+    vis = e->width;
+    while (vis > 0 && disp[vis - 1] == ' ') {
+        vis--;
+    }
+    if (what == LE_RD_FROM || what == LE_RD_ALL) {
+        bad |= ser_put(out, size, &at, "\r", 1);
+        bad |= ser_put(out, size, &at, prompt, plen);
+        bad |= ser_put(out, size, &at, disp, vis);
+        bad |= ser_put(out, size, &at, "\x1b[K", 3);
+        if (col == vis) {
+            return bad ? LE_ERR_ARG : (int)at;
+        }
+    } else if (what != LE_RD_CURSOR) {
+        return 0;
+    }
+    bad |= ser_put(out, size, &at, "\r", 1);
+    bad |= ser_put(out, size, &at, prompt, plen);
+    bad |= ser_put(out, size, &at, disp, col);
+    return bad ? LE_ERR_ARG : (int)at;
+}
+
 /* ---- Editing ---- */
 
 int le_init(le_t *e, char *buf, size_t size, unsigned max, unsigned flags,

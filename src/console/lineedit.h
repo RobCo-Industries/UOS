@@ -123,6 +123,26 @@ int le_char(le_t *e, unsigned c, le_redraw_t *rd);
  */
 int le_display(const le_t *e, char *out, size_t size, unsigned *col);
 
+/*
+ * The bytes that redraw the line on a serial terminal after an event
+ * that asked for `what` (LE_RD_*), or for the first draw with LE_RD_ALL.
+ * Only CR and erase-to-end-of-line, ESC [ K, move or clear: every
+ * terminal program knows both. The terminal's cursor is left at the
+ * line's cursor.
+ *   LE_RD_NONE    nothing
+ *   LE_RD_CURSOR  CR, the prompt, the window up to the cursor
+ *   LE_RD_FROM, LE_RD_ALL
+ *                 CR, the prompt, the window without trailing blanks,
+ *                 ESC [ K; then, when the cursor is not at the end of
+ *                 that text, CR, the prompt and the window up to it
+ * The window is le_display()'s: '*' per character when masked, '<' and
+ * '>' at cut ends. Writes a NUL-terminated string into `out` and returns
+ * its length, or LE_ERR_ARG when `out` is too small: LE_SERIAL_SIZE
+ * bytes are always enough for a prompt of up to 40 characters.
+ */
+#define LE_SERIAL_SIZE  (2u * (1u + 40u + LE_MAX_WIDTH) + 3u + 1u)
+int le_serial(const le_t *e, const char *prompt, unsigned what, char *out, size_t size);
+
 /* The cursor's window column. */
 unsigned le_cursor_col(const le_t *e);
 unsigned le_len(const le_t *e);

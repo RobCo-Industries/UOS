@@ -32,6 +32,16 @@ void uos_mark(const char *fmt, ...) __attribute__((format(printf, 1, 2)));
 void uos_say(const char *line);
 
 /*
+ * The PL011 line being edited. The console's read screen echoes the line
+ * without a line end and calls uos_serial_open_line(1). Before a marker
+ * or any other line goes out, uos_serial_break() ends that partial line,
+ * so each marker starts on a line of its own; the next echo draws the
+ * edited line again. Any context, panic path included.
+ */
+void uos_serial_open_line(int open);
+void uos_serial_break(void);
+
+/*
  * The one path for fatal errors. Masks IRQs, prints "ev=panic", shows the
  * reason on a cleared screen and keeps the maintenance port answering
  * (`state`, `dump`, `reboot`). Never returns.

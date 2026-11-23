@@ -106,6 +106,7 @@ void con_print(const char *text, unsigned attr)
     unsigned last = con_text_rows() - 1u;
     unsigned col, row;
 
+    uos_serial_break();
     uart_puts(text == NULL ? "" : text);
     uart_putc('\n');
     if (!uos.fb_ok) {
