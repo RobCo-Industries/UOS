@@ -33,10 +33,10 @@ SRCS       := $(sort $(wildcard src/*/*.c src/*/*.S))
 PURE_NAMED := src/dcl/*.c \
               src/dev/devcfg.c src/dev/devstate.c \
               src/hack/hack.c \
-              src/holo/holofmt.c \
+              src/holo/holofmt.c src/holo/holoread.c \
               src/osk/osk.c \
               src/session/lockout.c src/session/sha256.c src/session/uaf.c \
-              src/tui/tui.c \
+              src/tui/pager.c src/tui/tui.c src/tui/tuicfg.c \
               src/vfs/path.c
 PURE_KERNEL := \
               src/kernel/bootlines.c \
