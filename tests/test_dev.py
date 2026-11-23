@@ -7,7 +7,8 @@ import os
 import re
 import time
 
-from uos import IDLE, ROOT, TICK_HZ, TIMEOUT, alone, answer, events, one, uos_card, wait_ready
+from uos import IDLE, ROOT, TICK_HZ, TIMEOUT, alone, answer, events, one, uos_card
+from uos import wait_ready as wait_uos
 
 CFG = "/UOS/DEVICES.CFG"
 
@@ -71,6 +72,16 @@ pulse_ms = 1000
 ALL_BOOT = [(12, 0), (25, 0), (16, 0), (20, 0), (19, 0), (24, 0), (23, 0), (13, 1)]
 # The safe state: ARM off first, then the others at initial, last first.
 ALL_SAFE = [(13, 0), (23, 0), (24, 0), (19, 0), (20, 0), (16, 0), (25, 0), (12, 0)]
+
+
+# The service reports its init on the first tick after `ready`; its last
+# init line is the watchdog's.
+WDOG_LINE = re.compile(r"@RC stage=uos ev=wdog result=(on|off)[^\n]*\n")
+
+
+def wait_ready(vm):
+    wait_uos(vm)
+    vm.wait_for(WDOG_LINE, timeout=TIMEOUT)
 
 
 def boot_card(tmp_path, cfg=ALL):
@@ -387,6 +398,8 @@ def test_reboot_drives_safe(board, uos_image, need_mtools, tmp_path):
             assert dev_set(vm, name, action).status == "ok"
         vm.send("reboot\n", port=1)
         vm.wait_for(READY_TWICE, timeout=TIMEOUT)
+        vm.wait_for(re.compile(r"(@RC stage=uos ev=wdog result=on[^\n]*\n[\s\S]*){2}"),
+                    timeout=TIMEOUT)
         safe = safe_writes(vm)
         assert [(p, lv) for p, lv, _, _ in safe] == ALL_SAFE, vm.serial
         assert safe[0][2] == "ARM" and all(rc == "0" for *_, rc in safe)
@@ -424,6 +437,8 @@ def test_watchdog_resets_hung_loop(board, hooks_image, need_mtools, tmp_path):
         answer(vm, "dev hang")
         vm.wait_for(READY_TWICE, timeout=WDOG_S + HOST_ALLOWANCE_S + TIMEOUT)
         took = time.monotonic() - t0
+        vm.wait_for(re.compile(r"(@RC stage=uos ev=wdog result=on[^\n]*\n[\s\S]*){2}"),
+                    timeout=TIMEOUT)
         exp = [m for m in events(vm, "wdog") if m["result"] == "expired"]
         assert len(exp) == 1, vm.serial
         assert took <= WDOG_S + HOST_ALLOWANCE_S + 10, took
