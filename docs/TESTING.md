@@ -14,6 +14,8 @@ The tests run from the repository root, so the ones that read the default card o
 | `test_screen.c` | The screen stack rules: push, pop, replace, events passed down, draws |
 | `test_settings.c` | `UOS.CFG`: every key, clamps, bad values, unknown keys, syntax errors |
 | `test_bootlines.c` | The text of the first screen |
+| `test_maintreg.c` | The maintenance command table: name rules, duplicates and library built-ins refused, sorted order, the 48-command limit; the word splitting with quotes, the word and line limits; joining the channel's words back |
+| `test_service.c` | The service rules with fake services: inits in order, a failure does not stop the next, ticks only for started services, shutdown in reverse order and once, nothing before init, the table limit |
 | `test_privs.c` | Every module's privilege names equal the shared bits of `uos_privs.h`; the `SYSUAF.DAT` names of each bit |
 | `test_dcl.c` | The DCL tokeniser, continuation, numbers, the abbreviation rule, qualifiers and parameters, prompts, privileges |
 | `test_dcl_msg.c` | The text of every system message |
@@ -52,6 +54,7 @@ The tests run from the repository root, so the ones that read the default card o
 | `test_loop.py` | Keys from the port and the serial console reach the screen; a periodic timer fires the right number of times in its bound; a cancelled timer never fires; the timer listing |
 | `test_panic.py` | The panic path for an undefined instruction, a prefetch abort and a `uos_panic()` call; `reboot`; an `nm` check that the shipped image has no test hooks |
 | `test_first.py` | A golden of the first screen's text and screenshots |
+| `test_services.py` | The `ev=service` markers and `services`; `uptime`; shutdown markers in reverse order on `reboot`, halt and panic; a failing service in test builds; `help`, unknown commands and quotes; the `bench uaf` figure |
 | `test_env_hygiene.py` | No test copies the host environment |
 
 ### How the tests start UOS
@@ -62,11 +65,26 @@ The tests run from the repository root, so the ones that read the default card o
 
 ### Test builds
 
-`UOS_TEST_HOOKS=1` adds the `fault` and `panic` maintenance commands. The tests build it in `build/testhooks/`. It is never shipped: `test_panic.py` checks with `nm` that the shipped image has none of its symbols.
+`UOS_TEST_HOOKS=1` adds the `fault`, `panic`, `halt` and `bench` maintenance commands, and a service named `testfail` whose init returns -5, first in the table. The tests build it in `build/testhooks/`. It is never shipped: `test_panic.py` checks with `nm` that the shipped image has none of its symbols.
 
 ### Timing bound
 
 The timer probe runs 10 periods of 10 ticks. It must end after at least 100 ticks and at most 100 ticks plus 1 tick of loop latency plus `HOST_ALLOWANCE_TICKS`, 20 ticks. The allowance covers a loaded test host. The count must be exact.
+
+### The hash bench
+
+`test_bench_uaf` runs `bench uaf 2000` in a test build and prints a line `bench board=<b> mmu=<on|off> iterations=2000 ticks=<t> us=<us>` with `-s`. It asserts only that the hash takes at most 50 ticks, 0.5 s. QEMU takes about 1 tick. The bound is about 40 times that: a loaded host fits, a hang or a 100-times slowdown does not.
+
+Measured in QEMU on the test host, two runs per board, 2000 iterations:
+
+| Board | MMU on | MMU off |
+|---|---|---|
+| `raspi0` | 11.3 and 11.4 ms | 10.6 and 10.6 ms |
+| `raspi1ap` | 11.1 and 11.3 ms | 10.6 and 10.7 ms |
+| `raspi2b` | 11.5 and 11.8 ms | 10.6 and 10.9 ms |
+| `raspi3b` | 10.0 and 12.0 ms | 11.6 and 11.7 ms |
+
+The MMU off figures come from a local build with `mmu_enable()` left out. QEMU does not model caches, so the two columns are the same within noise. These figures say nothing about a real Pi, where the caches should matter much more. Nothing is validated on real hardware.
 
 ### Goldens and screenshots
 

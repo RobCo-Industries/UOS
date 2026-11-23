@@ -23,3 +23,8 @@ All notable changes to UOS are recorded here. The format follows [Keep a Changel
 - Card tools with pytest tests: `mkuaf.py`, `mkwords.py`, `mkholo.py`. `make test-tools` runs them.
 - The default card's user database, devices, menus, word lists and holotapes.
 - `docs/FORMATS.md` and a reference page per module in `docs/modules/`.
+- A registry for maintenance commands, `uos_maint_register()`, with `help` and quoted words. Every base command moved onto it.
+- A table of services in `src/kernel/services.c` with `ev=service` and `ev=shutdown` markers, and the first service, `uptime`.
+- `uos_halt()`, and `uos_reboot()` that shuts the services down first. The panic path shuts them down too.
+- The MMU and the caches are on from early boot, with an `ev=mmu` marker.
+- Test builds: `halt`, `bench uaf <n>` and a failing service for the tests.
