@@ -28,3 +28,4 @@ All notable changes to UOS are recorded here. The format follows [Keep a Changel
 - `uos_halt()`, and `uos_reboot()` that shuts the services down first. The panic path shuts them down too.
 - The MMU and the caches are on from early boot, with an `ev=mmu` marker.
 - Test builds: `halt`, `bench uaf <n>` and a failing service for the tests.
+- The `vfs` service: file specifications to card files with access checks, safe writes, listings, wildcards, stepped copies, a `DEV:` hook and the `fs` maintenance command.
