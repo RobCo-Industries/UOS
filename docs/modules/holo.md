@@ -124,11 +124,11 @@ The tape and its text point into the caller's buffer. They stay valid while the 
 
 ## Reader model
 
-The caller scans `/UOS/HOLO`, validates each tape with `hf_open()`, and fills one `hf_tape_info_t` per file: the 8.3 file name, the title, and the error code. A tape with an error shows as damaged with the reason and cannot be opened.
+The caller scans `/UOS/HOLO`, validates each tape with `hf_open()`, and fills one `hf_tape_info_t` per file: the 8.3 file name, the title, and the error code. A tape with an error shows as damaged with the reason and cannot be opened. `HF_E_UNCHECKED` is not damage: the caller could not read the tape, so its bytes were never checked. Such a tape can be opened; the load reads it again.
 
 | Screen | UP, DOWN | ENTER | BACK |
 |---|---|---|---|
-| tape list | move, with wrap | `HF_ACT_LOAD` for a good tape, `HF_ACT_REFUSED` for a damaged one | `HF_ACT_EXIT` |
+| tape list | move, with wrap | `HF_ACT_LOAD` for a good or unchecked tape, `HF_ACT_REFUSED` for a damaged one | `HF_ACT_EXIT` |
 | entry list | move, with wrap | `HF_ACT_SHOW` with the entry name and text; goes to reading | `HF_ACT_CLOSE`; back to the tape list |
 | reading | nothing | nothing | back to the entry list |
 
@@ -145,7 +145,7 @@ Layout of both list screens, 30 lines of at most 78 characters:
 | 28 | 78 `-` | same |
 | 29 | `UP/DOWN move   ENTER open tape   BACK leave reader` | `UP/DOWN move   ENTER read entry   BACK tape list` |
 
-`>` marks the selection; other rows start with two spaces. A damaged tape shows `DAMAGED: <reason>` in place of its title. An empty list shows `  No holotapes found in SYS$HOLO.` on line 3. The window holds 25 rows and scrolls to keep the selection in view.
+`>` marks the selection; other rows start with two spaces. A damaged tape shows `DAMAGED: <reason>` in place of its title. An unchecked tape shows `NOT CHECKED: select it to try again`, 34 characters after the file name, so the row stays within 78. An empty list shows `  No holotapes found in SYS$HOLO.` on line 3. The window holds 25 rows and scrolls to keep the selection in view.
 
 ## The screen
 
@@ -153,8 +153,9 @@ Layout of both list screens, 30 lines of at most 78 characters:
 
 The screen follows the model's actions:
 
-- It lists `SYS$HOLO:*.HTP` with `vfs_list()`, keeps the first 32, then reads one tape per loop pass with `vfs_read_all()` and fills `hf_tape_info_t` from `hf_open()`. A read error marks the tape damaged: `toobig` for a file over `HF_TAPE_MAX`, `io` for the rest.
-- `HF_ACT_LOAD`: it draws `LOADING NAME.HTP ...`, then reads the file on the next pass and calls `hf_reader_loaded()`. The buffer comes from the heap through `vfs_read_all()`. A validation error marks the tape damaged. No heap, no card and a vanished file show a line and leave the tape as it is.
+- It lists `SYS$HOLO:*.HTP` with `vfs_list()`, keeps the first 32, then reads one tape per loop pass with `vfs_read_all()` and fills `hf_tape_info_t` from `hf_open()`. Only a file over `HF_TAPE_MAX` is damage from a failed read: `toobig`. Every other read error says nothing about the tape's bytes, so the tape is `unchecked`: no memory, a busy or missing card, a file gone since the listing, a FAT read error that may pass, and no access. `hs_read_err()` makes that choice.
+- `HF_ACT_LOAD`: it draws `LOADING NAME.HTP ...`, then reads the file on the next pass and calls `hf_reader_loaded()`. The buffer comes from the heap through `vfs_read_all()`. A validation error or a file over the limit marks the tape damaged. No heap, no card, a vanished file and any other read error show a line and leave the tape as it is. A good load of an unchecked tape marks it good and fills its title.
+- Load results and refusals go to the message row and, once, to the serial line. The `LOADING` line is on the screen only.
 - `HF_ACT_SHOW`: `con_page_text()` with the entry name as the title. When the pager closes, the screen sends BACK to the model.
 - `HF_ACT_CLOSE`: `vfs_free()` of the tape.
 - `HF_ACT_EXIT`: the screen pops.
@@ -176,8 +177,8 @@ Reads use the session's file context and privileges, or no privilege when nobody
 |---|---|
 | `holo op=open`, `holo op=exit` | The reader enters and leaves the stack |
 | `holo op=tape i= file= result= bytes= us= rc=` | One per scanned tape. `result` is the `hf_err_name()` word |
-| `holo op=scan result=<list\|empty\|nocard\|nofolder\|error> total= kept= damaged= rc=` | The scan ended |
-| `holo op=load file= result=<ok\|nomem\|nocard\|gone\|damaged> why= bytes= us= ticks=` | A load ended; `result=refused` for a damaged tape |
+| `holo op=scan result=<list\|empty\|nocard\|nofolder\|error> total= kept= damaged= unchecked= rc=` | The scan ended |
+| `holo op=load file= result=<ok\|nomem\|nocard\|gone\|damaged\|retry> why= bytes= us= ticks=` | A load ended; `result=refused` for a damaged tape. `retry`: a read error that is not about the tape, with `THIS HOLOTAPE COULD NOT BE READ NOW. TRY AGAIN.` |
 | `holo op=show tape= entry= bytes= rc=` | An entry opens in the pager |
 | `holo op=close file=` | The open tape's buffer is freed |
 | `holo result=<busy\|range\|screen\|gone>` | A `holo` command did nothing. `gone`: the reader the pick was meant for closed before the pick ran, or none is open |
@@ -189,7 +190,7 @@ Reads use the session's file context and privileges, or no privilege when nobody
 | `holo open` | Posts `holo_screen_start()` |
 | `holo list` | One line per tape: `tape i= file= err= title=`, the title with `%XX` for blanks |
 | `holo pick <n>` | Moves the selection of the shown list to item `n`, then ENTER. The posted call carries `n` and the reader it was meant for, so two picks in one write each keep their own |
-| `holo state` | `holo state= scan= screen= tapes= total= sel= entry= open= msg= pending=`. `pending` counts input events, posted commands and a running scan or load |
+| `holo state` | `holo state= scan= screen= tapes= total= sel= entry= open= msg= pending=`. `pending` counts input events not handled yet through `uos_input_pending()`, posted commands and a running scan or load |
 | `holo hog` | Test builds only: takes the heap until no tape fits, a second call gives it back |
 
 ## The tool

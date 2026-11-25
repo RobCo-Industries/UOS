@@ -52,6 +52,11 @@ All notable changes to UOS are recorded here. The format follows [Keep a Changel
 
 ### Fixed
 
+- `uos_dec_u32()` refused nothing above a limit below 9 for a one-digit text: `max - digit` wrapped. The file system commands' copy of the parser had the same fault and now use it.
+- The holotape reader marked a tape damaged when the scan could not read it, for lack of memory for example. Such a tape now shows `NOT CHECKED` and opens when picked.
+- The password game printed a refusal twice on the serial line. The holotape reader printed its load results on the screen only; they now reach the serial line once.
+- Test builds: two `sess login` commands in one port write both used the second name. Each now carries its own.
+- The `hack`, `holo` and `sess` state replies could say `pending=0` while keys waited in the loop's queue. They use `uos_input_pending()`.
 - Devices: `ARM` stays off at boot when any other output failed its initial write, an expander output with no driver included. The status and the answer to arming by hand say how many outputs are unreachable.
 - Files: every call sees a file cut mid-write as recovery leaves it. A copy finds a source held only in a work file, and a new-only copy or write sees the restored target. Listings show the real name, never a work file.
 - Files: on a read-only card, reads and listings find the content a work file holds, and writes fail as read-only instead of "not found".

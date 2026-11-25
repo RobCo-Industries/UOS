@@ -141,7 +141,7 @@ Keys: the four directions move, press or repeat; SELECT guesses, press only; BAC
 
 After a win or a loss the result shows for 1 s and keys do nothing. Then a win calls `sess_hack_begin()` and a loss `sess_hack_lock()`: see [session](session.md#the-password-game).
 
-The board is drawn on the screen only. The PL011 gets the markers, the refusal and result lines, never the board: the only words it shows are the guessed ones.
+The board is drawn on the screen only. The PL011 gets the markers, the refusal and result lines, never the board: the only words it shows are the guessed ones. Each refusal or start error goes out once: `start_game()` only fills the message, and the screen's enter prints it.
 
 | State a person can meet | What happens |
 |---|---|
@@ -172,7 +172,7 @@ None names the password before the game ends.
 | `hack start` | Posts the start, as F2 at the login does |
 | `hack move <left\|right\|up\|down> [n]` | Posts `n` moves, 1 to 64 |
 | `hack select`, `hack back` | Posts SELECT or BACK. Each posted call carries its own arguments and the game it was meant for |
-| `hack state` | `hack state= cursor= hl= hlstart= hllen= attempts= result= len= words= pairs= pending=`, then `row r= text=` for the 16 board rows and `hist i= text=` per history line, with `%XX` for blanks, `%` and `"` |
+| `hack state` | `hack state= cursor= hl= hlstart= hllen= attempts= result= len= words= pairs= pending=`, where `pending` is `uos_input_pending()` plus posted commands, then `row r= text=` for the 16 board rows and `hist i= text=` per history line, with `%XX` for blanks, `%` and `"` |
 | `hack seed <n>` | Test builds only: the next games use seed `n`. `test_hack.py` checks with `nm` that the shipped image has none of it |
 
 ## The tool

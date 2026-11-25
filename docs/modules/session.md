@@ -259,9 +259,9 @@ The screen shows a header, then `USERNAME:` and `PASSWORD:` read by `con_read_li
 
 | Command | Answer |
 |---|---|
-| `sess state` | `sess state= db= user= privs= flags= home= tries= locked_s= idle_s= pending=`. `pending` counts input events the loop has not taken yet: a test waits for 0 before it reads the state. |
+| `sess state` | `sess state= db= user= privs= flags= home= tries= locked_s= idle_s= pending=`. `pending` counts input events not handled yet, `uos_input_pending()`: a test waits for 0 before it reads the state. |
 | `sess logout` | Posts `sess_logout(SESS_END_MAINT)`. A `session state=end` or `session result=none` marker follows. |
-| `sess login <user>` | Test builds only. Starts a session with no password, through the welcome, so later tasks test their screens without the hash cost. The shipped image does not contain it: `test_login.py` checks with `nm`. |
+| `sess login <user>` | Test builds only. Starts a session with no password, through the welcome, so later tasks test their screens without the hash cost. The posted call carries the name in one of 4 slots, so two commands in one port write keep their own names and run in order: the first opens its session, the second marks `session result=busy`. A fifth command while 4 wait answers `err full`. The shipped image does not contain it: `test_login.py` checks with `nm`. |
 
 ### QEMU numbers
 

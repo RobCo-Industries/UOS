@@ -91,6 +91,8 @@ What the reader can tell you:
 | The screen says | Meaning |
 |---|---|
 | `DAMAGED:` and a reason, in place of a title | The tape is broken. It cannot be opened |
+| `NOT CHECKED: select it to try again` | The reader could not read the tape when it opened, for example for lack of memory. Select it to try again |
+| `THIS HOLOTAPE COULD NOT BE READ NOW. TRY AGAIN.` | The card did not answer. Try again; if it goes on, check the card |
 | `No holotapes found in SYS$HOLO.` | The folder is empty |
 | `This card has no holotape folder, SYS$HOLO.` | The card has no tape folder |
 | `No card. Insert a UOS card to read holotapes.` | No card is in the terminal |
