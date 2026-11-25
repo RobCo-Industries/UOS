@@ -56,6 +56,9 @@ static unsigned runs;
 static uint32_t job_seq;            /* the last job identity given */
 static int test_hold, test_held;    /* sh hold: test builds only */
 static int owed;                    /* SH_OWE_*: the job's work a covered shell owes */
+/* 1: a session reset took the shell away under a running job. The job
+ * takes no step and prints nothing; the next tick ends it quietly. */
+static int orphan;
 
 /* ---- The session's default folder ---- */
 
@@ -371,6 +374,9 @@ static void shell_leave(uos_screen_t *s)
     (void)s;
     shp.on = 0;
     shp.reading = 0;
+    if (sh_job.active) {
+        orphan = 1;
+    }
 }
 
 static int shell_event(uos_screen_t *s, const uos_event_t *ev)
@@ -542,6 +548,9 @@ static void drive(void *arg)
         return;
     }
     j->posted = 0;
+    if (orphan) {
+        return;
+    }
     /* A covered shell: the step could ask, page, start a program or print
      * over the covering screen. It waits; shell_uncover() posts it. */
     if (covered()) {
@@ -572,7 +581,7 @@ static void drive(void *arg)
 
 void sh_resume(sh_job_t *j, int rc)
 {
-    if (!j->active) {
+    if (!j->active || orphan) {
         return;
     }
     if (rc == SH_MORE) {
@@ -648,6 +657,7 @@ static void finish(void)
     int status;
 
     owed = SH_OWE_NONE;
+    orphan = 0;
     if (j->impl != NULL && j->impl->stop != NULL) {
         j->impl->stop(j);
     }
@@ -766,6 +776,7 @@ static int launch(const char *line, unsigned flags, const char *src, sh_done_fn 
     }
     k_memset(j, 0, sizeof(*j));
     owed = SH_OWE_NONE;
+    orphan = 0;
     if (++job_seq == 0) {
         job_seq = 1;
     }
@@ -1115,8 +1126,10 @@ static void sh_svc_tick(uint32_t now)
 {
     (void)now;
     /* The session ended under a running command: a logout pops every
-     * screen, so a read or a program it waited on never calls back. */
-    if (sh_job.active && !sess_logged_in()) {
+     * screen, so a read or a program it waited on never calls back. A
+     * reset that took the shell away leaves the job an orphan: it ends
+     * here, before any step paints over the screen that replaced it. */
+    if (sh_job.active && (!sess_logged_in() || orphan)) {
         sh_job.cancel = 1;
         (void)sh_end(&sh_job, DCL_SYS_CANCEL, NULL, 0, 0);
         finish();
