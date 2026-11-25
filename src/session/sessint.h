@@ -22,6 +22,7 @@ typedef struct sess_state {
     uaf_db_t uaf;
     /* [login] values. */
     lk_t lk;
+    uint32_t lock_tick;         /* the tick the lock started at, as lk saw it */
     unsigned idle_s;
     /* The login screen. */
     lg_state_t st;
