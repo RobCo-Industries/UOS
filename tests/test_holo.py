@@ -278,6 +278,8 @@ def test_no_memory(board, hooks_image, need_mtools, tmp_path):
         load = wait_marker(vm, "holo op=load", 1)
         assert load["result"] == "nomem", load
         dump_until(vm, lambda r: r[28] == "** NOT ENOUGH MEMORY TO LOAD THIS HOLOTAPE.")
+        # The result goes out once on the serial line too.
+        assert vm.serial.count("NOT ENOUGH MEMORY TO LOAD THIS HOLOTAPE.") == 1, vm.serial
         assert tape_list(vm)[0]["err"] == "ok"
         answer(vm, "holo hog")                  # gives the heap back
         answer(vm, "holo pick 0")

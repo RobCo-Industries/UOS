@@ -350,7 +350,8 @@ def test_refusals(board, hooks_image, need_mtools, tmp_path):
             m = start_from_login(vm)
             assert (m["result"], m["why"]) == ("refused", why), m
             dump_until(vm, lambda r: r[23] == texts[why])
-            assert texts[why] in vm.serial
+            # Once on the serial line, never twice.
+            assert vm.serial.count(texts[why]) == 1, vm.serial
             key(vm, "back")
             wait_marker(vm, "login state=user", 2)
             assert not events(vm, "session")

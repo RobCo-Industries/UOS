@@ -30,6 +30,7 @@
 #include <robco/input.h>
 #include <robco/klibc.h>
 #include <robco/timer.h>
+#include <robco/uart.h>
 
 #include "con.h"
 #include "holoscan.h"
@@ -154,6 +155,19 @@ static void holo_draw(uos_screen_t *s)
                              lines[i][0] == '>' ? CONSOLE_ATTR_INVERSE : CONSOLE_ATTR_NORMAL);
     }
     con_status_redraw();
+}
+
+/* A load result or a refusal: the message row, and the same line once on
+ * the PL011, as the password game does. The loading line is progress and
+ * stays on the screen only. */
+static void say(const char *text)
+{
+    k_snprintf(hs.msg, sizeof(hs.msg), "%s", text);
+    if (text[0] != '\0') {
+        uos_serial_break();
+        uart_puts(text);
+        uart_putc('\n');
+    }
 }
 
 /* ---- Scan ---- */
@@ -292,7 +306,7 @@ static void load_step(void *arg)
              hs_load_name(res), rc == VFS_OK ? hf_err_name(hrc) : vfs_strerror(rc),
              (unsigned)len, (unsigned)us, (unsigned)(uos_ticks() - t0));
     hs.st = ST_LIST;
-    k_snprintf(hs.msg, sizeof(hs.msg), "%s", hs_load_text(res));
+    say(hs_load_text(res));
     if (res == HS_LOAD_OK) {
         hs.buf = buf;
         /* A tape the scan could not read is checked now. */
@@ -325,7 +339,7 @@ static void act(const hf_action_t *a)
         later(load_step);
         break;
     case HF_ACT_REFUSED:
-        k_snprintf(hs.msg, sizeof(hs.msg), "%s", hs_load_text(HS_LOAD_DAMAGED));
+        say(hs_load_text(HS_LOAD_DAMAGED));
         UOS_MARK("holo op=load file=%s result=refused", hs.tapes[a->tape].file);
         break;
     case HF_ACT_SHOW:
@@ -338,7 +352,7 @@ static void act(const hf_action_t *a)
             hf_action_t b;
 
             (void)hf_reader_event(&hs.r, HF_EV_BACK, &b);
-            k_snprintf(hs.msg, sizeof(hs.msg), "%s", hs_load_text(HS_LOAD_NOMEM));
+            say(hs_load_text(HS_LOAD_NOMEM));
         }
         break;
     case HF_ACT_CLOSE:

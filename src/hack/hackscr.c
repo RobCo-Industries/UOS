@@ -195,7 +195,8 @@ static int start_game(void)
     refused = sess_hack_check();
     if (refused != LG_HACK_OK) {
         UOS_MARK("hack op=start result=refused why=%s", lg_hack_name((lg_hack_t)refused));
-        say(lg_hack_text((lg_hack_t)refused));
+        /* hack_enter() prints every start failure on the serial line, once. */
+        k_snprintf(hg.msg, sizeof(hg.msg), "%s", lg_hack_text((lg_hack_t)refused));
         return -1;
     }
     if (hg_config(cfg->hack_attempts, cfg->hack_lockout_s, UOS_TICK_HZ, &hc) != HK_OK) {
@@ -339,6 +340,7 @@ static void hack_enter(uos_screen_t *s)
     hg.msg[0] = '\0';
     hg.how = HACK_DONE_LEFT;
     hg.st = hg_next(HG_S_OFF, start_game() == 0 ? HG_E_START_OK : HG_E_START_FAIL);
+    /* start_game() only fills hg.msg: the reason goes out here, once. */
     if (hg.msg[0] != '\0') {
         serial_line(hg.msg);
     }
