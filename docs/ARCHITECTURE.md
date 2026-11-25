@@ -143,10 +143,11 @@ An expiry is never lost. `uos_tq_deliver()` in `timerq.c` queues one `TIMER` eve
 
 A screen is a struct of `enter`, `leave`, `event`, `draw` and `uncover` callbacks and a `ctx` pointer. The kernel keeps a stack of up to 8:
 
-- `uos_screen_push()` puts a screen on top, such as a pager or the on-screen keyboard. The screen below gets no `leave`.
+- `uos_screen_push()` puts a screen on top, such as the holotape reader. The screen below gets no `leave`.
+- `uos_screen_push_child(s, owner)` puts a child on top, such as a read line or a pager a screen opens for itself. See [Owners and children](#owners-and-children).
 - `uos_screen_pop(s)` removes `s` when it is the top. The last screen cannot be popped.
 - `uos_screen_unwind()` pops every screen above the bottom one. Only a reset of the whole stack uses it, such as a logout or a lockout.
-- `uos_screen_on_top(s)` tells whether `s` is the top.
+- `uos_screen_on_top(s)` tells whether `s` is the top. `uos_screen_unit_on_top(s)` tells whether `s` or a child it owns is the top.
 - `uos_screen_replace()` swaps the top.
 - Events go to the top first. When its `event()` returns 0, the next screen down gets the event.
 - `uos_screen_invalidate()` asks for a redraw of the top screen.
@@ -183,7 +184,7 @@ The stack calls `uncover()` once each time a pop or an unwind leaves the screen 
 
 A running command waits whole while another screen covers the shell. Any step may ask a `/CONFIRM` question, read a `CREATE` line or a password, open the `TYPE /PAGE` pager or print. `con_print()` writes to the console cells at once, so a step's output would paint over the covering screen. So no step runs, quiet or not. The shell records the step or the end it owes, and `shell_uncover()` runs it with `ev=sh op=resume owe=`. `sh_owe_take()` clears the debt before the work, and `sh_resume()` posts at most one step, so the work runs once. An end outranks a step.
 
-Nothing starts on a covered shell: `sh_run_line()` returns `SH_ERR_COVERED`, so no command, question or program starts. `sh run` already replies `covered`. The shell's own `$` read on top does not count as a cover. A command the API starts while that read waits runs under it, as before. When a screen covers that read, a waiting step goes on only once the read ends and the shell is on top.
+Nothing starts on a covered shell: `sh_run_line()` returns `SH_ERR_COVERED`, so no command, question or program starts. `sh run` already replies `covered`. The shell's own `$` read is its child, so it does not cover the shell. A command the API starts while that read waits runs under it. When the reader covers that read and closes, the step the command owes runs at once, with no key.
 
 Ctrl-C while a command waits under the reader goes to the reader, the top screen. The command neither ends nor asks. Once the reader closes, the question opens and Ctrl-C there cancels the command.
 
@@ -205,7 +206,41 @@ Other rules:
 - A session reset ends every screen at once with `uos_screen_unwind()`: a logout, a lockout, the welcome's end and a won game's session. It pops from the top down, so no screen pops another.
 - Background work on a covered screen, such as the holotape scan and load steps, may change that screen's own state. It never pushes or pops.
 
-`sess_prompt_on_top()`, `con_line_on_top()` and every check above use `uos_screen_on_top()`.
+#### Owners and children
+
+A screen often opens a child screen for itself: a read line, a pager or a pause. The owner and its children form one unit. `uos_screen_push_child(s, owner)` pushes the child with its owner, and `con_read_line()`, `con_page_text()` and `con_pause()` take the owner as their first argument. A maintenance command that opens a read or a pager passes `NULL`: its screen belongs to nobody.
+
+| Owner | Child | What the owner owes while its unit is covered |
+|---|---|---|
+| `shell` | the `$`, `_$` and parameter reads | A command's step or end, started through the API under the read |
+| `shell` | a command's `/CONFIRM`, `CREATE` line or password read | Nothing: the command waits for the answer |
+| `shell` | the `TYPE /PAGE` pager | Nothing: the command waits for the pager |
+| `login` | the `USERNAME:` and `PASSWORD:` reads | Nothing: the next read starts after this one ends |
+| `holo` | the entry pager | Nothing: the scan never pushes or pops |
+
+The on-screen keyboard is part of the read line, not a screen.
+
+Two checks answer two questions.
+
+- `uos_screen_unit_on_top(s)`: is `s` or a child it owns the top? This says whether the unit is covered. The shell's `covered()`, `sh run`, `sess_prompt_on_top()` and `con_line_on_top()` use it.
+- `uos_screen_on_top(s)`: is `s` itself the top? A command that stands in for a key uses it, such as `holo pick` or `osk open`, since the child takes the keys.
+
+When a pop leaves a child on top, the next draw calls `uncover()` for the child, then for each owner down the chain, top first. Each runs at most once. The chain stops at a screen whose unit is no longer on top, such as after an `uncover()` that pushed another screen. When an `uncover()` pops its own screen, the new top is marked again, and the next draw calls it and its owners. So no screen runs its `uncover()` twice for one uncovering.
+
+```mermaid
+sequenceDiagram
+    participant R as reader
+    participant L as $ read
+    participant S as shell
+    R->>R: BACK pops the reader
+    Note over L: the draw repaints shell and read
+    L->>L: uncover(), if any
+    S->>S: shell_uncover() runs the owed step
+```
+
+An owner's `uncover()` must expect its child on top. Each one has a guard: `shell_idle()` does nothing while `shp.reading` or a job runs, `sh_owe_take()` clears a debt once, and `start_user()` does nothing while `reading_user` is set or a read runs.
+
+The invariant: when the covering screen leaves, every screen of the unit that owes work runs it exactly once, in stack order from the top down. No step of a job is lost or runs twice.
 
 #### How to add a screen
 
@@ -213,7 +248,7 @@ Other rules:
 2. When `draw()` clears the console and paints everything, set `.full = 1` and call `con_status_redraw()` last. Otherwise leave `full` at 0 and paint only your rows.
 3. Never call another screen's `draw()`. When a partial screen shrinks, call `uos_screen_expose()`.
 4. Close with `uos_screen_pop(&your_screen)`. The screens below come back on their own.
-5. A maintenance command that acts on your screen checks `uos_screen_on_top()` first and replies `covered`. A posted call or a timer that finds your screen covered records the work and does it in `uncover()`, as in [Covered screens](#covered-screens).
+5. A maintenance command that acts on your screen checks `uos_screen_on_top()` first and replies `covered`. A posted call or a timer that finds your screen covered records the work and does it in `uncover()`, as in [Covered screens](#covered-screens). When your screen opens a read, a pager or a pause for itself, pass your screen as the owner and test "covered" with `uos_screen_unit_on_top()`, as in [Owners and children](#owners-and-children).
 6. Apply the held-key rule above to each action.
 7. Add a `@RC` marker and a maintenance command, and a test in `tests/test_screens.py` that compares the grid before the screen opens and after it closes.
 
@@ -432,7 +467,7 @@ Test builds add `fs pattern <spec> <bytes>` and `fs fakedev on|off`. `on` replac
 
 The console service, `src/console/`, gives every later screen a way to read a line, show a long text and print. Its header is `src/console/con.h`, prefix `con_`. Every `con_` function runs in the loop only. Pure files: `lineedit.c` (the line editor, prefix `le_`) and `conview.c` (layout and text decisions, prefix `cv_`). Thin files: `readline.c`, `pager.c`, `out.c` and `console.c`, the service.
 
-`con_read_line(prompt, flags, max, cb, ctx)` pushes a screen that reads one line of up to 255 characters. The prompt and the line go on the cursor's row, or the next row when the cursor is not in column 0. A prompt gets a blank after it when it lacks one. Only one read runs at a time; a second gets `CON_ERR_BUSY`. When the read ends, the screen pops, then calls `cb` with `CON_OK` or `CON_CANCEL` and the text. The text stays valid until `cb` returns.
+`con_read_line(owner, prompt, flags, max, cb, ctx)` pushes a screen that reads one line of up to 255 characters. The prompt and the line go on the cursor's row, or the next row when the cursor is not in column 0. A prompt gets a blank after it when it lacks one. Only one read runs at a time; a second gets `CON_ERR_BUSY`. When the read ends, the screen pops, then calls `cb` with `CON_OK` or `CON_CANCEL` and the text. The text stays valid until `cb` returns.
 
 Keys of the line editor:
 
@@ -453,7 +488,7 @@ The library's serial parser turns ESC, BS and DEL all into BACK, so BACK is back
 
 The on-screen keyboard opens on F4 or on any GPIO button event while a line is read. The event that opens it does nothing else. It covers the bottom 5 rows; an input row under it moves to the row above. Each event goes to `osk_handle()` first, and its output goes to the line editor. The console keeps no saved layers, so when the keyboard closes, the read screen calls `uos_screen_expose()`: the stack redraws the screens below, then the read line. GPIO input is off for now, so the tests open the keyboard with F4 and `osk open`.
 
-`con_page_text(title, text, len, cb, ctx)` pushes a full-screen pager: a title row, 28 rows of body at 78 columns and a status row `line A to B of N` with the keys. It copies the text into the kernel heap with every byte outside printable ASCII as `.`, and allocates the pager's index there. It frees both when the person leaves. Texts up to 1 MiB are accepted; a 64 KiB text wraps in one loop pass. An empty text shows `(no text)`. One pager runs at a time.
+`con_page_text(owner, title, text, len, cb, ctx)` pushes a full-screen pager: a title row, 28 rows of body at 78 columns and a status row `line A to B of N` with the keys. It copies the text into the kernel heap with every byte outside printable ASCII as `.`, and allocates the pager's index there. It frees both when the person leaves. Texts up to 1 MiB are accepted; a 64 KiB text wraps in one loop pass. An empty text shows `(no text)`. One pager runs at a time.
 
 `out.c` holds `con_print()`, `con_message()` for `%FAC-S-IDENT, text` lines from `dcl_format_message()`, `con_clear_rows()`, a status row at the bottom (`con_status_set()`, `con_status_clear()`, `con_status_redraw()`) and `con_pause()`, a "press a key" screen. `con_print()` cuts a line at the screen width and also sends it to the PL011.
 
@@ -504,7 +539,7 @@ stateDiagram-v2
 | `sess_hack_begin()` | loop | A won game: a session for the `[hack] user` with no password, `how=hack` |
 | `sess_hack_lock()` | loop | A lost game: the login's lock for `[hack] lockout_s` |
 | `sess_set_hack_entry(fn)`, `sess_resume()` | loop | The login's F2 entry to the game, and the way back to the prompt |
-| `sess_prompt_on_top()` | any | The user name prompt is the top screen, nobody logged in |
+| `sess_prompt_on_top()` | any | The login or its user name read is the top screen, nobody logged in |
 
 The password check costs 2000 to 3999 SHA-256 compressions. It runs at most 256 per loop pass, posted to the loop, so time, input and the device watchdog run between steps. One check took 7 to 18 ms in QEMU on the four boards, in 8 or 16 steps of at most 0.9 ms. These are QEMU numbers; QEMU does not model caches. The MMU and the caches are on, see [Memory](#memory).
 
