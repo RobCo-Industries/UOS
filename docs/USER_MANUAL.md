@@ -107,7 +107,7 @@ The terminal keeps a maintenance view of its memory. With some patience you can 
 
 ### Starting
 
-At `USERNAME:`, leave the line empty and press F2. The game needs a keyboard to start; once it runs, the arrow buttons and SELECT are enough.
+At `USERNAME:`, leave the line empty and press F2. Close any other program first: over one, the game answers `CLOSE THE OPEN PROGRAM: THE GAME STARTS FROM THE LOGIN PROMPT.` The game needs a keyboard to start; once it runs, the arrow buttons and SELECT are enough.
 
 ### What you see
 

@@ -121,6 +121,16 @@ Memory: `hk_list_t` is about 3 KiB with 32-bit pointers, `hk_game_t` about 2 KiB
 
 `hack_screen_start(done, ctx)` in `hackscr.h` pushes the game, loop only. It returns 0, `HACK_ERR_BUSY` or `HACK_ERR_SCREEN`. `done(how, ctx)` runs once when the screen leaves: `HACK_DONE_LEFT`, `HACK_DONE_WON` or `HACK_DONE_LOST`. At the login, F2 on an empty user name line starts it. The shell's `RUN` verb can register it.
 
+The game plays only when nobody is logged in and the login's user name prompt is the top screen at the call: `sess_prompt_on_top()`. The pure rule is `lg_hack_where()`. Any other start pushes the screen with its refusal, and BACK pops that screen alone. So a start from a session shows `busy`, a start over the holotape reader shows `covered`, and the screen under it comes back as it was. A win or a loss cannot happen from a session, since the game never plays there.
+
+| How it closes | Started from the login prompt | Started over another screen |
+|---|---|---|
+| BACK while playing, or after a refusal | `done(LEFT)`; F2 and `hack start` restart the prompt with `sess_resume()` | `done(LEFT)`; the screen under it is the top |
+| A win | `sess_hack_begin()`: the stack holds the welcome only, then the next screen | Cannot happen |
+| A loss | `sess_hack_lock()`: the stack holds the lockout screen only | Cannot happen |
+| The win or loss is refused after the pause | Pops itself, `done(LEFT)`, the prompt restarts | Cannot happen |
+| Logout or idle timeout | Cannot happen: nobody is logged in | `sess_logout()` removes every screen above the bottom one, the login comes back |
+
 The call order on start: `sess_hack_check()`, then `hg_config()` from `[hack]`, a seed from `rng_u32()`, `hk_pick_length()`, `vfs_sys_read_all("/UOS/WORDS/Wnn.TXT")`, `hk_list_parse()`, `hk_pick()`, `hk_game_init()` with 100 ticks per second, then the list's buffer is freed. `hk_list_t` and `hk_game_t` are static. Both are cleared when the screen leaves.
 
 Layout, 80 columns:
@@ -149,6 +159,7 @@ The board is drawn on the screen only. The PL011 gets the markers, the refusal a
 | Word list damaged or too short | `WORD LIST /UOS/WORDS/Wnn.TXT IS DAMAGED.`, BACK leaves |
 | No card | `NO UOS CARD: THE PASSWORD GAME HAS NO WORD LIST.` |
 | Game off, target missing, disabled or `NOHACK`, locked, a session running | The session's reason line, BACK leaves |
+| Another screen open over the login prompt | `CLOSE THE OPEN PROGRAM: THE GAME STARTS FROM THE LOGIN PROMPT.`, BACK leaves |
 | Card removed during the game | The game goes on: the board is in memory and the game reads no file after its start |
 
 ### Markers
@@ -169,7 +180,7 @@ None names the password before the game ends.
 
 | Command | Does |
 |---|---|
-| `hack start` | Posts the start, as F2 at the login does |
+| `hack start` | Posts the start. Over the login prompt it acts as F2. Over any other screen it acts as `hack_screen_start(NULL, NULL)`: the refusal shows, `covered` or `busy`, and BACK gives that screen back |
 | `hack move <left\|right\|up\|down> [n]` | Posts `n` moves, 1 to 64 |
 | `hack select`, `hack back` | Posts SELECT or BACK. Each posted call carries its own arguments and the game it was meant for |
 | `hack state` | `hack state= cursor= hl= hlstart= hllen= attempts= result= len= words= pairs= pending=`, where `pending` is `uos_input_pending()` plus posted commands, then `row r= text=` for the 16 board rows and `hist i= text=` per history line, with `%XX` for blanks, `%` and `"` |

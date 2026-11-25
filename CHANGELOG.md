@@ -10,6 +10,8 @@ All notable changes to UOS are recorded here. The format follows [Keep a Changel
 
 ### Added
 
+- The password game plays only from the login prompt. `hack start` over another screen refuses with `covered`, and BACK gives that screen back as it was.
+
 - Arrival order on the maintenance port: a call that a command posts goes through the input queue, so it runs after the keys received before it and before later ones. `hack seed` now posts too. Port calls count in `pending=` until they run.
 
 - The build: `UOS.SYS`, a sealed rimg linked at `0x00400000`, with host and QEMU tests and CI on four boards.

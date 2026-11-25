@@ -428,6 +428,7 @@ stateDiagram-v2
 | `sess_hack_begin()` | loop | A won game: a session for the `[hack] user` with no password, `how=hack` |
 | `sess_hack_lock()` | loop | A lost game: the login's lock for `[hack] lockout_s` |
 | `sess_set_hack_entry(fn)`, `sess_resume()` | loop | The login's F2 entry to the game, and the way back to the prompt |
+| `sess_prompt_on_top()` | any | The user name prompt is the top screen, nobody logged in |
 
 The password check costs 2000 to 3999 SHA-256 compressions. It runs at most 256 per loop pass, posted to the loop, so time, input and the device watchdog run between steps. One check took 7 to 18 ms in QEMU on the four boards, in 8 or 16 steps of at most 0.9 ms. These are QEMU numbers; QEMU does not model caches. The MMU and the caches are on, see [Memory](#memory).
 
@@ -472,7 +473,7 @@ stateDiagram-v2
     lost --> lockout: after 1 s, sess_hack_lock
 ```
 
-The session service decides who may play, with `lg_hack_allowed()`: the game must be on, the `[hack] user` must exist and be neither disabled nor `NOHACK`, nobody may be logged in, the login must be at the user name prompt and not locked. The game checks before it starts, and `sess_hack_begin()` checks again before the session starts.
+The session service decides who may play, with `lg_hack_allowed()`: the game must be on, the `[hack] user` must exist and be neither disabled nor `NOHACK`, nobody may be logged in, the login must be at the user name prompt and not locked. The game checks before it starts, and `sess_hack_begin()` checks again before the session starts. It plays only when the user name prompt is the top screen at the start, `sess_prompt_on_top()`: a start over another screen, the holotape reader for one, or from a session shows its refusal, and BACK pops that screen alone. A screen closes only itself; only a session change, a win, a loss or a logout, replaces the whole stack. See [hack.md](modules/hack.md#the-screen) for each close path.
 
 A loss locks the terminal with the login's own lock and lockout screen, for `[hack] lockout_s`. There is one lock state: `lk_lock()` sets it with the game's length, and the login's own failures keep theirs. A reboot clears it, as it clears the login's.
 

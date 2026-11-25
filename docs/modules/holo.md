@@ -151,6 +151,15 @@ Layout of both list screens, 30 lines of at most 78 characters:
 
 `holo_screen_start(done, ctx)` in `holoscr.h` pushes the reader, loop only. It returns 0, `HOLO_ERR_BUSY` when the reader is open, or `HOLO_ERR_SCREEN`. `done(ctx)` runs once after the reader leaves the stack. The shell's `RUN` verb can register it.
 
+The reader opens over the top screen, at the login or in a session, and closes only itself. `holo open` calls `holo_screen_start(NULL, NULL)`.
+
+| How it closes | What is on top after |
+|---|---|
+| BACK on the tape list | The screen it was opened over, with its state |
+| Logout or idle timeout in a session | `sess_logout()` removes every screen above the bottom one: the login prompt. The tape is freed and `done` runs |
+| A win or a loss of the password game | Cannot happen: the game does not play over the reader |
+| No card, a damaged tape, no memory | The reader stays open with its message line |
+
 The screen follows the model's actions:
 
 - It lists `SYS$HOLO:*.HTP` with `vfs_list()`, keeps the first 32, then reads one tape per loop pass with `vfs_read_all()` and fills `hf_tape_info_t` from `hf_open()`. Only a file over `HF_TAPE_MAX` is damage from a failed read: `toobig`. Every other read error says nothing about the tape's bytes, so the tape is `unchecked`: no memory, a busy or missing card, a file gone since the listing, a FAT read error that may pass, and no access. `hs_read_err()` makes that choice.
