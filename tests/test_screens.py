@@ -697,9 +697,10 @@ def test_logout_during_a_job_takes_no_more_step(board, hooks_image, need_mtools,
 def refused_jobs(vm, want_run, want_rc):
     runs = len([m for m in events(vm, "sh") if m.get("run") == "refused"])
     calls = len([m for m in events(vm, "sh") if m.get("api") == "call"])
-    out = batch(vm, [run_line("DIRECTORY"), 'sh api - "DIRECTORY"'])
-    assert [r[0] for r in out] == ["ok", "ok"], out
+    # `sh run` and `sh api` share one pending slot: one at a time.
+    answer(vm, run_line("DIRECTORY"))
     run = wait_marker(vm, "sh run=refused", runs + 1)
+    answer(vm, 'sh api - "DIRECTORY"')
     call = wait_marker(vm, "sh api=call", calls + 1)
     for k, v in want_run.items():
         assert run.get(k) == v, run
