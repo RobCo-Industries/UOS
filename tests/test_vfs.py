@@ -3,10 +3,12 @@ listings, writes, copies, the access table, a full card, the degraded modes
 and the DEV: hook."""
 
 import re
+import struct
 import zlib
 
 from uos import (TIMEOUT, alone, answer, card, card_free, card_names, card_put, card_tree, fs,
                  uos_card, wait_ready)
+from harness.boot import parse_markers
 from harness.sdimage import make_sd_image
 
 SYS, OPER, SECURITY, READALL = 1, 2, 4, 8
@@ -235,6 +237,64 @@ def test_disk_full(board, hooks_image, need_mtools, tmp_path):
     assert not [n for n in names if n[0] in "~#"], names
     assert "K2.TXT" not in names
 
+
+
+def test_copy_keeps_its_context(board, uos_image, need_mtools, tmp_path):
+    """`fs default` and `fs who` sent between two files of a copy are
+    refused with "busy", and every file lands in the target the copy
+    resolved at its start. OTHER has its own DST: a copy that read the new
+    default would land there with no error."""
+    data = [pattern(1 << 19)[i:] + pattern(i) for i in (1, 2, 3)]
+    extra = {f"/UOS/HOME/ADMIN/SRC/B{i + 1}.BIN": d for i, d in enumerate(data)}
+    extra.update({"/UOS/HOME/ADMIN/DST/": b"", "/UOS/HOME/ADMIN/OTHER/DST/": b""})
+    sd = home_card(tmp_path, extra)
+    with alone(uos_image, board, sd) as vm:
+        wait_ready(vm)
+        answer(vm, "fs who ADMIN 0")
+        start = len(vm.serial)
+        answer(vm, "fs copy [.SRC]*.BIN [.DST]")
+        vm.wait_for(re.compile(r"ev=fs op=copy file=SD0:\[HOME\.ADMIN\.SRC\]B2\.BIN"),
+                    timeout=TIMEOUT)
+        for command in ("fs default [.OTHER]", "fs who GUEST 0"):
+            reply = vm.script(command, timeout=TIMEOUT)
+            assert reply.status == "err busy", (command, reply)
+        vm.wait_for(re.compile(r"ev=fs op=copy rc=[^\n]*\n"), timeout=120)
+        final = [m for m in parse_markers(vm.serial[start:])
+                 if m.get("ev") == "fs" and m.get("op") == "copy" and "rc" in m]
+        ok(final[0], files=3, skipped=0)
+        assert answer(vm, "fs default [.OTHER]") == ["default SD0:[HOME.ADMIN.OTHER]"]
+        answer(vm, "fs who ADMIN 0")
+        for i, d in enumerate(data):
+            ok(fs(vm, f"crc [.DST]B{i + 1}.BIN", timeout=120)[0], len=len(d),
+               crc=f"0x{zlib.crc32(d):08x}")
+    assert sorted(card_names(sd, "UOS/HOME/ADMIN/DST")) == ["B1.BIN", "B2.BIN", "B3.BIN"]
+    assert card_names(sd, "UOS/HOME/ADMIN/OTHER/DST") == []
+
+
+def fat_data_bytes(sd):
+    """Bytes of the data clusters of the card's FAT volume, from its boot
+    sector: what the library's fs_statvfs() calls the total."""
+    with open(sd, "rb") as f:
+        f.seek(2048 * 512)
+        bpb = f.read(512)
+    sector, csize, reserved, nfats, roots, tot16, _, fat16 = struct.unpack_from(
+        "<HBHBHHBH", bpb, 11)
+    tot32, = struct.unpack_from("<I", bpb, 32)
+    fatsz = fat16 or struct.unpack_from("<I", bpb, 36)[0]
+    total = tot16 or tot32
+    root_secs = (roots * 32 + sector - 1) // sector
+    clusters = (total - reserved - nfats * fatsz - root_secs) // csize
+    return clusters * csize * sector
+
+
+def test_free_matches_the_card(board, uos_image, need_mtools, tmp_path):
+    """`fs free` gives the card's real size and free bytes. A card over
+    4 GiB is too large for a test image: the host test covers it."""
+    sd = home_card(tmp_path)
+    with alone(uos_image, board, sd) as vm:
+        wait_ready(vm)
+        final, _ = fs(vm, "free")
+    ok(final, total=fat_data_bytes(sd), free=card_free(sd))
 
 # Atomic writes cut between their renames: "#" holds the old content, "~"
 # the new one. Recovery keeps "~" when both exist, "#" alone, and drops a

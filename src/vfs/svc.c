@@ -12,6 +12,7 @@
 #include "uos.h"
 #include "uos_maint.h"
 #include "uos_service.h"
+#include "uos_u64.h"
 #include "vfs.h"
 #include "vfsrules.h"
 
@@ -31,17 +32,24 @@ static const char *const op_names[] = {
     "pattern",
 };
 
-/* The test context: the maintenance port acts as this user. */
+/* The test context: the maintenance port acts as this user. `fs default`
+ * and `fs who` change it, and refuse while a request is busy. */
 static vp_ctx_t ctx;
 static uint32_t privs = VP_PRIV_SYSTEM;
 
-/* One request at a time. */
+/*
+ * One request at a time. post() copies the context and the privileges
+ * into the request: every step of the request, every file of a copy
+ * included, uses that copy and never the live ctx and privs.
+ */
 static struct {
     int op;
     int busy;
     char a[FS_ARG_MAX];
     char b[FS_ARG_MAX];
     uint32_t n;
+    vp_ctx_t ctx;
+    uint32_t privs;
 } req;
 
 static vfs_iter_t iter;
@@ -84,7 +92,7 @@ static void run_ls(void)
     char date[VFS_DATE_LEN + 1];
     char extra[64];
     size_t count = 0, total = 0, i;
-    int rc = vfs_list(&ctx, privs, req.a, ls_entries, req.n, &count, &total);
+    int rc = vfs_list(&req.ctx, req.privs, req.a, ls_entries, req.n, &count, &total);
 
     for (i = 0; i < count; i++) {
         const vfs_entry_t *e = &ls_entries[i];
@@ -105,7 +113,8 @@ static void run_cat(int crc)
     char extra[FS_LINE_SHOW + 48];
     char *buf = NULL;
     size_t len = 0, i;
-    int rc = vfs_read_all(&ctx, privs, req.a, "TXT", crc ? FS_READ_MAX : req.n, &buf, &len);
+    int rc = vfs_read_all(&req.ctx, req.privs, req.a, "TXT", crc ? FS_READ_MAX : req.n, &buf,
+                          &len);
 
     if (rc != VFS_OK) {
         done(rc, "");
@@ -133,7 +142,7 @@ static void run_write(unsigned flags)
     size_t n = k_strlen(req.b);
 
     req.b[n] = '\n';
-    done(vfs_write_all(&ctx, privs, req.a, NULL, req.b, n + 1, flags), "");
+    done(vfs_write_all(&req.ctx, req.privs, req.a, NULL, req.b, n + 1, flags), "");
 }
 
 #if defined(UOS_TEST_HOOKS) && UOS_TEST_HOOKS
@@ -157,7 +166,7 @@ static void run_pattern(void)
             p[i] = (uint8_t)(i * 31u + 7u);
         }
     }
-    rc = vfs_write_all(&ctx, privs, req.a, NULL, p, req.n, 0);
+    rc = vfs_write_all(&req.ctx, req.privs, req.a, NULL, p, req.n, 0);
     vfs_free(p);
     done(rc, "");
 }
@@ -169,12 +178,12 @@ static void run_each(void)
     char extra[48];
     const char *spec;
     unsigned files = 0;
-    int rc = vfs_iter_begin(&iter, &ctx, privs, req.a,
+    int rc = vfs_iter_begin(&iter, &req.ctx, req.privs, req.a,
                             req.op == OP_DEL ? VP_OP_DELETE : VP_OP_WRITE);
 
     while (rc == VFS_OK && (spec = vfs_iter_next(&iter)) != NULL) {
-        rc = req.op == OP_DEL ? vfs_delete(&ctx, privs, spec)
-                              : vfs_rename(&ctx, privs, spec, req.b);
+        rc = req.op == OP_DEL ? vfs_delete(&req.ctx, req.privs, spec)
+                              : vfs_rename(&req.ctx, req.privs, spec, req.b);
         if (rc == VFS_OK) {
             files++;
             UOS_MARK("fs op=%s file=%s", op_names[req.op], spec);
@@ -235,7 +244,7 @@ static void copy_next(void *arg)
         copy_finish(VFS_OK);
         return;
     }
-    rc = vfs_copy_begin(&copy, &ctx, privs, spec, req.b, (unsigned)req.n);
+    rc = vfs_copy_begin(&copy, &req.ctx, req.privs, spec, req.b, (unsigned)req.n);
     if (rc != VFS_OK) {
         copy_finish(rc);
         return;
@@ -249,7 +258,7 @@ static void copy_next(void *arg)
 
 static void run_copy(void)
 {
-    int rc = vfs_iter_begin(&iter, &ctx, privs, req.a, VP_OP_READ);
+    int rc = vfs_iter_begin(&iter, &req.ctx, req.privs, req.a, VP_OP_READ);
 
     copy_files = 0;
     copy_steps = 0;
@@ -266,8 +275,8 @@ static void run_stat(void)
     char date[VFS_DATE_LEN + 1];
     char extra[96];
     vfs_entry_t e;
-    int ex = vfs_exists(&ctx, privs, req.a);
-    int rc = vfs_stat(&ctx, privs, req.a, &e);
+    int ex = vfs_exists(&req.ctx, req.privs, req.a);
+    int rc = vfs_stat(&req.ctx, req.privs, req.a, &e);
 
     if (rc != VFS_OK) {
         (void)k_snprintf(extra, sizeof(extra), "exists=%d", ex);
@@ -283,12 +292,15 @@ static void run_stat(void)
 
 static void run_free(void)
 {
-    char extra[64];
+    char t[UOS_U64_DEC_SIZE], f[UOS_U64_DEC_SIZE];
+    char extra[sizeof("total= free=") + 2u * UOS_U64_DEC_SIZE];
     uint64_t total = 0, free_bytes = 0;
     int rc = vfs_free_space(&total, &free_bytes);
 
-    (void)k_snprintf(extra, sizeof(extra), "total=%u free=%u", (unsigned)total,
-                     (unsigned)free_bytes);
+    /* k_printf has no 64-bit conversion: a volume over 4 GiB needs it. */
+    (void)uos_u64_dec(total, t, sizeof(t));
+    (void)uos_u64_dec(free_bytes, f, sizeof(f));
+    (void)k_snprintf(extra, sizeof(extra), "total=%s free=%s", t, f);
     done(rc, extra);
 }
 
@@ -304,7 +316,7 @@ static void run(void *arg)
     case OP_DEL:
     case OP_REN:   run_each(); break;
     case OP_COPY:  run_copy(); break;
-    case OP_MKDIR: done(vfs_mkdir(&ctx, privs, req.a), ""); break;
+    case OP_MKDIR: done(vfs_mkdir(&req.ctx, req.privs, req.a), ""); break;
     case OP_FREE:  run_free(); break;
     case OP_STAT:  run_stat(); break;
 #if defined(UOS_TEST_HOOKS) && UOS_TEST_HOOKS
@@ -371,6 +383,8 @@ static int post(int op, const char *a, const char *b, uint32_t n)
     }
     req.op = op;
     req.n = n;
+    req.ctx = ctx;
+    req.privs = privs;
     (void)k_snprintf(req.a, sizeof(req.a), "%s", a != NULL ? a : "");
     (void)k_snprintf(req.b, sizeof(req.b), "%s", b != NULL ? b : "");
     req.busy = 1;
@@ -427,6 +441,11 @@ static int cmd_fs(int argc, char **argv)
     if (argc >= 3 && (k_strcmp(sub, "write") == 0 || k_strcmp(sub, "new") == 0)) {
         return post(sub[0] == 'w' ? OP_WRITE : OP_NEW, argv[1],
                     uos_mt_rejoin(argv[2], argv[argc - 1]), 0);
+    }
+    if ((k_strcmp(sub, "default") == 0 || k_strcmp(sub, "who") == 0) && req.busy) {
+        /* The running request keeps its own copy; refusing keeps the
+         * answer true: the user and default shown are the ones in use. */
+        return uos_maint_fail("busy");
     }
     if (argc == 2 && k_strcmp(sub, "default") == 0) {
         rc = vp_set_default(&ctx, argv[1]);
