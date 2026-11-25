@@ -7,7 +7,7 @@ import os
 import re
 import time
 
-from uos import IDLE, ROOT, TICK_HZ, TIMEOUT, alone, answer, events, one, uos_card
+from uos import IDLE, ROOT, SERVICES, TICK_HZ, TIMEOUT, alone, answer, events, one, uos_card
 from uos import wait_ready as wait_uos
 
 CFG = "/UOS/DEVICES.CFG"
@@ -576,12 +576,14 @@ def test_hwdog_on_resets_at_start(board, uos_image, need_mtools, tmp_path):
     sd = uos_card(tmp_path, cfg=HWDOG_CFG, extra={CFG: ALL})
     with alone(uos_image, board, sd) as vm:
         vm.wait_for(HWDOG_START_TWICE, timeout=TIMEOUT)
-        evs = [m["ev"] for m in vm.markers()]
+        ms = vm.markers()
+        evs = [m["ev"] for m in ms]
         first = evs.index("hwdog")
+        again = evs.index("boot", first)
         # The start comes after every service is up, then a new boot.
-        assert evs[:first].count("service") == 4, evs
-        assert marks(vm, "service", name="devices", rc="0")
-        assert "boot" in evs[first:], evs
+        up = [(m.get("name"), m.get("rc")) for m in ms[:first] if m["ev"] == "service"]
+        assert up == [(name, "0") for name in SERVICES], evs
+        assert "service" not in evs[first:again], evs
 
 
 def test_no_devices(board, uos_image, need_mtools, tmp_path):
