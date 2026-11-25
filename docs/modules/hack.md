@@ -1,6 +1,6 @@
 # Hack: the password minigame
 
-`src/hack/hack.c` is the pure model of the password hacking minigame. Public header: `src/hack/hack.h`, prefix `hk_`. It owns the word lists, candidate selection, the board, the cursor, the game state and the lockout timer. Drawing code reads the board and the history and shows them. Nothing here is validated on real hardware.
+`src/hack/hack.c` is the pure model of the password hacking minigame. `src/hack/hackui.c` holds the screen's pure rules, prefix `hg_`, and `src/hack/hackscr.c` the screen and the `hack` service. Public header: `src/hack/hack.h`, prefix `hk_`. It owns the word lists, candidate selection, the board, the cursor, the game state and the lockout timer. Drawing code reads the board and the history and shows them. Nothing here is validated on real hardware.
 
 ## Rules of the game
 
@@ -117,6 +117,63 @@ Once the game leaves `HK_PLAYING`, `hk_select` does nothing.
 
 Memory: `hk_list_t` is about 3 KiB with 32-bit pointers, `hk_game_t` about 2 KiB. The caller owns both. No function uses more than a small stack frame.
 
+## The screen
+
+`hack_screen_start(done, ctx)` in `hackscr.h` pushes the game, loop only. It returns 0, `HACK_ERR_BUSY` or `HACK_ERR_SCREEN`. `done(how, ctx)` runs once when the screen leaves: `HACK_DONE_LEFT`, `HACK_DONE_WON` or `HACK_DONE_LOST`. At the login, F2 on an empty user name line starts it. The shell's `RUN` verb can register it.
+
+The call order on start: `sess_hack_check()`, then `hg_config()` from `[hack]`, a seed from `rng_u32()`, `hk_pick_length()`, `vfs_sys_read_all("/UOS/WORDS/Wnn.TXT")`, `hk_list_parse()`, `hk_pick()`, `hk_game_init()` with 100 ticks per second, then the list's buffer is freed. `hk_list_t` and `hk_game_t` are static. Both are cleared when the screen leaves.
+
+Layout, 80 columns:
+
+| Row | Text |
+|---|---|
+| 0 | `UOS PASSWORD RECOVERY. DIAGNOSTIC MEMORY VIEW.` |
+| 1 | `TARGET ACCOUNT: <user>` |
+| 3 | `ATTEMPTS LEFT: N` and one `#` per attempt |
+| 5 to 20 | Board row `r`: address, 12 cells from column 7; address, 12 cells from column 28; the history line from column 43 |
+| 22 | `> ` and the highlighted text |
+| 23 | The message row |
+| 24 | The keys |
+
+`hg_cell_pos(i)` gives cell `i`'s row and column with the rule `col*192 + row*12 + x`, so a highlight that wraps to the next row of its column draws on both rows. The highlight shows in inverse. History lines sit at the bottom of the board rows, the newest on row 20.
+
+Keys: the four directions move, press or repeat; SELECT guesses, press only; BACK leaves, press only. Serial arrow keys and GPIO buttons give the same keys. There is no on-screen keyboard here.
+
+After a win or a loss the result shows for 1 s and keys do nothing. Then a win calls `sess_hack_begin()` and a loss `sess_hack_lock()`: see [session](session.md#the-password-game).
+
+The board is drawn on the screen only. The PL011 gets the markers, the refusal and result lines, never the board: the only words it shows are the guessed ones.
+
+| State a person can meet | What happens |
+|---|---|
+| Word list missing | `WORD LIST /UOS/WORDS/Wnn.TXT IS MISSING.`, BACK leaves |
+| Word list damaged or too short | `WORD LIST /UOS/WORDS/Wnn.TXT IS DAMAGED.`, BACK leaves |
+| No card | `NO UOS CARD: THE PASSWORD GAME HAS NO WORD LIST.` |
+| Game off, target missing, disabled or `NOHACK`, locked, a session running | The session's reason line, BACK leaves |
+| Card removed during the game | The game goes on: the board is in memory and the game reads no file after its start |
+
+### Markers
+
+None names the password before the game ends.
+
+| Marker | When |
+|---|---|
+| `hack op=rng result=<hw\|fallback> rc=` | At start of the service: `rng_init()`'s result |
+| `hack op=start result=<ok\|refused\|nocard\|nolist\|badlist\|nomem\|config> why= len= words= attempts= difficulty= lockout_s= seed=<hw\|fixed> line=` | A game starts or cannot |
+| `hack op=guess word= result=<denied\|win\|lockout> likeness= attempts=` | A guess. The screen shows the same word and likeness |
+| `hack op=bracket result=<dud\|reset> attempts=` | A bracket pair was used |
+| `hack op=end result=<won\|lost\|left>` | The game ends |
+| `hack result=busy` | `hack start` while the game is open |
+
+### The command
+
+| Command | Does |
+|---|---|
+| `hack start` | Posts the start, as F2 at the login does |
+| `hack move <left\|right\|up\|down> [n]` | Posts `n` moves, 1 to 64 |
+| `hack select`, `hack back` | Posts SELECT or BACK |
+| `hack state` | `hack state= cursor= hl= hlstart= hllen= attempts= result= len= words= pairs= pending=`, then `row r= text=` for the 16 board rows and `hist i= text=` per history line, with `%XX` for blanks, `%` and `"` |
+| `hack seed <n>` | Test builds only: the next games use seed `n`. `test_hack.py` checks with `nm` that the shipped image has none of it |
+
 ## The tool
 
 `tools/mkwords.py`, Python 3, standard library only:
@@ -129,4 +186,4 @@ Memory: `hk_list_t` is about 3 KiB with 32-bit pointers, `hk_game_t` about 2 KiB
 
 ## Tests
 
-`make test-host` runs `tests/host/test_hack.c` from the repository root, so it reads `card/UOS/WORDS`. `make test-tools` runs `tests/tools/test_mkwords.py`. See [TESTING.md](../TESTING.md).
+`make test-host` runs `tests/host/test_hack.c` from the repository root, so it reads `card/UOS/WORDS`, and `test_hack_ui.c`. `board_one_junk_between_words` builds columns with every random gap at zero, so a missing separator between two words fails it. `tests/test_hack.py` plays the game in QEMU. `make test-tools` runs `tests/tools/test_mkwords.py`. See [TESTING.md](../TESTING.md).

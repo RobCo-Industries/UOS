@@ -44,6 +44,10 @@ All notable changes to UOS are recorded here. The format follows [Keep a Changel
 - File system errors have their own messages: `WRITLCK`, `PROTECT`, `TOOBIG` and `INSFMEM`.
 - Devices: a failed write to an output's safe level is retried every tick and shown as a fault, so the status never says a state the pin does not have.
 - The `fs copy <from> <to> new` maintenance form, which refuses an existing target.
+- The holotape reader screen: scans `SYS$HOLO`, lists the tapes with damaged ones marked, reads entries in the pager, frees the tape on close, and says so for no card, no folder, no tapes and no memory. `holo_screen_start()` and the `holo` maintenance command.
+- The password game screen: F2 on an empty user name at the login starts it. Arrow keys or buttons move, SELECT guesses, bracket pairs remove a dud or reset the attempts. A win logs in the `[hack] user`; a loss locks the terminal with the login's lockout screen. `hack_screen_start()` and the `hack` maintenance command, with a test-only fixed seed.
+- The session service: `sess_hack_check()`, `sess_hack_begin()`, `sess_hack_lock()`, `sess_set_hack_entry()` and `sess_resume()`; `lk_lock()` for a lock of a given length; the `lockout` markers say what locked.
+- `CON_RL_ALTKEY` for `con_read_line()`: F2 on an empty line ends the read with `CON_ALT`.
 
 ### Fixed
 

@@ -88,6 +88,8 @@ The tests run from the repository root, so the ones that read the default card o
 | `test_dev.py` | The device service: the shipped `DEVICES.CFG`, the boot record with `ARM` last, `dev set` for every action, privileges, pulse timing, two pulses, cancel, a stalled loop, sensor debounce, bad files, expander pins, an expander output that holds `ARM` off at boot, no file, no card, the safe state on reboot and panic, the watchdog reset. Pulses must end within their length plus 1 tick plus `HOST_ALLOWANCE_TICKS`, 20. |
 | `test_link.py` | The services together. `DEV:` through `fs`: `cat`, `ls`, writes refused and allowed by each device's own mask, a bad word, a sensor. `DEVICES.CFG` through the file system: a folder, a file over 8 KiB, no file. A read over the pager and the pager over a read. A pulse end and a sensor change during a read. A panic with the on-screen keyboard open. The shutdown order on reboot, halt and panic, with every `devsafe` line before the console stops. A reboot during a stepped copy keeps the old file. After a panic and a halt the pin record does not change for 4 s, `STILL_S`, with a pulse running. |
 | `test_login.py` | The session service. Each default user logs in, sees the placeholder and logs out, by BACK and by `sess logout`, twice; the session fields and `state` before and after. A wrong password and an unknown user: the same marker fields, message and steps. The lockout with `retries = 2` and `lockout_s = 3`: input refused, a countdown that only goes down, the end within 3 s plus 1 tick plus `HOST_ALLOWANCE_TICKS`, then a good login. A damaged database, with F4 restarting; a missing one, a short one, no card and no `/UOS`. Ctrl-C and BACK on an empty name, an empty name, Ctrl-C on the password. The masked echo on the PL011. A login with GPIO buttons only, through the test-only `button` command and the on-screen keyboard. `sess login` only in test builds, checked with `nm`. The idle logout with `idle_s = 2`, which a key delays. The whole serial log of a session holds no password and no salt or hash in hex. Each check runs in 8 or 16 steps of under 0.1 s. |
+| `test_holo.py` | The holotape reader. The three shipped tapes listed with their titles, each entry opened in the pager and closed, the tape freed on close. A tape with a changed byte listed as damaged and refused; a tape damaged after the scan. An empty `HOLO` folder, none, no `/UOS` and no card. 40 tapes: 32 kept, the window scrolls, UP wraps. A tape of `HF_TAPE_MAX` bytes with its scan and load times. No heap, with the test-only `holo hog`. The reader with a GUEST session, and a second open refused. Goldens of the tape list and one entry |
+| `test_hack.py` | The password game with the test-only fixed seed. A won game from F2 at the login: each likeness checked against the password, a GUEST session with `how=hack`. A lost game with 2 attempts and `lockout_s = 3`: the login's lockout screen, the game refused while locked, the end within 3 s plus 1 tick plus `HOST_ALLOWANCE_TICKS`, and no unguessed board word on the PL011. Every bracket pair once: dud or reset, a dud turned to dots, a used pair inert. GPIO buttons move and select. The refusals: game off, `NOHACK`, no such user, a disabled account, a running session. A missing and a damaged word list. `hack seed` and `holo hog` only in test builds, with `nm`; the shipped image seeds from the hardware generator. Goldens of the board at start and after two guesses |
 | `test_env_hygiene.py` | No test copies the host environment |
 
 ### How the tests start UOS
@@ -98,7 +100,7 @@ The tests run from the repository root, so the ones that read the default card o
 
 ### Test builds
 
-`UOS_TEST_HOOKS=1` adds the `fault`, `panic`, `halt` and `bench` maintenance commands, `fs pattern` and `fs fakedev`, and a service named `testfail` whose init returns -5, first in the table. The tests build it in `build/testhooks/`. `UOS_TEST_TICK_FAIL=1` makes `tick_init()` report a failure, in `build/tickfail/`. `UOS_TEST_EARLY_FAULT=1` runs an undefined instruction just after the exception hook, in `build/earlyfault/`. None is shipped: `test_panic.py` checks with `nm` that the shipped image has none of their symbols.
+`UOS_TEST_HOOKS=1` adds the `fault`, `panic`, `halt` and `bench` maintenance commands, `fs pattern` and `fs fakedev`, `sess login`, `button`, `holo hog` and `hack seed`, and a service named `testfail` whose init returns -5, first in the table. The tests build it in `build/testhooks/`. `UOS_TEST_TICK_FAIL=1` makes `tick_init()` report a failure, in `build/tickfail/`. `UOS_TEST_EARLY_FAULT=1` runs an undefined instruction just after the exception hook, in `build/earlyfault/`. None is shipped: `test_panic.py` checks with `nm` that the shipped image has none of their symbols.
 
 ### Timing bound
 
@@ -133,6 +135,19 @@ QEMU refuses a read-only drive as an SD card, and the library's target tests mak
 
 `test_vfs.py` copies 1 MiB with `fs copy`, one 16 KiB step per loop pass. The loop runs only the events queued before each pass, so input and the tick get their turn between two steps. The slowest step took 2 ticks on `raspi0`, `raspi1ap` and `raspi2b`, and 14 to 25 ticks on `raspi3b`, over a few runs. The bound is `COPY_STEP_BOUND_TICKS`, 50 ticks: about twice the worst figure for a loaded host. A copy in one step, 64 times the work, breaks it on every board.
 
+### The holotape load time
+
+`test_holo.py -s` prints `holo board= bytes= scan_us= load_us= load_ticks=` for a tape of `HF_TAPE_MAX` bytes, 2098728. One `vfs_read_all()` call reads it. Measured in QEMU on the test host:
+
+| Board | Scan read | Load read | Ticks |
+|---|---|---|---|
+| `raspi0` | 0.60 s | 0.53 s | 57 |
+| `raspi1ap` | 0.53 s | 0.54 s | 58 |
+| `raspi2b` | 0.54 s | 0.51 s | 56 |
+| `raspi3b` | 3.10 s | 2.71 s | 276 |
+
+The reader draws a loading line before the read. The test asserts no bound: it prints the figures for the docs.
+
 ### Goldens and screenshots
 
-`tests/golden/first.txt` holds the first screen as text, on a card with no user database: the system screen with the missing-database notice. It has no sizes, CRCs, times or toolchain text. `ROBCO_UPDATE_GOLDEN=1` rewrites it. `ROBCO_SHOT_DIR=<folder>` keeps the screenshots of `test_first.py`.
+`holo_tapes.txt`, `holo_entry.txt`, `hack_start.txt` and `hack_two_guesses.txt` hold the reader's tape list, its first entry in the pager, and the game's board at start and after two wrong guesses with the fixed seed. `tests/golden/first.txt` holds the first screen as text, on a card with no user database: the system screen with the missing-database notice. It has no sizes, CRCs, times or toolchain text. `ROBCO_UPDATE_GOLDEN=1` rewrites it. `ROBCO_SHOT_DIR=<folder>` keeps the screenshots of `test_first.py`.

@@ -247,3 +247,24 @@ def test_no_memory(board, hooks_image, need_mtools, tmp_path):
         answer(vm, "holo hog")                  # gives the heap back
         answer(vm, "holo pick 0")
         assert wait_marker(vm, "holo op=load", 2)["result"] == "ok"
+
+
+def test_reader_with_a_session(board, hooks_image, need_mtools, tmp_path):
+    """A logged-in GUEST, no privilege, reads the tapes with its own rights; a second
+    `holo open` while the reader is open is refused."""
+    with alone(hooks_image, board, card(tmp_path, card_tree())) as vm:
+        wait_ready(vm)
+        wait_marker(vm, "login state=user", 1)
+        answer(vm, "sess login GUEST")
+        wait_marker(vm, "session screen=noshell", 1)
+        scan = open_reader(vm)
+        assert (scan["result"], scan["kept"]) == ("list", "3"), scan
+        answer(vm, "holo open")
+        wait_marker(vm, "holo result=busy", 1)
+        answer(vm, "holo pick 2")
+        assert wait_marker(vm, "holo op=load", 1)["result"] == "ok"
+        key(vm, "back")
+        key(vm, "back")
+        wait_marker(vm, "holo op=exit", 1)
+        rows = dump_until(vm, lambda r: "No shell is installed in this build." in r)
+        assert rows

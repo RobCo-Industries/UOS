@@ -37,7 +37,7 @@ The modules below are pure too. The image links them, but no kernel code calls t
 
 ## Modules
 
-Each module has a reference page in `docs/modules/`. The on-card formats are gathered in [FORMATS.md](FORMATS.md). The services of [Services](#services) use `dcl`, `vfs path`, `osk`, `dev`, `session` and the pager of `tui`. No shell or menu screen uses a module yet.
+Each module has a reference page in `docs/modules/`. The on-card formats are gathered in [FORMATS.md](FORMATS.md). The services of [Services](#services) use `dcl`, `vfs path`, `osk`, `dev`, `session`, `hack`, `holo` and the pager of `tui`. No shell or menu screen exists yet.
 
 Every module that tests privileges uses the bits of `src/kernel/uos_privs.h`: `SYSTEM` bit 0, `OPER` bit 1, `SECURITY` bit 2, `READALL` bit 3. Each module keeps its own names, such as `DCL_PRIV_OPER` or `UAF_PRIV_OPER`, as aliases, and static asserts check them.
 
@@ -53,9 +53,9 @@ Every module that tests privileges uses the bits of `src/kernel/uos_privs.h`: `S
 
 [tui](modules/tui.md): the menu-driven terminal screen and the pager. It parses `TERMINAL.CFG`, runs the menu model and lays out the screen. Pure files: `src/tui/tuicfg.c`, `tui.c`, `pager.c`. Public header: `src/tui/tui.h`, prefixes `tui_` and `pg_`.
 
-[hack](modules/hack.md): the password minigame. It parses the word lists, picks the candidates, builds the board and runs the game with its lockout timer. Pure file: `src/hack/hack.c`. Public header: `src/hack/hack.h`, prefix `hk_`.
+[hack](modules/hack.md): the password minigame. It parses the word lists, picks the candidates, builds the board and runs the game with its lockout timer. Pure files: `src/hack/hack.c`, and `hackui.c` for the screen's layout, keys and states, prefix `hg_`. Public header: `src/hack/hack.h`, prefix `hk_`. The screen's header is `hackscr.h`, see [Password game](#password-game).
 
-[holo](modules/holo.md): data holotapes. It validates a tape in memory, gives its title and entries, and runs the reader model. Pure files: `src/holo/holofmt.c`, `holoread.c`. Public header: `src/holo/holofmt.h`, prefix `hf_`.
+[holo](modules/holo.md): data holotapes. It validates a tape in memory, gives its title and entries, and runs the reader model. Pure files: `src/holo/holofmt.c`, `holoread.c`, and `holoscan.c` for the screen's scan and load results, prefix `hs_`. Public header: `src/holo/holofmt.h`, prefix `hf_`. The screen's header is `holoscr.h`, see [Holotape reader](#holotape-reader).
 
 ## Boot order
 
@@ -204,10 +204,12 @@ Test builds put a service named `testfail` first, whose init returns -5, so the 
 | 3 | `console` | `src/console/con.h` | the screen stack |
 | 4 | `session` | `src/session/sess.h` | `vfs` for `SYSUAF.DAT`, `console` for the prompts, the first screen |
 | 5 | `devices` | `src/dev/devs.h` | `vfs` for `DEVICES.CFG` and `DEV:` |
+| 6 | `holo` | `src/holo/holoscr.h` | `vfs` for the tapes, `console` for the pager, `session` for the user's rights |
+| 7 | `hack` | `src/hack/hackscr.h` | `vfs` for the word lists, `session` for its rules, the lock and the session |
 
 The session comes after the file system and the console, which it uses. It comes before the devices so that the devices stay last: they stop first. Nothing in the device service uses the session; a device command gets its caller's privileges as an argument.
 
-Shutdown runs in reverse: `devices`, `session`, `console`, `vfs`, `uptime`. So on a reboot, a halt and a panic the device service drives every output safe before anything else stops. Its `devsafe` lines and `devdown` come right after `ev=shutdown name=devices` and before `ev=shutdown name=console`. `test_link.py` checks this order for all three causes.
+Shutdown runs in reverse: `hack`, `holo`, `devices`, `session`, `console`, `vfs`, `uptime`. The two screen services have no shutdown work: they hold memory only. So on a reboot, a halt and a panic the device service is the first service with work, and it drives every output safe before anything else stops. Its `devsafe` lines and `devdown` come right after `ev=shutdown name=devices` and before `ev=shutdown name=console`. `test_link.py` checks this order for all three causes.
 
 A file write cannot be cut by a reboot. `vfs_write_all()` runs in one loop pass, and the `reboot` command waits for the next one. A stepped copy can be cut between two steps. Its new content sits in a work file, and the target keeps its whole old content. The next call that looks at the target removes the work file. `test_link.py` reboots during a 1 MiB copy over a file and checks both. A power cut during a write is not tested: the library's atomic write states that guarantee.
 
@@ -235,6 +237,10 @@ Every command each service registers. The `fs`, `readline`, `page` and `osk` com
 | `sess state\|logout` | `session` | The login state and the session, see [Session](#session) |
 | `sess login <user>` | `session` | Test builds only: a session with no password |
 | `button <key>` | `console` | Test builds only: a key from the GPIO source, which opens the on-screen keyboard during a read |
+| `holo open\|list\|pick <n>\|state` | `holo` | The holotape reader, see [Holotape reader](#holotape-reader) |
+| `holo hog` | `holo` | Test builds only: holds the heap until no tape fits, or gives it back |
+| `hack start\|move <dir> [n]\|select\|back\|state` | `hack` | The password game, see [Password game](#password-game) |
+| `hack seed <n>` | `hack` | Test builds only: the next games use a fixed seed |
 
 ### How to add a service
 
@@ -358,6 +364,10 @@ stateDiagram-v2
     system --> [*]: F4 restarts
     login --> login: wrong login, Ctrl-C, empty name
     login --> lockout: retries failed logins
+    login --> hack: F2 on an empty name
+    hack --> login: BACK
+    hack --> lockout: no attempt left
+    hack --> welcome: the password
     lockout --> login: lockout_s passed
     login --> welcome: good login
     welcome --> next: 1.5 s or a key
@@ -373,12 +383,59 @@ stateDiagram-v2
 | `sess_logout(reason)` | loop | End the session: `SESS_END_USER`, `MAINT`, `IDLE` or `SHELL` |
 | `sess_set_next(fn)` | loop | The screen after login, once per boot. The shell or the terminal menu sets it. |
 | `sess_db()`, `sess_find(name)` | any | The user records, read only: the minigame and an `AUTHORIZE`-style listing |
+| `sess_hack_check()` | any | May the password game run now: an `lg_hack_t` reason |
+| `sess_hack_begin()` | loop | A won game: a session for the `[hack] user` with no password, `how=hack` |
+| `sess_hack_lock()` | loop | A lost game: the login's lock for `[hack] lockout_s` |
+| `sess_set_hack_entry(fn)`, `sess_resume()` | loop | The login's F2 entry to the game, and the way back to the prompt |
 
 The password check costs 2000 to 3999 SHA-256 compressions. It runs at most 256 per loop pass, posted to the loop, so time, input and the device watchdog run between steps. One check took 7 to 18 ms in QEMU on the four boards, in 8 or 16 steps of at most 0.9 ms. These are QEMU numbers; QEMU does not model caches. The MMU and the caches are on, see [Memory](#memory).
 
 The console's read, pager and pause screens have a `leave` callback: when another caller pops them, they end without calling back, and the read wipes its text. A logout uses this.
 
 `UOS_USER_NAME_MAX` is 16, the longest `SYSUAF.DAT` name, so `state` shows a whole name.
+
+### Holotape reader
+
+The `holo` service, `src/holo/holoscr.c`, registers the `holo` command. The reader is a screen: `holo_screen_start(done, ctx)` pushes it, loop only. It scans `SYS$HOLO`, one tape per loop pass, then shows the model's tape list.
+
+Reads use `vfs_list()` and `vfs_read_all()` with the session's context and privileges. `SYS$HOLO` is readable by every user in the access table and the tape format has no rule of its own, so any user reads tapes, and a later access rule applies here too. With nobody logged in, the reader reads as a user with no privilege and no home.
+
+```mermaid
+stateDiagram-v2
+    [*] --> scan: holo_screen_start
+    scan --> list: one tape per loop pass
+    list --> loading: ENTER on a good tape
+    loading --> list: the read and hf_reader_loaded
+    list --> reading: ENTER on an entry, the pager
+    reading --> list: the pager closes, BACK to the model
+    list --> [*]: BACK on the tape list
+```
+
+A tape loads in one `vfs_read_all()` call, so the screen first draws `LOADING NAME.HTP ...` and posts the read to the next pass. A tape of `HF_TAPE_MAX` bytes took 0.51 to 0.54 s, 56 to 58 ticks, on raspi0, raspi1ap and raspi2b in QEMU, and 2.7 s, 276 ticks, on raspi3b. The scan reads each tape whole too, with `Scanning SYS$HOLO ...` on screen. During such a read the loop does not run: input waits in the input layer, timers fire late, and the device service's software watchdog sees no kick for that long. Its limit is 15 s, so it does not fire. These are QEMU numbers.
+
+The states a person can meet: no card, no `HOLO` folder, no tape, a damaged tape listed as damaged, more tapes than the 25 rows of the window (the window scrolls), more than 32 tapes (the list keeps the first 32 and says so), a tape damaged since the scan, a card taken out, and no heap for the tape.
+
+### Password game
+
+The `hack` service, `src/hack/hackscr.c`, registers the `hack` command and the login's entry. The game is a screen: `hack_screen_start(done, ctx)` pushes it, loop only. At the login, F2 on an empty user name line starts it: the read ends with `CON_ALT`, a result a read gets only with `CON_RL_ALTKEY`.
+
+```mermaid
+stateDiagram-v2
+    [*] --> error: refused, or no word list
+    [*] --> playing: board built
+    error --> [*]: BACK, the login prompt again
+    playing --> [*]: BACK
+    playing --> won: the password
+    playing --> lost: no attempt left
+    won --> welcome: after 1 s, sess_hack_begin
+    lost --> lockout: after 1 s, sess_hack_lock
+```
+
+The session service decides who may play, with `lg_hack_allowed()`: the game must be on, the `[hack] user` must exist and be neither disabled nor `NOHACK`, nobody may be logged in, the login must be at the user name prompt and not locked. The game checks before it starts, and `sess_hack_begin()` checks again before the session starts.
+
+A loss locks the terminal with the login's own lock and lockout screen, for `[hack] lockout_s`. There is one lock state: `lk_lock()` sets it with the game's length, and the login's own failures keep theirs. A reboot clears it, as it clears the login's.
+
+The word list is read with `vfs_sys_read_all()`: `/UOS/WORDS` is SYSTEM-only, and the game runs with nobody logged in. The seed comes from the hardware generator, `rng_u32()`; when `rng_init()` fails, from the microsecond timer, and the `hack op=rng` marker says which. The board is drawn on the screen only. The PL011 gets the markers and the result lines, never the board, so no unguessed word reaches it.
 
 ### Devices
 
@@ -469,7 +526,7 @@ The step runs before the screen and before IRQs are enabled, as RobCo-Core's `me
 
 QEMU does not model caches, so the MMU change cannot show a speed-up there. A real Pi should run the login hash and screen copies several times faster with the caches on. That is not measured: nothing is validated on real hardware. The login measures its check in QEMU, see [Session](#session).
 
-The pure files allocate nothing. The kernel base does not allocate yet; the heap is ready for the services that need it.
+The pure files allocate nothing. The file system's whole-file reads take their buffers from the heap. The holotape reader holds one tape there while it is open, up to `HF_TAPE_MAX`, 2098728 bytes, and the pager holds a copy of the entry it shows, up to 64 KiB. The password game keeps its list and board in static memory, about 5 KiB.
 
 ## Pending library features
 

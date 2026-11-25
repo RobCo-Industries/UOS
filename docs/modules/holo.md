@@ -2,7 +2,7 @@
 
 The holo module reads data holotapes. A tape is a file `/UOS/HOLO/NAME.HTP` that holds a few text entries under a title. The pure code validates a whole tape in memory, gives access to its title and entries, and runs the reader model: the tape list, the entry list and the request to show one entry in the pager. Nothing here is validated on real hardware.
 
-Files: `src/holo/holofmt.h` (public header), `src/holo/holofmt.c` (format), `src/holo/holoread.c` (reader model), `tools/mkholo.py` (tape builder), `card/UOS/HOLO/` (sample tapes and their sources).
+Files: `src/holo/holofmt.h` (public header), `src/holo/holofmt.c` (format), `src/holo/holoread.c` (reader model), `src/holo/holoscan.c` and `holoscan.h` (the screen's pure rules, prefix `hs_`), `src/holo/holoscr.c` and `holoscr.h` (the screen and the `holo` service), `tools/mkholo.py` (tape builder), `card/UOS/HOLO/` (sample tapes and their sources).
 
 ## File layout
 
@@ -147,6 +147,51 @@ Layout of both list screens, 30 lines of at most 78 characters:
 
 `>` marks the selection; other rows start with two spaces. A damaged tape shows `DAMAGED: <reason>` in place of its title. An empty list shows `  No holotapes found in SYS$HOLO.` on line 3. The window holds 25 rows and scrolls to keep the selection in view.
 
+## The screen
+
+`holo_screen_start(done, ctx)` in `holoscr.h` pushes the reader, loop only. It returns 0, `HOLO_ERR_BUSY` when the reader is open, or `HOLO_ERR_SCREEN`. `done(ctx)` runs once after the reader leaves the stack. The shell's `RUN` verb can register it.
+
+The screen follows the model's actions:
+
+- It lists `SYS$HOLO:*.HTP` with `vfs_list()`, keeps the first 32, then reads one tape per loop pass with `vfs_read_all()` and fills `hf_tape_info_t` from `hf_open()`. A read error marks the tape damaged: `toobig` for a file over `HF_TAPE_MAX`, `io` for the rest.
+- `HF_ACT_LOAD`: it draws `LOADING NAME.HTP ...`, then reads the file on the next pass and calls `hf_reader_loaded()`. The buffer comes from the heap through `vfs_read_all()`. A validation error marks the tape damaged. No heap, no card and a vanished file show a line and leave the tape as it is.
+- `HF_ACT_SHOW`: `con_page_text()` with the entry name as the title. When the pager closes, the screen sends BACK to the model.
+- `HF_ACT_CLOSE`: `vfs_free()` of the tape.
+- `HF_ACT_EXIT`: the screen pops.
+
+UP and DOWN move, SELECT or RIGHT is ENTER, BACK or LEFT is BACK. Rows starting with `>` show in inverse. The screen adds its own lines to the model's layout with `hs_apply()`:
+
+| Case | Line |
+|---|---|
+| No card | line 3: `No card. Insert a UOS card to read holotapes.` |
+| No `HOLO` folder, or no `/UOS` | line 3: `This card has no holotape folder, SYS$HOLO.` |
+| Over 32 tapes | line 1: `Holotapes in SYS$HOLO: N, first 32 shown` |
+| A message | line 28, in place of the rule: `** <text>` |
+
+Reads use the session's file context and privileges, or no privilege when nobody is logged in: `SYS$HOLO` is readable by every user. See [ARCHITECTURE.md](../ARCHITECTURE.md#holotape-reader) for the load times.
+
+### Markers
+
+| Marker | When |
+|---|---|
+| `holo op=open`, `holo op=exit` | The reader enters and leaves the stack |
+| `holo op=tape i= file= result= bytes= us= rc=` | One per scanned tape. `result` is the `hf_err_name()` word |
+| `holo op=scan result=<list\|empty\|nocard\|nofolder\|error> total= kept= damaged= rc=` | The scan ended |
+| `holo op=load file= result=<ok\|nomem\|nocard\|gone\|damaged> why= bytes= us= ticks=` | A load ended; `result=refused` for a damaged tape |
+| `holo op=show tape= entry= bytes= rc=` | An entry opens in the pager |
+| `holo op=close file=` | The open tape's buffer is freed |
+| `holo result=<busy\|range\|screen>` | A `holo` command did nothing |
+
+### The command
+
+| Command | Does |
+|---|---|
+| `holo open` | Posts `holo_screen_start()` |
+| `holo list` | One line per tape: `tape i= file= err= title=`, the title with `%XX` for blanks |
+| `holo pick <n>` | Moves the selection of the shown list to item `n`, then ENTER |
+| `holo state` | `holo state= scan= screen= tapes= total= sel= entry= open= msg= pending=`. `pending` counts input events, posted commands and a running scan or load |
+| `holo hog` | Test builds only: takes the heap until no tape fits, a second call gives it back |
+
 ## The tool
 
 ```
@@ -181,4 +226,4 @@ Sources are in `card/UOS/HOLO/SRC/<TAPE>/`. The text is original lore about a sm
 
 ## Tests
 
-`make test-host` runs `test_holo`. `make test-tools` builds `build/host/holocheck` from `tests/host/holocheck.c` and runs `tests/tools/test_mkholo.py` against it. See [TESTING.md](../TESTING.md).
+`make test-host` runs `test_holo` and `test_holo_screen`. `tests/test_holo.py` runs the reader in QEMU. `make test-tools` builds `build/host/holocheck` from `tests/host/holocheck.c` and runs `tests/tools/test_mkholo.py` against it. See [TESTING.md](../TESTING.md).
