@@ -455,3 +455,77 @@ def test_fixed_seed_is_test_only(board, uos_image, hooks_image, need_mtools, tmp
         at_login(vm)
         m = start_from_login(vm)
         assert (m["result"], m["seed"]) == ("ok", "hw"), m
+
+
+def holo_now(vm):
+    """`holo state` as a dict once its pending count is 0."""
+    deadline = time.monotonic() + TIMEOUT
+    while True:
+        f = dict(x.split("=", 1) for x in answer(vm, "holo state")[0].split()[1:])
+        if f["pending"] == "0":
+            return f
+        assert time.monotonic() < deadline, f
+        time.sleep(0.05)
+
+
+def test_start_over_the_reader_is_refused(board, hooks_image, need_mtools, tmp_path):
+    """`hack start` with the holotape reader open over the login prompt refuses with
+    "covered". BACK closes the refusal alone: the reader is the top again with the
+    same tape open, and the login prompt does not restart. Once the reader closes,
+    the game starts from the prompt."""
+    with alone(hooks_image, board, hack_card(tmp_path, cfg())) as vm:
+        wait_ready(vm)
+        at_login(vm)
+        answer(vm, "holo open")
+        wait_marker(vm, "holo op=scan", 1)
+        holo_now(vm)
+        answer(vm, "holo pick 1")
+        assert wait_marker(vm, "holo op=load", 1)["result"] == "ok"
+        before = holo_now(vm)
+        assert (before["state"], before["screen"]) == ("list", "entries"), before
+        # One write: the refusal opens and closes in order.
+        out = batch(vm, ["hack start", "hack back"])
+        assert [r[0] for r in out] == ["ok", "ok"], out
+        m = wait_marker(vm, "hack op=start", 1)
+        assert (m["result"], m["why"]) == ("refused", "covered"), m
+        wait_marker(vm, "hack op=end", 1)
+        assert state(vm).f["state"] == "off"
+        after = holo_now(vm)
+        assert after == before, (before, after)
+        assert len([m for m in events(vm, "login") if m.get("state") == "user"]) == 1
+        key(vm, "back")
+        key(vm, "back")
+        wait_marker(vm, "holo op=exit", 1)
+        # The user name read line was under the reader all along: it reads F2.
+        key(vm, "f2")
+        wait_marker(vm, "login state=hack", 1)
+        m = wait_marker(vm, "hack op=start", 2)
+        assert m["result"] == "ok", m
+
+
+def test_logout_with_the_reader_and_the_refusal_open(board, hooks_image, need_mtools,
+                                                    tmp_path):
+    """In a session the game refuses with "busy" over the reader. `sess logout` then
+    closes both screens and gives the login prompt back once; an idle timeout does
+    the same."""
+    conf = cfg(extra="[login]\nidle_s = 2\n")
+    with alone(hooks_image, board, hack_card(tmp_path, conf)) as vm:
+        wait_ready(vm)
+        at_login(vm)
+        for n, end in ((1, "maint"), (2, "idle")):
+            answer(vm, "sess login GUEST")
+            wait_marker(vm, "session screen=noshell", n)
+            answer(vm, "holo open")
+            wait_marker(vm, "holo op=scan", n)
+            answer(vm, "hack start")
+            m = wait_marker(vm, "hack op=start", n)
+            assert (m["result"], m["why"]) == ("refused", "busy"), m
+            if end == "maint":
+                answer(vm, "sess logout")
+            m = wait_marker(vm, "session state=end", n)
+            assert m["reason"] == end, m
+            wait_marker(vm, "hack op=end", n)
+            wait_marker(vm, "holo op=exit", n)
+            wait_marker(vm, "login state=user", n + 1)
+            assert state(vm).f["state"] == "off"
+            assert holo_now(vm)["state"] == "closed"

@@ -21,13 +21,21 @@
 typedef void (*hack_done_fn)(int how, void *ctx);
 
 /*
- * Pushes the game. It checks the session rules first (sess_hack_check):
- * a refusal shows its reason and BACK leaves. Then it picks the word
- * length from [hack] difficulty, reads /UOS/WORDS/Wnn.TXT and builds the
- * board. A win starts a session for the [hack] user; a loss locks the
- * terminal for [hack] lockout_s with the login's lockout screen. Both
- * replace every screen on the stack. `done` may be NULL. Returns 0,
- * HACK_ERR_BUSY or HACK_ERR_SCREEN.
+ * Pushes the game's screen over the top screen. The game plays only when
+ * nobody is logged in and the login's user name prompt was the top screen
+ * at the call (sess_prompt_on_top). Otherwise the screen shows the refusal
+ * and its marker: "busy" from a session, "covered" when another screen is
+ * open over the login, or the other sess_hack_check() reasons. BACK then
+ * pops this screen only and calls `done` with HACK_DONE_LEFT: the screen
+ * under it, the shell for one, is the top again with its state.
+ *
+ * When it plays, it picks the word length from [hack] difficulty, reads
+ * /UOS/WORDS/Wnn.TXT and builds the board. A win starts a session for the
+ * [hack] user; a loss locks the terminal for [hack] lockout_s with the
+ * login's lockout screen. Both replace every screen on the stack, which
+ * holds only the login, its read line and the game. A win or a loss
+ * cannot happen from a session: the game never starts there. `done` may
+ * be NULL. Returns 0, HACK_ERR_BUSY or HACK_ERR_SCREEN.
  */
 int hack_screen_start(hack_done_fn done, void *ctx);
 

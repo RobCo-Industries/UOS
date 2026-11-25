@@ -126,6 +126,15 @@ int sess_hack_lock(void);
 typedef int (*sess_hack_fn)(void);
 int sess_set_hack_entry(sess_hack_fn fn);
 
+/*
+ * any: non-zero when nobody is logged in, the login is at its user name
+ * prompt and that prompt is the top screen: the login screen itself, or the
+ * read line of its user name. Any other screen on top, a holotape reader
+ * for one, gives 0. The password game plays only when this holds at its
+ * start.
+ */
+int sess_prompt_on_top(void);
+
 /* loop: the login screen is the top again: its user name prompt starts. */
 void sess_resume(void);
 

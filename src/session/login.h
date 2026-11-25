@@ -162,6 +162,7 @@ typedef enum lg_hack {
     LG_HACK_NOHACK,             /* the account has UAF_FLAG_NOHACK */
     LG_HACK_BUSY,               /* someone is logged in, or the login is past the user name */
     LG_HACK_LOCKED,             /* the terminal is locked */
+    LG_HACK_COVERED,            /* another screen is open over the login prompt */
     LG_HACK_NUM
 } lg_hack_t;
 
@@ -175,7 +176,16 @@ typedef enum lg_hack {
 lg_hack_t lg_hack_allowed(int enabled, int db_ok, const uaf_rec_t *rec, lg_state_t st,
                           int locked);
 
-/* "ok", "off", "nodb", "nouser", "disabled", "nohack", "busy", "locked". */
+/*
+ * Where the game was started from. `allowed` is lg_hack_allowed()'s
+ * answer, `on_top` non-zero when the login's user name prompt was the top
+ * screen at the start. The game plays only over the login prompt: any
+ * other screen on top gives LG_HACK_COVERED. A refusal in `allowed` wins.
+ */
+lg_hack_t lg_hack_where(lg_hack_t allowed, int on_top);
+
+/* "ok", "off", "nodb", "nouser", "disabled", "nohack", "busy", "locked",
+ * "covered". */
 const char *lg_hack_name(lg_hack_t h);
 
 /* One line for the screen, never the target's password. "" for LG_HACK_OK. */

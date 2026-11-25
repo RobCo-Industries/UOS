@@ -218,10 +218,18 @@ lg_hack_t lg_hack_allowed(int enabled, int db_ok, const uaf_rec_t *rec, lg_state
     return LG_HACK_OK;
 }
 
+lg_hack_t lg_hack_where(lg_hack_t allowed, int on_top)
+{
+    if (allowed != LG_HACK_OK) {
+        return allowed;
+    }
+    return on_top ? LG_HACK_OK : LG_HACK_COVERED;
+}
+
 const char *lg_hack_name(lg_hack_t h)
 {
     static const char *const names[LG_HACK_NUM] = {
-        "ok", "off", "nodb", "nouser", "disabled", "nohack", "busy", "locked",
+        "ok", "off", "nodb", "nouser", "disabled", "nohack", "busy", "locked", "covered",
     };
 
     return (unsigned)h < LG_HACK_NUM ? names[h] : "unknown";
@@ -238,6 +246,7 @@ const char *lg_hack_text(lg_hack_t h)
         "THE TARGET ACCOUNT CANNOT BE HACKED.",
         "THE PASSWORD GAME STARTS ONLY FROM THE LOGIN PROMPT.",
         "THE TERMINAL IS LOCKED.",
+        "CLOSE THE OPEN PROGRAM: THE GAME STARTS FROM THE LOGIN PROMPT.",
     };
 
     return (unsigned)h < LG_HACK_NUM ? text[h] : "";

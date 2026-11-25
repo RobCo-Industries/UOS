@@ -66,6 +66,7 @@ static struct {
     hack_done_fn done;
     void *ctx;
     int how;
+    int on_top;                 /* the login prompt was the top at the start */
     uos_timer_id_t pause;
     uint16_t closes;            /* times the screen closed: tags posted calls */
     unsigned posted;
@@ -192,7 +193,7 @@ static int start_game(void)
     unsigned len;
     int fixed, rc, hk = HK_OK, refused;
 
-    refused = sess_hack_check();
+    refused = lg_hack_where((lg_hack_t)sess_hack_check(), hg.on_top);
     if (refused != LG_HACK_OK) {
         UOS_MARK("hack op=start result=refused why=%s", lg_hack_name((lg_hack_t)refused));
         /* hack_enter() prints every start failure on the serial line, once. */
@@ -397,6 +398,8 @@ int hack_screen_start(hack_done_fn done, void *ctx)
     }
     hg.done = done;
     hg.ctx = ctx;
+    /* Read before the push: once pushed, the game is the top. */
+    hg.on_top = sess_prompt_on_top();
     if (uos_screen_push(&hack_screen) != 0) {
         hg.done = NULL;
         return HACK_ERR_SCREEN;
@@ -426,11 +429,15 @@ static int from_login(void)
 
 /* ---- The maintenance command ---- */
 
+/* Over the login prompt the command acts as F2. Over anything else it
+ * acts as a program's start: the screen opens, refuses with "covered" or
+ * "busy", and BACK closes it alone, so the screen under it stays as it
+ * was. */
 static void post_start(void *arg)
 {
     (void)arg;
     hg.posted--;
-    if (from_login() != 0) {
+    if (hack_screen_start(sess_prompt_on_top() ? back_to_login : NULL, NULL) != 0) {
         UOS_MARK("hack result=busy");
     }
 }

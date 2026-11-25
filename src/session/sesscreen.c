@@ -126,6 +126,20 @@ static void login_draw(uos_screen_t *s)
     set_cursor(sess.st == LG_S_PASS ? ROW_PASS : ROW_USER);
 }
 
+/* Non-zero while the user name read line runs over the login screen. */
+static int reading_user;
+
+int sess_prompt_on_top(void)
+{
+    const uos_screen_t *top = uos_screen_top();
+
+    if (sess.in || sess.st != LG_S_USER || top == NULL) {
+        return 0;
+    }
+    return top == &sess_login_screen ||
+           (reading_user && k_strcmp(top->name, "readline") == 0);
+}
+
 static void start_user(void *arg)
 {
     int rc;
@@ -136,6 +150,7 @@ static void start_user(void *arg)
     }
     set_cursor(ROW_USER);
     rc = con_read_line("USERNAME:", CON_RL_NOHIST | CON_RL_ALTKEY, UAF_NAME_MAX, on_user, NULL);
+    reading_user = rc == 0;
     UOS_MARK("login state=user rc=%d", rc);
 }
 
@@ -171,6 +186,7 @@ void sess_prompt_later(void)
 static void on_user(int result, const char *text, unsigned len, void *ctx)
 {
     (void)ctx;
+    reading_user = 0;
     if (result == CON_ALT) {
         /* F2 on an empty name: the password game, when one is installed. */
         UOS_MARK("login state=hack");
@@ -553,6 +569,7 @@ void sess_show_only(uos_screen_t *s)
      * ends without calling back. */
     while (uos_screen_pop() == 0) {
     }
+    reading_user = 0;
     if (uos_screen_top() != s) {
         (void)uos_screen_replace(s);
     } else {

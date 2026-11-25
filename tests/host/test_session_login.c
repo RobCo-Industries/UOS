@@ -450,3 +450,17 @@ TEST(hack_allowed_rules)
     CHECK_STR(lg_hack_text(LG_HACK_OK), "");
     CHECK(strlen(lg_hack_text(LG_HACK_BUSY)) < 79);
 }
+
+/* The game plays only over the login prompt; a refusal from the rules wins,
+ * so a session gives "busy", not "covered". */
+TEST(hack_where_rules)
+{
+    CHECK_EQ(lg_hack_where(LG_HACK_OK, 1), LG_HACK_OK);
+    CHECK_EQ(lg_hack_where(LG_HACK_OK, 0), LG_HACK_COVERED);
+    CHECK_EQ(lg_hack_where(LG_HACK_BUSY, 0), LG_HACK_BUSY);
+    CHECK_EQ(lg_hack_where(LG_HACK_BUSY, 1), LG_HACK_BUSY);
+    CHECK_EQ(lg_hack_where(LG_HACK_LOCKED, 0), LG_HACK_LOCKED);
+    CHECK_STR(lg_hack_name(LG_HACK_COVERED), "covered");
+    CHECK(strlen(lg_hack_text(LG_HACK_COVERED)) > 0);
+    CHECK(strlen(lg_hack_text(LG_HACK_COVERED)) < 79);
+}
