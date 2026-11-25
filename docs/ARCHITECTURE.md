@@ -9,7 +9,8 @@ src/kernel/   entry, panic, event loop, timers, screens, settings, maintenance p
               the shared privilege bits, the service table
 src/dcl/ src/vfs/ src/session/ src/osk/ src/dev/ src/tui/ src/hack/ src/holo/
               the pure modules, one folder each
-card/         the default card: /UOS/UOS.CFG, SYSUAF.DAT, DEVICES.CFG, HOME/, WORDS/, HOLO/
+src/shell/    the command shell and its commands
+card/         the default card: /UOS/UOS.CFG, SYSUAF.DAT, DEVICES.CFG, HOME/, WORDS/, HOLO/, SYS/HELP/
 tools/        card tools: mkuaf.py, mkwords.py, mkholo.py
 tests/host/   host tests of the pure files, and host tools such as holocheck.c
 tests/tools/  pytest tests of the card tools
@@ -37,7 +38,7 @@ The modules below are pure too. The image links them, but no kernel code calls t
 
 ## Modules
 
-Each module has a reference page in `docs/modules/`. The on-card formats are gathered in [FORMATS.md](FORMATS.md). The services of [Services](#services) use `dcl`, `vfs path`, `osk`, `dev`, `session` and the pager of `tui`. No shell or menu screen uses a module yet.
+Each module has a reference page in `docs/modules/`. The on-card formats are gathered in [FORMATS.md](FORMATS.md). The services of [Services](#services) use `dcl`, `vfs path`, `osk`, `dev`, `session` and the pager of `tui`. The shell uses `dcl` for every command line. No menu screen uses a module yet.
 
 Every module that tests privileges uses the bits of `src/kernel/uos_privs.h`: `SYSTEM` bit 0, `OPER` bit 1, `SECURITY` bit 2, `READALL` bit 3. Each module keeps its own names, such as `DCL_PRIV_OPER` or `UAF_PRIV_OPER`, as aliases, and static asserts check them.
 
@@ -203,11 +204,12 @@ Test builds put a service named `testfail` first, whose init returns -5, so the 
 | 2 | `vfs` | `src/vfs/vfs.h` | the card the kernel mounted |
 | 3 | `console` | `src/console/con.h` | the screen stack |
 | 4 | `session` | `src/session/sess.h` | `vfs` for `SYSUAF.DAT`, `console` for the prompts, the first screen |
-| 5 | `devices` | `src/dev/devs.h` | `vfs` for `DEVICES.CFG` and `DEV:` |
+| 5 | `shell` | `src/shell/sh.h` | `session` for the user and the next screen, `vfs`, `console`, `DEV:` |
+| 6 | `devices` | `src/dev/devs.h` | `vfs` for `DEVICES.CFG` and `DEV:` |
 
-The session comes after the file system and the console, which it uses. It comes before the devices so that the devices stay last: they stop first. Nothing in the device service uses the session; a device command gets its caller's privileges as an argument.
+The session comes after the file system and the console, which it uses. The shell comes after the session, whose `sess_set_next()` it calls at init. Both come before the devices so that the devices stay last: they stop first. Nothing in the device service uses the session; a device command gets its caller's privileges as an argument.
 
-Shutdown runs in reverse: `devices`, `session`, `console`, `vfs`, `uptime`. So on a reboot, a halt and a panic the device service drives every output safe before anything else stops. Its `devsafe` lines and `devdown` come right after `ev=shutdown name=devices` and before `ev=shutdown name=console`. `test_link.py` checks this order for all three causes.
+Shutdown runs in reverse: `devices`, `shell`, `session`, `console`, `vfs`, `uptime`. The shell has no `shutdown`. So on a reboot, a halt and a panic the device service drives every output safe before anything else stops. Its `devsafe` lines and `devdown` come right after `ev=shutdown name=devices` and before `ev=shutdown name=console`. `test_link.py` checks this order for all three causes.
 
 A file write cannot be cut by a reboot. `vfs_write_all()` runs in one loop pass, and the `reboot` command waits for the next one. A stepped copy can be cut between two steps. Its new content sits in a work file, and the target keeps its whole old content. The next call that looks at the target removes the work file. `test_link.py` reboots during a 1 MiB copy over a file and checks both. A power cut during a write is not tested: the library's atomic write states that guarantee.
 
@@ -233,6 +235,7 @@ Every command each service registers. The `fs`, `readline`, `page` and `osk` com
 | `dev list\|set\|rec` | `devices` | Devices, commands, the pin record, see [Devices](#devices) |
 | `dev sense`, `dev hang`, `dev stall` | `devices` | Test builds only |
 | `sess state\|logout` | `session` | The login state and the session, see [Session](#session) |
+| `sh state\|run` | `shell` | The prompt state; a command line run as the session, see [The shell](#the-shell) |
 | `sess login <user>` | `session` | Test builds only: a session with no password |
 | `button <key>` | `console` | Test builds only: a key from the GPIO source, which opens the on-screen keyboard during a read |
 
@@ -379,6 +382,89 @@ The password check costs 2000 to 3999 SHA-256 compressions. It runs at most 256 
 The console's read, pager and pause screens have a `leave` callback: when another caller pops them, they end without calling back, and the read wipes its text. A logout uses this.
 
 `UOS_USER_NAME_MAX` is 16, the longest `SYSUAF.DAT` name, so `state` shows a whole name.
+
+### The shell
+
+The `shell` service, `src/shell/`, is the screen after login: a DCL prompt in the style of a RobCo terminal, and the one executor that runs a command line for every caller. [COMMANDS.md](COMMANDS.md) is the reference of every verb.
+
+| File | Role |
+|---|---|
+| `shrules.c` | Pure, prefix `sh_`: the error map, the `/CONFIRM` answers and steps, the file loop counts and their final message, the `HELP` file lookup, the program registry, text and number formats, the marker quoting. Host tests in `test_shell.c`. |
+| `shell.c` | The screen, the prompt, the executor, the service and the `sh` command |
+| `shcmds.c` | The commands on files, `SET`, `SHOW`, `HELP`, `RUN`, `DEVICE` and the session verbs |
+| `shuaf.c` | `AUTHORIZE` and `SET PASSWORD`, the commands that write `SYSUAF.DAT` |
+
+#### The screen and the prompt
+
+Its init calls `sess_set_next()`, so the welcome screen hands over to the `shell` screen. The prompt is `$ `, read with `con_read_line()` and its history. The line goes to `dcl_line_add()`:
+
+- `DCL_CONTIN`: the line ends with `-`; the shell reads more at `_$ `.
+- A complete line goes to `dcl_parse()` with `dcl_uos_table`. `DCL_INSFPRM` asks `_<prompt>: `, such as `_File: `, appends the answer and parses again. An empty answer asks again. Ctrl-C at any prompt drops the line.
+- `dcl_check_privs()` checks the parsed command against the session's mask before anything runs.
+
+Output goes through `con_print()`, so it scrolls in the console's text rows and also reaches the PL011. The shell keeps the last 40 rows it printed and repaints them when it becomes the top screen again, after the pager or the on-screen keyboard. `TYPE /PAGE` uses `con_page_text()`.
+
+#### The executor
+
+One command runs at a time, for the prompt and every other caller together. Other screens call `src/shell/sh.h`:
+
+| Call | Context | Does |
+|---|---|---|
+| `sh_run_line(line, flags, cb, ctx)` | loop | Runs one line as the logged-in user, with the shell's current folder. `SH_RUN_QUIET` keeps the output off the console. The callback gets a status, `SH_OK`, `SH_WARN`, `SH_FAIL` or `SH_CANCELLED`, and the final message's first line. A missing parameter is an error here: only the prompt asks. Returns 0, or `SH_ERR_BUSY`, `SH_ERR_NOUSER`, `SH_ERR_ARG`, `SH_ERR_DOWN` with no callback. |
+| `sh_busy()` | any | Non-zero while a command runs |
+| `sh_program_register(name, start)` | loop | A program for `RUN`. `start(args, done)` pushes its screen, returns 0, and calls `done(status, text)` once. A name with no entry answers `%UOS-W-NOTINST, <NAME> is not installed in this build`. At most 8 programs. |
+
+The terminal menu runs its `COMMAND` entries through `sh_run_line()`. Questions a command asks, such as `/CONFIRM` or a password, are read with `con_read_line()` on top of the caller's screen.
+
+#### The command state machine
+
+A command is a table entry of `start`, `step` and `stop` functions. `start` and `step` return one of three values, and the executor drives them:
+
+```mermaid
+stateDiagram-v2
+    [*] --> parse: a line
+    parse --> done: syntax error, missing privilege
+    parse --> start
+    start --> step: SH_MORE, a posted call
+    step --> step: SH_MORE
+    start --> wait: SH_WAIT, a read, the pager or a program
+    step --> wait: SH_WAIT
+    wait --> step: the callback, SH_MORE
+    wait --> done: the callback, SH_DONE
+    step --> done: SH_DONE
+    start --> done: SH_DONE
+    step --> done: Ctrl-C, the session ended
+    done --> [*]: stop, /OUTPUT file, message, marker, callback
+```
+
+- A step does a bounded piece of work: one 16 KiB copy step, one file of a wildcard loop, 8 lines of `TYPE` or `HELP`, 8 rows of `DIRECTORY`. The next step is posted to the loop, so input, ticks and the device watchdog run between two steps.
+- Ctrl-C on the shell screen while a command steps sets a flag; the next step ends the command with `%UOS-I-CANCEL`. `stop` frees what the command holds: a running copy is aborted and its work file removed.
+- When the session ends under a command, the shell's `tick` ends it the same way: a logout pops every screen, so a read or a program it waited on never calls back.
+- Every error goes through `sh_err_msg()`, the one map from file system, `DEV:`, path and user database codes to `dcl` messages. `DEV:` codes keep the device service's meaning: a sensor gives `%DEVICE-E-SENSOR`, a bad action word `%DEVICE-E-IVACT`.
+- File loops walk `vfs_iter_begin()`, which checks access per matched file, and count done, failed, refused and declined files. `sh_tally_result()` gives the final message.
+
+#### Passwords and the user database
+
+`SET PASSWORD` and `AUTHORIZE ADD` and `MODIFY /PASSWORD` read passwords with `CON_RL_MASK`. A password never comes from the command line: `AUTHORIZE`'s `/PASSWORD` takes no value. Each change copies the session's database, edits it with the `uaf_` calls, salts a new password from the hardware RNG, writes the image with `vfs_sys_write_all()` and calls `sess_reload()`. The buffers are wiped when the command ends. One hash, 2000 iterations, runs in one loop pass: the cost of one login check, 7 to 18 ms in QEMU, not stepped.
+
+#### Markers and the `sh` command
+
+| Marker | When |
+|---|---|
+| `sh state=prompt kind=<cmd\|contin\|param\|confirm\|line\|password> n= rc=` | A read starts |
+| `cmd state=start verb=<VERB[_KEY]> src=<shell\|port\|api>` | A command starts |
+| `cmd file=<quoted> op=<copy\|delete\|rename\|type> result=<ok\|skip\|IDENT>` | One file of a file loop |
+| `cmd state=end verb= rc=<IDENT> sev= files= skipped= failed= steps= maxticks=` | A command ends |
+| `term scheme=<name>` | `SET TERMINAL /SCHEME` |
+| `uaf result=written users=` | `SYSUAF.DAT` was written |
+| `sh run=done status= result=<quoted>`, `sh run=refused rc=` | The end of `sh run` |
+
+No marker holds a password or a command line.
+
+| Command | Answer |
+|---|---|
+| `sh state` | `sh state=<idle\|prompt\|running> kind= ask= verb= pending= prompts= runs=`. `pending` counts input events the loop has not taken yet. |
+| `sh run <line>` | Runs the line as the session. The line is quoted as the console's markers quote text: a blank is `%20`. A read at the prompt gives way and comes back after. |
 
 ### Devices
 

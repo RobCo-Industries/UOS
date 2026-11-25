@@ -7,6 +7,8 @@ All notable changes to UOS are recorded here. The format follows [Keep a Changel
 ### Changed
 
 - Rebuilt UOS on RobCo-Core. The prototype is gone.
+- `AUTHORIZE`'s `/PASSWORD` takes no value: the command asks for the password, masked.
+- The shell replaces the placeholder screen after login.
 
 ### Added
 
@@ -44,6 +46,13 @@ All notable changes to UOS are recorded here. The format follows [Keep a Changel
 - File system errors have their own messages: `WRITLCK`, `PROTECT`, `TOOBIG` and `INSFMEM`.
 - Devices: a failed write to an output's safe level is retried every tick and shown as a fault, so the status never says a state the pin does not have.
 - The `fs copy <from> <to> new` maintenance form, which refuses an existing target.
+- The command shell after login: a DCL prompt with continuation lines, prompts for missing parameters, privilege checks and system messages. Commands run in steps and Ctrl-C stops them. `docs/COMMANDS.md` describes every verb.
+- Commands: `DIRECTORY`, `TYPE`, `COPY`, `DELETE`, `RENAME`, `CREATE`, `SET DEFAULT`, `SET TERMINAL`, `SET HALT`, `SET PASSWORD`, every `SHOW` keyword, `HELP`, `RUN`, `LOGIN`, `LOGOUT`, `ROBCO`, `DEVICE` and `AUTHORIZE`. `HOLOTAPE`, `MAIL` and the `RUN` programs say they are not installed.
+- `src/shell/sh.h`: `sh_run_line()` runs a command line for another screen, and `sh_program_register()` adds a program for `RUN`.
+- `SET PASSWORD` and `AUTHORIZE` write `SYSUAF.DAT` with masked password reads, salts from the RNG and an atomic write; `sess_reload()` reads it again.
+- Help files for every verb in `/UOS/SYS/HELP` on the default card.
+- Maintenance: `sh state` and `sh run <line>`; `cmd` and `sh` markers.
+- `docs/USER_MANUAL.md`: a "Using the command line" section.
 
 ### Fixed
 
