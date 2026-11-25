@@ -12,7 +12,7 @@ import time
 import pytest
 
 from test_panic import nm
-from uos import (ROOT, TICK_HZ, TIMEOUT, alone, answer, card, dump_until, events, key,
+from uos import (ROOT, TICK_HZ, TIMEOUT, alone, answer, batch, card, dump_until, events, key,
                  one, state, uos_card, wait_marker, wait_ready)
 
 UAF_PATH = "/UOS/SYSUAF.DAT"
@@ -358,6 +358,22 @@ def test_sess_login_is_test_only(board, uos_image, hooks_image, need_mtools, tmp
         wait_marker(vm, "session state=end", 1)
         answer(vm, "sess login NOBODY")
         wait_marker(vm, "session result=nouser", 1)
+
+
+def test_two_sess_logins_in_one_write(board, hooks_image, need_mtools, tmp_path):
+    """Two `sess login` commands in one port write each carry their own name and run
+    in order: the first opens its session, the second is refused as busy."""
+    with alone(hooks_image, board, uaf_card(tmp_path)) as vm:
+        wait_ready(vm)
+        prompt(vm, "user", 1)
+        replies = batch(vm, ["sess login GUEST", "sess login OPER"])
+        assert [r[0] for r in replies] == ["ok", "ok"], replies
+        start = wait_marker(vm, "session state=start", 1)
+        assert start["user"] == "GUEST", start
+        wait_marker(vm, "session result=busy", 1)
+        wait_marker(vm, "session screen=noshell", 1)
+        assert sess_state(vm)["user"] == "GUEST"
+        assert len([m for m in events(vm, "session") if m.get("state") == "start"]) == 1
 
 
 def test_idle_logout(board, hooks_image, need_mtools, tmp_path):

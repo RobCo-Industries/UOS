@@ -226,14 +226,23 @@ static void post_logout(void *arg)
 
 #if defined(UOS_TEST_HOOKS) && UOS_TEST_HOOKS
 /* Test builds only: the nm test proves the shipped image has none of this. */
-static char uos_test_login_name[UAF_NAME_MAX + 1];
+/* Each posted `sess login` owns one slot until its call runs: two commands
+ * in one port write keep their own names and run in order. Maintenance
+ * commands and posted calls both run in the loop, so no lock is needed. */
+#define TEST_LOGIN_SLOTS    4u
+
+static char uos_test_login_name[TEST_LOGIN_SLOTS][UAF_NAME_MAX + 1];
+static uint8_t uos_test_login_used[TEST_LOGIN_SLOTS];
 
 static void uos_test_sess_login(void *arg)
 {
+    char name[UAF_NAME_MAX + 1];
+    uint32_t slot = (uint32_t)(uintptr_t)arg;
     int idx;
 
-    (void)arg;
-    idx = uaf_find(&sess.uaf, uos_test_login_name);
+    k_memcpy(name, uos_test_login_name[slot], sizeof(name));
+    uos_test_login_used[slot] = 0;
+    idx = uaf_find(&sess.uaf, name);
     if (sess.db != LG_DB_OK || idx < 0) {
         UOS_MARK("session result=nouser");
         return;
@@ -248,11 +257,22 @@ static void uos_test_sess_login(void *arg)
 
 static int cmd_login(int argc, char **argv)
 {
+    uint32_t slot;
+
     if (argc != 2 || k_strlen(argv[1]) > UAF_NAME_MAX) {
         return uos_maint_fail("usage sess login <user>");
     }
-    k_snprintf(uos_test_login_name, sizeof(uos_test_login_name), "%s", argv[1]);
-    return uos_post(uos_test_sess_login, NULL) == 0 ? 0 : uos_maint_fail("full");
+    for (slot = 0; slot < TEST_LOGIN_SLOTS && uos_test_login_used[slot]; slot++) {
+    }
+    if (slot == TEST_LOGIN_SLOTS) {
+        return uos_maint_fail("full");
+    }
+    k_snprintf(uos_test_login_name[slot], sizeof(uos_test_login_name[slot]), "%s", argv[1]);
+    if (uos_post(uos_test_sess_login, (void *)(uintptr_t)slot) != 0) {
+        return uos_maint_fail("full");
+    }
+    uos_test_login_used[slot] = 1;
+    return 0;
 }
 #endif
 
