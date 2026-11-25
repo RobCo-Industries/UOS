@@ -481,8 +481,6 @@ def test_hwdog_off_by_default(board, uos_image, need_mtools, tmp_path):
     """No [watchdog] section: the hardware watchdog never starts."""
     with alone(uos_image, board, boot_card(tmp_path)) as vm:
         wait_ready(vm)
-        cfg = one(vm, "config")
-        assert (cfg["hwdog"], cfg["hwdog_ms"]) == ("0", "8000"), cfg
         off = one(vm, "hwdog")
         assert (off["result"], off["why"]) == ("off", "setting"), off
         assert answer(vm, "dev hwdog") == \
@@ -503,8 +501,6 @@ def test_hwdog_on_resets_at_start(board, uos_image, need_mtools, tmp_path):
     sd = uos_card(tmp_path, cfg=HWDOG_CFG, extra={CFG: ALL})
     with alone(uos_image, board, sd) as vm:
         vm.wait_for(HWDOG_START_TWICE, timeout=TIMEOUT)
-        cfg = events(vm, "config")[0]
-        assert (cfg["hwdog"], cfg["hwdog_ms"]) == ("1", "4000"), cfg
         evs = [m["ev"] for m in vm.markers()]
         first = evs.index("hwdog")
         # The start comes after every service is up, then a new boot.

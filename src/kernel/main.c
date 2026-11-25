@@ -221,13 +221,13 @@ static void read_config(void)
     }
     UOS_MARK("config result=%s line=%u keys=%u bad=%u clamped=%u unknown=%u name=%s "
              "scheme=%s mode=%s retries=%u login_lockout=%u hack=%d user=%s attempts=%u "
-             "difficulty=%s hack_lockout=%u hwdog=%d hwdog_ms=%u console=%u",
+             "difficulty=%s hack_lockout=%u console=%u",
              rc == UOS_CFG_OK ? "ok" : "syntax", r.err_line, r.keys, r.bad, r.clamped,
              r.unknown, name_word(), uos_scheme_name(settings.scheme), uos_mode_name(settings.mode),
              settings.login_retries, settings.login_lockout_s, settings.hack_enabled,
              settings.hack_user, settings.hack_attempts,
              uos_difficulty_name(settings.hack_difficulty), settings.hack_lockout_s,
-             settings.hwdog_enabled, settings.hwdog_timeout_ms, uos.fb_ok ? console_scheme() : 0u);
+             uos.fb_ok ? console_scheme() : 0u);
 }
 
 /* The MMU with the library's identity map, and the caches. Before the
