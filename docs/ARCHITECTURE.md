@@ -242,8 +242,8 @@ Every command each service registers. The `fs`, `readline`, `page` and `osk` com
 
 1. Write the service in its own file, for example `src/mail/svc.c`, ending with `const uos_service_t uos_svc_mail = { "mail", mail_init, NULL, mail_shutdown };`.
 2. In `src/kernel/services.c`, add one line `extern const uos_service_t uos_svc_mail;` under the comment "One extern per service".
-3. In the same file, add one line `&uos_svc_mail,` in the `services[]` array between `/* BEGIN SERVICES */` and `/* END SERVICES */`. Put it after every service it uses: the order is the start order.
-4. Add the name to `SERVICES` in `tests/uos.py`, so the boot order tests expect its marker.
+3. In the same file, add one line `&uos_svc_mail,` in the `services[]` array between `/* BEGIN SERVICES */` and `/* END SERVICES */`. Put it after every service it uses: the order is the start order. Keep `&uos_svc_devices,` last, so the outputs go safe before any other service stops.
+4. Add the name to `SERVICES` in `tests/uos.py`, so the boot order tests expect its marker, and its commands to `SERVICE_COMMANDS`, so the `help` test expects them.
 
 ### How to add a maintenance command
 
@@ -465,7 +465,7 @@ The software watchdog stays the tested path. When at least one output is configu
 
 The hardware watchdog is the library's `wdog.h`, the BCM2835 PM watchdog. QEMU 10.1 does not count it: `wdog_start()` resets the board at once on all four boards. So it is a `UOS.CFG` setting, `[watchdog] enabled`, off by default and off on every test card, with `timeout_ms` 1000 to 15000, 8000 by default. The rules are pure, in `src/kernel/hwdog.c`, `uos_hwdog.h`, with host tests. When it is on:
 
-- It starts on the device service's first tick in the ready phase, after every service is up.
+- It starts on the device service's first tick in the ready phase, after every service is up. Every service's `init`, the session's read of `SYSUAF.DAT` included, runs before the ready phase, so no start-up work delays a kick. The shortest timeout, 1000 ms, is 100 ticks, and a kick comes every 25 ticks, 250 ms.
 - The service's `tick` kicks it, the place that already proves the loop alive for the software watchdog, every quarter of the timeout. No IRQ kicks it, so a hung loop is never kept alive. `dev hang` stops these kicks too.
 - Panic: the outputs go safe, then the kicks stop and the watchdog keeps running. The board resets when the timeout ends, and the boot sets every output to its initial level.
 - Halt: the outputs go safe, then `wdog_stop()`. A halt is a deliberate stop, so the terminal stays halted until someone resets it.
