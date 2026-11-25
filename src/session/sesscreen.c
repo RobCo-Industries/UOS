@@ -265,10 +265,11 @@ static void check_done(void)
         return;
     }
     /* One reading for the lock and its start marker: a tick between two
-     * readings would make the marker later than the lock. */
+     * readings would make the marker later than the lock. A lock that
+     * already runs keeps its own start tick. */
     now = uos_ticks();
     locked = lk_fail(&sess.lk, now * (1000u / UOS_TICK_HZ));
-    if (locked) {
+    if (locked == LK_STARTED) {
         sess.lock_tick = now;
     }
     UOS_MARK("login user=%s result=bad left=%u steps=%u ticks=%u us=%u maxstep_us=%u", name,

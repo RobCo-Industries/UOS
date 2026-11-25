@@ -55,18 +55,27 @@ typedef struct lk {
     uint8_t locked;
 } lk_t;
 
+/*
+ * lk_fail and lk_lock return LK_STARTED when the call itself started a
+ * lock at `now`, and 1 when a lock that started earlier still runs. The
+ * caller records the start tick only on LK_STARTED.
+ */
+#define LK_STARTED          2
+
 /* Sets the limits and clears the state. On an error the state is unchanged. */
 lk_err_t lk_init(lk_t *lk, unsigned retries, unsigned lockout_s);
 /*
- * Records one failed login at `now`. Returns 1 if the login is now locked.
- * A failure while locked is ignored and returns 1. With lockout_s = 0 the
- * count resets when it reaches retries and nothing locks.
+ * Records one failed login at `now`. Returns LK_STARTED if this failure
+ * starts the lock, 0 if not locked. A failure while locked is ignored and
+ * returns 1. With lockout_s = 0 the count resets when it reaches retries
+ * and nothing locks.
  */
 int lk_fail(lk_t *lk, uint32_t now);
 /*
  * Locks at `now` for `seconds`, whatever the count: the password game's
  * lockout shares the login's lock. 0 seconds does not lock. While a lock
- * runs, the one that ends later wins. Returns 1 if locked. Seconds over
+ * runs, the one that ends later wins. Returns LK_STARTED if this call
+ * starts or replaces the lock, 1 if the running lock is kept. Seconds over
  * LK_LOCKOUT_MAX_S are LK_LOCKOUT_MAX_S.
  */
 int lk_lock(lk_t *lk, uint32_t now, unsigned seconds);

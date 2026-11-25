@@ -215,6 +215,26 @@ def test_lockout_and_its_end(board, uos_image, need_mtools, tmp_path):
         assert good["left"] == "2", good
 
 
+def test_failure_during_a_running_lock_keeps_its_start(board, hooks_image, need_mtools,
+                                                      tmp_path):
+    """A test session started from the lockout screen logs out while the lock still
+    runs. The next failure finds that lock, so the lockout screen comes back with the
+    first lock's start tick, not the tick of the new failure."""
+    cfg = b"[system]\nname = TEST TERMINAL\n[login]\nretries = 2\nlockout_s = 60\n"
+    with alone(hooks_image, board, uaf_card(tmp_path, cfg=cfg)) as vm:
+        wait_ready(vm)
+        login(vm, "GUEST", "nope", expect="bad")
+        login(vm, "GUEST", "nope", expect="bad")
+        first = wait_marker(vm, "lockout state=start", 1)
+        answer(vm, "sess login GUEST")
+        wait_marker(vm, "session state=start", 1)
+        answer(vm, "sess logout")
+        wait_marker(vm, "session state=end", 1)
+        login(vm, "GUEST", "nope", expect="bad")
+        again = wait_marker(vm, "lockout state=start", 2)
+        assert again["t"] == first["t"], (first, again)
+
+
 def test_damaged_database(board, uos_image, need_mtools, tmp_path):
     """A bad CRC: the system screen says the database is damaged and what to do,
     no login runs, `state` reports the error, and F4 restarts."""

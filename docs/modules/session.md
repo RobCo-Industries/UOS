@@ -101,6 +101,8 @@ Ticks are milliseconds in a `uint32_t`, which wraps every 2^32 ms, about 49.7 da
 
 `lk_lock(lk, now, seconds)` locks for a given length, whatever the count: the password game's loss uses it, so the terminal has one lock state. While a lock runs, the one that ends later wins. The count starts again when the lock ends. `lk_t.lock_ms` holds the length of the running lock.
 
+`lk_fail` and `lk_lock` return `LK_STARTED` when the call starts a lock, and 1 when a lock that started earlier still runs. The session keeps the start tick in `sess.lock_tick` only on `LK_STARTED`. The lockout start marker prints that tick, so a failure during a running lock keeps the running lock's start.
+
 ### Lockout events
 
 The password login and the password game share one lockout state. This table is the whole state machine. The same table is in `lockout.h`, and `tests/host/test_session_lockout.c` has a test per row.

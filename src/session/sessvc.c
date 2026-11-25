@@ -186,11 +186,17 @@ int sess_hack_begin(void)
 int sess_hack_lock(void)
 {
     unsigned secs = uos_settings()->hack_lockout_s;
+    uint32_t now;
 
     if (sess.in || sess.st != LG_S_USER || secs == 0) {
         return 0;
     }
-    (void)lk_lock(&sess.lk, sess_now_ms(), secs);
+    now = uos_ticks();
+    /* One reading for the lock and its start marker; a longer lock that
+     * already runs keeps its own start tick. */
+    if (lk_lock(&sess.lk, now * (1000u / UOS_TICK_HZ), secs) == LK_STARTED) {
+        sess.lock_tick = now;
+    }
     sess.lock_hack = 1;
     sess_go(LG_E_HACK_LOCKED);
     return 1;

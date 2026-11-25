@@ -83,6 +83,7 @@ All notable changes to UOS are recorded here. The format follows [Keep a Changel
 
 ### Fixed
 
+- A lockout started by the password game prints its own start tick in `lockout state=start`. A failure during a running lock no longer moves that tick: `lk_fail()` and `lk_lock()` return `LK_STARTED` only for a new lock.
 - `uos_dec_u32()` refused nothing above a limit below 9 for a one-digit text: `max - digit` wrapped. The file system commands' copy of the parser had the same fault and now use it.
 - The holotape reader marked a tape damaged when the scan could not read it, for lack of memory for example. Such a tape now shows `NOT CHECKED` and opens when picked.
 - The password game printed a refusal twice on the serial line. The holotape reader printed its load results on the screen only; they now reach the serial line once.

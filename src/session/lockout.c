@@ -38,6 +38,7 @@ int lk_fail(lk_t *lk, uint32_t now)
             lk->locked = 1;
             lk->locked_at = now;
             lk->lock_ms = lk->lockout_ms;
+            return LK_STARTED;
         }
     }
     return lk->locked;
@@ -61,7 +62,7 @@ int lk_lock(lk_t *lk, uint32_t now, unsigned seconds)
     lk->locked_at = now;
     lk->lock_ms = ms;
     lk->fails = 0;
-    return 1;
+    return LK_STARTED;
 }
 
 void lk_session_start(lk_t *lk)

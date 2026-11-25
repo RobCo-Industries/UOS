@@ -33,7 +33,7 @@ TEST(locks_at_retries)
     CHECK_EQ(lk_tries_left(&lk), 2);
     CHECK_EQ(lk_fail(&lk, 200), 0);
     CHECK_EQ(lk_locked(&lk, 300), 0);
-    CHECK_EQ(lk_fail(&lk, 1000), 1);
+    CHECK_EQ(lk_fail(&lk, 1000), LK_STARTED);
     CHECK_EQ(lk_tries_left(&lk), 0);
     CHECK_EQ(lk_locked(&lk, 1000), 1);
     CHECK_EQ(lk_remaining_s(&lk, 1000), 30);
@@ -60,7 +60,7 @@ TEST(success_resets)
     CHECK_EQ(lk_tries_left(&lk), 3);
     CHECK_EQ(lk_fail(&lk, 3), 0);
     CHECK_EQ(lk_fail(&lk, 4), 0);
-    CHECK_EQ(lk_fail(&lk, 5), 1);
+    CHECK_EQ(lk_fail(&lk, 5), LK_STARTED);
 }
 
 TEST(one_retry)
@@ -68,7 +68,7 @@ TEST(one_retry)
     lk_t lk;
 
     lk_init(&lk, 1, 1);
-    CHECK_EQ(lk_fail(&lk, 0), 1);
+    CHECK_EQ(lk_fail(&lk, 0), LK_STARTED);
     CHECK_EQ(lk_remaining_s(&lk, 0), 1);
     CHECK_EQ(lk_locked(&lk, 999), 1);
     CHECK_EQ(lk_locked(&lk, 1000), 0);
@@ -94,7 +94,7 @@ TEST(max_lockout)
     for (int i = 0; i < 8; i++) {
         CHECK_EQ(lk_fail(&lk, 5), 0);
     }
-    CHECK_EQ(lk_fail(&lk, 5), 1);
+    CHECK_EQ(lk_fail(&lk, 5), LK_STARTED);
     CHECK_EQ(lk_remaining_s(&lk, 5), 3600);
     CHECK_EQ(lk_locked(&lk, 3600004), 1);
     CHECK_EQ(lk_locked(&lk, 3600005), 0);
@@ -109,7 +109,7 @@ TEST(across_wrap)
     lk_init(&lk, 3, 30);
     lk_fail(&lk, start);
     lk_fail(&lk, start);
-    CHECK_EQ(lk_fail(&lk, start), 1);
+    CHECK_EQ(lk_fail(&lk, start), LK_STARTED);
     CHECK_EQ(lk_remaining_s(&lk, 0xFFFFFFFFu), 26);
     CHECK_EQ(lk_remaining_s(&lk, 0), 25);
     CHECK_EQ(lk_locked(&lk, 24999), 1);
@@ -122,7 +122,7 @@ TEST(lock_starts_at_zero_tick)
     lk_t lk;
 
     lk_init(&lk, 1, 2);
-    CHECK_EQ(lk_fail(&lk, 0), 1);
+    CHECK_EQ(lk_fail(&lk, 0), LK_STARTED);
     CHECK_EQ(lk_remaining_s(&lk, 0), 2);
     CHECK_EQ(lk_locked(&lk, 2000), 0);
 }
@@ -135,7 +135,7 @@ TEST(lock_for_seconds)
     lk_init(&lk, 3, 30);
     CHECK_EQ(lk_fail(&lk, 0), 0);
     CHECK_EQ(lk_lock(&lk, 1000, 0), 0);         /* 0 s does not lock */
-    CHECK_EQ(lk_lock(&lk, 1000, 60), 1);
+    CHECK_EQ(lk_lock(&lk, 1000, 60), LK_STARTED);
     CHECK_EQ(lk_tries_left(&lk), 0);
     CHECK_EQ(lk_remaining_s(&lk, 1000), 60);
     CHECK_EQ(lk_locked(&lk, 60999), 1);
@@ -144,16 +144,16 @@ TEST(lock_for_seconds)
     /* A later failure lock uses the login's own length. */
     lk_fail(&lk, 70000);
     lk_fail(&lk, 70000);
-    CHECK_EQ(lk_fail(&lk, 70000), 1);
+    CHECK_EQ(lk_fail(&lk, 70000), LK_STARTED);
     CHECK_EQ(lk_remaining_s(&lk, 70000), 30);
     /* A shorter game lock does not cut a running one; a longer one wins. */
     CHECK_EQ(lk_lock(&lk, 71000, 5), 1);
     CHECK_EQ(lk_remaining_s(&lk, 71000), 29);
-    CHECK_EQ(lk_lock(&lk, 71000, 3601), 1);
+    CHECK_EQ(lk_lock(&lk, 71000, 3601), LK_STARTED);
     CHECK_EQ(lk_remaining_s(&lk, 71000), 3600);
     /* Across the wrap of the millisecond count. */
     lk_init(&lk, 3, 30);
-    CHECK_EQ(lk_lock(&lk, 0xFFFFF000u, 10), 1);
+    CHECK_EQ(lk_lock(&lk, 0xFFFFF000u, 10), LK_STARTED);
     CHECK_EQ(lk_locked(&lk, 0xFFFFF000u + 9999u), 1);
     CHECK_EQ(lk_locked(&lk, 0xFFFFF000u + 10000u), 0);
 }
@@ -176,7 +176,7 @@ TEST(row_failures_count)
     lk_t lk;
 
     two_fails(&lk);
-    CHECK_EQ(lk_fail(&lk, 0), 1);
+    CHECK_EQ(lk_fail(&lk, 0), LK_STARTED);
     CHECK_EQ(lk_remaining_s(&lk, 0), 30);
 }
 
@@ -193,7 +193,7 @@ TEST(row_session_start_clears)
     for (i = 0; i < 2; i++) {
         CHECK_EQ(lk_fail(&lk, 1), 0);
     }
-    CHECK_EQ(lk_fail(&lk, 1), 1);
+    CHECK_EQ(lk_fail(&lk, 1), LK_STARTED);
 }
 
 /* Game started, BACK, refused, logout, idle timeout: no lk_ call, so the
@@ -205,7 +205,7 @@ TEST(row_no_call_keeps_count)
     two_fails(&lk);
     CHECK_EQ(lk_locked(&lk, 5000), 0);
     CHECK_EQ(lk_tries_left(&lk), 1);
-    CHECK_EQ(lk_fail(&lk, 5000), 1);
+    CHECK_EQ(lk_fail(&lk, 5000), LK_STARTED);
 }
 
 /* A lost game locks and clears the count; with 0 s nothing changes. */
@@ -216,7 +216,7 @@ TEST(row_game_lost)
     two_fails(&lk);
     CHECK_EQ(lk_lock(&lk, 0, 0), 0);
     CHECK_EQ(lk_tries_left(&lk), 1);
-    CHECK_EQ(lk_lock(&lk, 0, 60), 1);
+    CHECK_EQ(lk_lock(&lk, 0, 60), LK_STARTED);
     CHECK_EQ(lk_tries_left(&lk), 0);
     CHECK_EQ(lk_locked(&lk, 60000), 0);
     CHECK_EQ(lk_tries_left(&lk), 3);
@@ -228,7 +228,7 @@ TEST(row_lock_ends_fresh_count)
     lk_t lk;
 
     two_fails(&lk);
-    CHECK_EQ(lk_fail(&lk, 0), 1);
+    CHECK_EQ(lk_fail(&lk, 0), LK_STARTED);
     CHECK_EQ(lk_fail(&lk, 100), 1);             /* input while locked: ignored */
     CHECK_EQ(lk_remaining_s(&lk, 100), 30);
     CHECK_EQ(lk_locked(&lk, 30000), 0);
@@ -241,7 +241,7 @@ TEST(row_reboot)
     lk_t lk;
 
     two_fails(&lk);
-    CHECK_EQ(lk_fail(&lk, 0), 1);
+    CHECK_EQ(lk_fail(&lk, 0), LK_STARTED);
     CHECK_EQ(lk_init(&lk, 3, 30), LK_OK);
     CHECK_EQ(lk_locked(&lk, 0), 0);
     CHECK_EQ(lk_tries_left(&lk), 3);
@@ -258,5 +258,25 @@ TEST(row_alternating_does_not_dodge)
     /* game started, BACK */
     CHECK_EQ(lk_fail(&lk, 0), 0);
     /* game started, refused */
-    CHECK_EQ(lk_fail(&lk, 0), 1);
+    CHECK_EQ(lk_fail(&lk, 0), LK_STARTED);
+}
+
+/* The caller records a lock's start tick only on LK_STARTED: a failure or a
+ * game loss that finds a lock running keeps the running lock's start. */
+TEST(started_tells_a_new_lock_from_a_running_one)
+{
+    lk_t lk;
+
+    lk_init(&lk, 2, 30);
+    CHECK_EQ(lk_fail(&lk, 100), 0);
+    CHECK_EQ(lk_fail(&lk, 200), LK_STARTED);
+    CHECK_EQ(lk_fail(&lk, 300), 1);              /* the running lock, not a new one */
+    CHECK_EQ(lk.locked_at, 200);
+    CHECK_EQ(lk_lock(&lk, 400, 5), 1);           /* shorter: the running lock stays */
+    CHECK_EQ(lk.locked_at, 200);
+    CHECK_EQ(lk_lock(&lk, 500, 60), LK_STARTED); /* longer: a new lock from 500 */
+    CHECK_EQ(lk.locked_at, 500);
+    CHECK_EQ(lk_locked(&lk, 60500), 0);
+    CHECK_EQ(lk_lock(&lk, 70000, 1), LK_STARTED);
+    CHECK_EQ(lk_lock(&lk, 70000, 0), 1);         /* 0 s keeps the running lock */
 }
