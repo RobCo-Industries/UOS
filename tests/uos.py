@@ -6,10 +6,11 @@ import re
 import struct
 import subprocess
 import tempfile
+import time
 
 from PIL import Image
 
-from harness.boot import boot, parse_markers
+from harness.boot import SCRIPT_DATA, SCRIPT_PORT, boot, is_script_status, parse_markers
 from harness.env import minimal_env
 from harness.sdimage import make_sd_image
 
@@ -135,6 +136,34 @@ def answer(vm, command):
     reply = vm.script(command, timeout=TIMEOUT)
     assert reply.status == "ok", (command, reply)
     return reply.lines
+
+
+def batch(vm, commands, timeout=TIMEOUT):
+    """Several maintenance commands in one port write. Returns one ScriptReply-like
+    (status, lines) pair per command, in order: the port answers the commands one by
+    one, so the n-th status line belongs to the n-th command."""
+    if any("\n" in c or "\r" in c for c in commands):
+        raise ValueError("one command per entry, without a line ending")
+    start = len(vm.lines(SCRIPT_PORT))
+    vm.send("".join(c + "\n" for c in commands), port=SCRIPT_PORT)
+    deadline = time.monotonic() + timeout
+    while True:
+        new = vm.lines(SCRIPT_PORT)[start:]
+        out, data = [], []
+        for line in new:
+            if is_script_status(line):
+                out.append((line, data))
+                data = []
+            elif line.startswith(SCRIPT_DATA):
+                data.append(line[len(SCRIPT_DATA):])
+        if len(out) >= len(commands):
+            assert len(out) == len(commands), (commands, new)
+            return out
+        left = deadline - time.monotonic()
+        assert left > 0, (commands, new)
+        # Woken by the reader thread when a byte arrives; no fixed sleep.
+        with vm._cond:
+            vm._cond.wait(min(left, 0.2))
 
 
 def state(vm):

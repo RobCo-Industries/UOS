@@ -8,7 +8,7 @@ import subprocess
 import time
 
 from harness.env import minimal_env
-from uos import (ROOT, TIMEOUT, alone, answer, card, card_tree, check_golden, dump_until,
+from uos import (ROOT, TIMEOUT, alone, answer, batch, card, card_tree, check_golden, dump_until,
                  events, key, uos_card, wait_marker, wait_ready)
 
 HOLO = os.path.join(ROOT, "card", "UOS", "HOLO")
@@ -125,6 +125,41 @@ def test_damaged_tape(board, uos_image, need_mtools, tmp_path):
         assert holo_state(vm)["screen"] == "tapes"
         answer(vm, "holo pick 2")
         assert wait_marker(vm, "holo op=load", 2)["result"] == "ok"
+
+
+def test_two_picks_in_one_write(board, uos_image, need_mtools, tmp_path):
+    """Two picks in one port write each act on their own index: the first one on the
+    damaged tape is refused, the second one opens its tape."""
+    bad = bytearray(TAPES["STORY.HTP"])
+    bad[0x200] ^= 0x55
+    tapes = dict(TAPES, **{"STORY.HTP": bytes(bad)})
+    with alone(uos_image, board, holo_card(tmp_path, tapes)) as vm:
+        wait_ready(vm)
+        open_reader(vm)
+        replies = batch(vm, ["holo pick 1", "holo pick 2"])
+        assert [r[0] for r in replies] == ["ok", "ok"], replies
+        wait_marker(vm, "holo op=load", 2)
+        loads = [(m["file"], m["result"]) for m in events(vm, "holo") if m.get("op") == "load"]
+        assert loads == [("STORY.HTP", "refused"), ("TECHLOG.HTP", "ok")], loads
+        assert holo_state(vm)["open"] == "TECHLOG.HTP"
+
+
+def test_pick_after_the_reader_closed(board, uos_image, need_mtools, tmp_path):
+    """A pick that reaches the loop after its reader closed and a new one opened does
+    nothing in the new reader."""
+    with alone(uos_image, board, holo_card(tmp_path, TAPES)) as vm:
+        wait_ready(vm)
+        open_reader(vm)
+        replies = batch(vm, ["key back", "holo pick 1"])
+        assert [r[0] for r in replies] == ["ok", "ok"], replies
+        wait_marker(vm, "holo op=exit", 1)
+        vm.wait_for(re.compile(r"@RC stage=uos ev=holo result=\w+\r?\n"), timeout=TIMEOUT)
+        res = [m["result"] for m in events(vm, "holo") if "op" not in m]
+        assert res == ["gone"], res
+        open_reader(vm, 2)
+        st = holo_state(vm)
+        assert (st["screen"], st["open"]) == ("tapes", "none"), st
+        assert not [m for m in events(vm, "holo") if m.get("op") == "load"]
 
 
 def test_damaged_after_the_scan(board, hooks_image, need_mtools, tmp_path):

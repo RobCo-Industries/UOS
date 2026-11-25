@@ -10,7 +10,7 @@ import time
 
 from harness.env import minimal_env
 from test_panic import nm
-from uos import (ROOT, TICK_HZ, TIMEOUT, alone, answer, card, card_tree, check_golden,
+from uos import (ROOT, TICK_HZ, TIMEOUT, alone, answer, batch, card, card_tree, check_golden,
                  dump_until, events, key, wait_marker, wait_ready)
 
 # A seed whose first two board words are not the password, with the settings below.
@@ -307,6 +307,26 @@ def uaf_with(tmp_path, flags):
                     "-o", str(out), "--seed", "test"], check=True, capture_output=True,
                    env=minimal_env())
     return out.read_bytes()
+
+
+def test_moves_in_one_write_and_a_move_for_an_ended_game(board, hooks_image, need_mtools,
+                                                         tmp_path):
+    """Two moves in one port write each keep their own direction and count. A move
+    posted for a game that ends before it runs does nothing in the next game."""
+    with alone(hooks_image, board, hack_card(tmp_path, cfg())) as vm:
+        wait_ready(vm)
+        at_login(vm)
+        answer(vm, f"hack seed {SEED}")
+        start_from_login(vm)
+        assert state(vm).f["cursor"] == "0"
+        replies = batch(vm, ["hack move down 2", "hack move right 3"])
+        assert [r[0] for r in replies] == ["ok", "ok"], replies
+        assert state(vm).f["cursor"] == str(2 * 12 + 3)
+        replies = batch(vm, ["hack back", "hack move down 2", "hack select"])
+        assert [r[0] for r in replies] == ["ok", "ok", "ok"], replies
+        wait_marker(vm, "hack result=gone", 2)
+        assert state(vm).f["state"] == "off"
+        assert not [m for m in events(vm, "hack") if m.get("op") == "guess"]
 
 
 def test_refusals(board, hooks_image, need_mtools, tmp_path):
