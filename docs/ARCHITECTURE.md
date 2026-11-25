@@ -185,7 +185,7 @@ The stack calls `uncover()` once each time a pop or an unwind leaves the screen 
 
 A running command waits whole while another screen covers the shell. Any step may ask a `/CONFIRM` question, read a `CREATE` line or a password, open the `TYPE /PAGE` pager or print. `con_print()` writes to the console cells at once, so a step's output would paint over the covering screen. So no step runs, quiet or not. The shell records the step or the end it owes, and `shell_uncover()` runs it with `ev=sh op=resume owe=`. `sh_owe_take()` clears the debt before the work, and `sh_resume()` posts at most one step, so the work runs once. An end outranks a step.
 
-Nothing starts on a covered shell: `sh_run_line()` returns `SH_ERR_COVERED`, so no command, question or program starts. `sh run` already replies `covered`. The shell's own `$` read is its child, so it does not cover the shell. A command the API starts while that read waits runs under it. When the reader covers that read and closes, the step the command owes runs at once, with no key.
+Nothing starts on a covered shell, nor before the shell's screen is on the stack: `sh_run_line()` returns `SH_ERR_COVERED`, so no command, question or program starts. `sh run` already replies `covered`. The shell's own `$` read is its child, so it does not cover the shell. A command the API starts while that read waits runs under it. When the reader covers that read and closes, the step the command owes runs at once, with no key.
 
 Ctrl-C while a command waits under the reader goes to the reader, the top screen. The command neither ends nor asks. Once the reader closes, the question opens and Ctrl-C there cancels the command.
 
@@ -196,6 +196,7 @@ The shell's pushes and their rule:
 | `sh_ask()`: `/CONFIRM`, `CREATE` line, password | The read line opened over the covering screen | The step waits. A start through `sh_run_line()` is refused |
 | `con_page_text()` in `TYPE /PAGE` | The pager opened over the covering screen | The step waits |
 | A program's `start()` through `RUN` | Could start through `sh_run_line()` | Refused with `SH_ERR_COVERED` |
+| Any job during the welcome, before the shell's screen exists | Ran and printed over the welcome | Refused with `SH_ERR_COVERED`; `sh run` marks `why=covered` |
 | `con_print()` through `sh_out()` and the end message | Painted over the covering screen | The step or the end waits |
 | `prompt_start()`, the `$` read | Already waited in `shell_idle()` | Unchanged |
 
@@ -593,7 +594,7 @@ One command runs at a time, for the prompt and every other caller together. Othe
 
 | Call | Context | Does |
 |---|---|---|
-| `sh_run_line(line, flags, cb, ctx)` | loop | Runs one line as the logged-in user, with the shell's current folder. `SH_RUN_QUIET` keeps the output off the console. The callback gets a status, `SH_OK`, `SH_WARN`, `SH_FAIL` or `SH_CANCELLED`, and the final message's first line. A missing parameter or a bad line runs as a command that fails: only the prompt asks for a parameter. Returns 0 and calls `cb` exactly once, maybe before it returns; `cb` may be NULL. Or returns `SH_ERR_DOWN`, `SH_ERR_ARG` for NULL, an empty or comment-only line or one over `DCL_LINE_MAX`, `SH_ERR_BUSY`, `SH_ERR_NOUSER` or `SH_ERR_COVERED` when another screen covers the shell, checked in that order, and never calls `cb`. `SH_RUN_QUIET` keeps output and messages off the console; a question still shows. |
+| `sh_run_line(line, flags, cb, ctx)` | loop | Runs one line as the logged-in user, with the shell's current folder. `SH_RUN_QUIET` keeps the output off the console. The callback gets a status, `SH_OK`, `SH_WARN`, `SH_FAIL` or `SH_CANCELLED`, and the final message's first line. A missing parameter or a bad line runs as a command that fails: only the prompt asks for a parameter. Returns 0 and calls `cb` exactly once, maybe before it returns; `cb` may be NULL. Or returns `SH_ERR_DOWN`, `SH_ERR_ARG` for NULL, an empty or comment-only line or one over `DCL_LINE_MAX`, `SH_ERR_BUSY`, `SH_ERR_NOUSER` or `SH_ERR_COVERED`, checked in that order, and never calls `cb`. `SH_ERR_COVERED` means the shell takes no job: its screen is not on the stack yet, as during the welcome, or another screen covers it. `sh_takes_job()` in `shrules.c` is the rule. `SH_RUN_QUIET` keeps output and messages off the console; a question still shows. |
 | `sh_busy()` | any | Non-zero while a command runs |
 | `sh_program_register(name, start)` | loop | A program for `RUN`. `start(args, done, tag)` pushes its screen, returns 0, and calls `done(tag, status, text)` once, with the tag it got. Status 0 is success, `SH_CANCELLED` is Ctrl-C, anything else a failure. Its screen owns the keys, so it must end the run with `SH_CANCELLED` on Ctrl-C. Returns `SH_ERR_DOWN` before the shell service started. A name with no entry answers `%UOS-W-NOTINST, <NAME> is not installed in this build`. At most 8 programs. |
 
