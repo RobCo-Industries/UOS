@@ -146,7 +146,7 @@ The shared vectors in `tests/vectors/uaf.json` come from `vectors`. The C test r
 
 ## Default users
 
-`card/UOS/SYSUAF.DAT` is built from `tools/default_users.ini` with `--seed uos-default-card`. The card holds no `USERS.INI`.
+`card/UOS/SYSUAF.DAT` is built from `tools/default_users.ini` with `--seed uos-default-card`. The card holds no `USERS.INI`. `card/UOS/SYSUAF.DEF` is a copy of it, for the maintenance image's restore users tool: rebuild both together.
 
 | User | Password | Privileges | Flags |
 |---|---|---|---|

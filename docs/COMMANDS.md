@@ -30,7 +30,7 @@ This is the reference of every command of the UOS shell. The command table in `s
 | `RENAME` | Full |
 | `CREATE` | Full |
 | `SET DEFAULT`, `SET TERMINAL`, `SET PASSWORD` | Full |
-| `SET HALT` | Partial: `/MAINTENANCE` is refused, see below |
+| `SET HALT` | Done |
 | `SHOW` | Full. `SHOW USERS` lists the one session of this terminal. |
 | `HELP` | Full |
 | `RUN` | Partial: no program is installed in this build. Another task registers them. |
@@ -182,10 +182,19 @@ Format: `SET HALT [RESTART] [/MAINTENANCE]`. Needs `OPER`.
 
 - `SET HALT` shuts the services down and halts, as the kernel's `uos_halt()` does: the screen stays, the maintenance port answers, power must be cycled.
 - `SET HALT RESTART` shuts the services down and resets the board through `uos_reboot("shell")`.
-- `/MAINTENANCE` asks the boot agent for the maintenance image. `BOOT_PROTOCOL.md` reserves `boot_flags` bit 1 for this, but the boot info is built again on every cold boot, and a reset is a cold boot for the first stage: nothing can carry the request across. So the shell refuses it with `%UOS-E-NOMAINT` and does not restart. `/NOMAINTENANCE` is the plain form.
+- `/MAINTENANCE` asks the boot agent for its maintenance screen at the next start. The shell creates `/ROBCO/MAINT.REQ`, the request file of RobCo-Core's `BOOT_PROTOCOL.md`, "Maintenance request". It holds one line, `UOS <user>`. A file already there stays as it is. MFBootAgent deletes the file at the next boot and opens the maintenance screen.
+- `SET HALT RESTART /MAINTENANCE` writes the request, then restarts. `SET HALT /MAINTENANCE` writes it, then halts: the next power-on opens the maintenance screen.
+- When the file cannot be written, the command ends with `%UOS-E-NOMAINT` and the reason, and the terminal neither halts nor restarts. Causes: no `/ROBCO` folder, a folder named `MAINT.REQ`, a read-only card, a card error.
+- `/NOMAINTENANCE` removes a request file an earlier command left, then halts or restarts. No file is fine. When the delete fails, the command ends with `%UOS-E-MREQKEPT` and nothing halts.
+- Without either qualifier, the command leaves the request file alone.
+- Marker `ev=maint_req op=<write|clear> result=<written|kept|removed|none|failed> rc=<word>`, before the halt or restart. `rc` is a `vfs_strerror()` word, `ok` on success.
+- UOS alone never deletes the file. A card that boots UOS with no agent keeps the request until an agent or a person removes it.
 
 ```
 $ SET HALT RESTART
+SYSTEM RESTARTING.
+$ SET HALT RESTART /MAINTENANCE
+MAINTENANCE REQUESTED FOR THE NEXT START.
 SYSTEM RESTARTING.
 ```
 
