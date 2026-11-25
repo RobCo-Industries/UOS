@@ -32,7 +32,7 @@ The tests run from the repository root, so the ones that read the default card o
 |---|---|
 | `test_portcall.c` | Port calls in the input queue: a key then a call, a call then a key, mixed sequences taken in steps of 1 to 8 events, all in arrival order. A full slot table and a full input queue refuse; releases, dials and stale slots are dropped. |
 | `test_timerq.c` | Timers: one-shot, periodic, catch-up, the tick wrap, cancel before and after expiry, limits. Delivery through a full event queue: a one-shot, a periodic timer over several periods, a cancel while pending, 16 timers due, a timer started from a callback. The event queue. |
-| `test_screen.c` | The screen stack rules: push, pop, replace, events passed down, draws |
+| `test_screen.c` | The screen stack rules: push, pop, replace, events passed down, draws. The redraw order: after a pop, a replace or an expose, every visible screen from the highest full one up; after a push or an invalidate, the top only; from the bottom when no screen is full |
 | `test_settings.c` | `UOS.CFG`: every key, `[login] idle_s` included, clamps, bad values, unknown keys, syntax errors |
 | `test_bootlines.c` | The text of the first screen, with and without the session's notice |
 | `test_maintreg.c` | The maintenance command table: name rules, duplicates and library built-ins refused, sorted order, the 48-command limit; the word splitting with quotes, the word and line limits; joining the channel's words back |
@@ -92,6 +92,7 @@ The tests run from the repository root, so the ones that read the default card o
 | `test_login.py` | The session service. Each default user logs in, sees the placeholder and logs out, by BACK and by `sess logout`, twice; the session fields and `state` before and after. A wrong password and an unknown user: the same marker fields, message and steps. The lockout with `retries = 2` and `lockout_s = 3`: input refused, a countdown that only goes down, the end within 3 s plus 1 tick plus `HOST_ALLOWANCE_TICKS`, then a good login. A damaged database, with F4 restarting; a missing one, a short one, no card and no `/UOS`. Ctrl-C and BACK on an empty name, an empty name, Ctrl-C on the password. The masked echo on the PL011. A login with GPIO buttons only, through the test-only `button` command and the on-screen keyboard. `sess login` only in test builds, checked with `nm`. The idle logout with `idle_s = 2`, which a key delays. The whole serial log of a session holds no password and no salt or hash in hex. Each check runs in 8 or 16 steps of under 0.1 s. Two `sess login` commands in one write: the first opens its session, the second is refused as busy. |
 | `test_holo.py` | The holotape reader. The three shipped tapes listed with their titles, each entry opened in the pager and closed, the tape freed on close. A tape with a changed byte listed as damaged and refused; a tape damaged after the scan. An empty `HOLO` folder, none, no `/UOS` and no card. 40 tapes: 32 kept, the window scrolls, UP wraps. A tape of `HF_TAPE_MAX` bytes with its scan and load times. No heap, with the test-only `holo hog`. The reader with a GUEST session, and a second open refused. Two picks in one port write, each on its own index; a pick that arrives after its reader closed. Goldens of the tape list and one entry The heap held during the scan: the tape shows as not checked, never damaged, and opens once the heap is free. A load result goes to the serial line once. |
 | `test_hack.py` | The password game with the test-only fixed seed. A won game from F2 at the login: each likeness checked against the password, a GUEST session with `how=hack`. A lost game with 2 attempts and `lockout_s = 3`: the login's lockout screen, the game refused while locked, the end within 3 s plus 1 tick plus `HOST_ALLOWANCE_TICKS`, and no unguessed board word on the PL011. Every bracket pair once: dud or reset, a dud turned to dots, a used pair inert. GPIO buttons move and select. Two moves in one port write; a move posted for a game that ended before it ran. The refusals: game off, `NOHACK`, no such user, a disabled account, a running session. `hack start` over the holotape reader refused with `covered`, the reader the same after BACK. A logout and an idle timeout with the reader and the refusal open. A missing and a damaged word list. `hack seed` and `holo hog` only in test builds, with `nm`; the shipped image seeds from the hardware generator. Goldens of the board at start and after two guesses Each refusal reaches the serial line once. Buttons and state lines in one write: no reply says `pending=0` with an old cursor. |
+| `test_screens.py` | The redraw rule. Each test dumps the whole grid with `pending=0`, opens a screen, closes it, and compares the grid cell for cell. See [Screen redraws](#screen-redraws). |
 | `test_env_hygiene.py` | No test copies the host environment |
 
 ### How the tests start UOS
@@ -159,3 +160,19 @@ The reader draws a loading line before the read. The test asserts no bound: it p
 ### Goldens and screenshots
 
 `holo_tapes.txt`, `holo_entry.txt`, `hack_start.txt` and `hack_two_guesses.txt` hold the reader's tape list, its first entry in the pager, and the game's board at start and after two wrong guesses with the fixed seed. `tests/golden/first.txt` holds the first screen as text, on a card with no user database: the system screen with the missing-database notice. It has no sizes, CRCs, times or toolchain text. `ROBCO_UPDATE_GOLDEN=1` rewrites it. `ROBCO_SHOT_DIR=<folder>` keeps the screenshots of `test_first.py`.
+
+## Screen redraws
+
+`test_screens.py` checks that a screen which closes leaves the display as it was. Before each `dump` it sends `sess state` and `holo state` in one write with `batch()` and waits for `pending=0` in both. The lockout's countdown row changes each second, so that test skips that row.
+
+| Over | Opens and closes | Display after, before the fix | After the fix | Test |
+|---|---|---|---|---|
+| Login prompt (read line on login) | Holotape reader | Wrong: the reader with a live prompt on one row | Right | `test_reader_over_the_login_prompt` |
+| Login prompt | Pager, `page short` | Wrong: the pager's text with a live prompt | Right | `test_pager_over_the_login_prompt` |
+| Login prompt | On-screen keyboard | Right: the read screen drew the screen below itself | Right, through `uos_screen_expose()` | `test_keyboard_over_the_login_prompt` |
+| Lockout | Holotape reader | Right | Right | `test_reader_over_the_lockout` |
+| Holotape reader | Game refusal | Right | Right | `test_refusal_and_pager_over_the_reader` |
+| Holotape reader | Pager with an entry | Right | Right | `test_refusal_and_pager_over_the_reader` |
+| Session placeholder | Holotape reader | Right | Right | `test_reader_over_a_session` |
+
+The host test `test_screen.c` covers the order of `draw()` calls. Deliberate breaks, each caught: no expose on pop fails three QEMU tests; an invalidate in place of the expose when the keyboard closes fails the keyboard test; ignoring the `full` flag fails the host order test.

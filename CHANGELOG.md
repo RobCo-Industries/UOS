@@ -10,6 +10,8 @@ All notable changes to UOS are recorded here. The format follows [Keep a Changel
 
 ### Added
 
+- The screen stack redraws what a closing screen uncovers. A pop, a replace or `uos_screen_expose()` draws every visible screen bottom-up from the highest full screen. BACK from the holotape reader or a pager over the login prompt now gives the whole login screen back.
+
 - The password game plays only from the login prompt. `hack start` over another screen refuses with `covered`, and BACK gives that screen back as it was.
 
 - Arrival order on the maintenance port: a call that a command posts goes through the input queue, so it runs after the keys received before it and before later ones. `hack seed` now posts too. Port calls count in `pending=` until they run.

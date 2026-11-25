@@ -146,7 +146,25 @@ A screen is a struct of `enter`, `leave`, `event` and `draw` callbacks and a `ct
 - `uos_screen_pop()` removes the top. The last screen cannot be popped.
 - `uos_screen_replace()` swaps the top.
 - Events go to the top first. When its `event()` returns 0, the next screen down gets the event.
-- `uos_screen_invalidate()` asks for a redraw. `draw()` paints the whole screen.
+- `uos_screen_invalidate()` asks for a redraw of the top screen.
+
+A screen is full or partial. A full screen sets `.full = 1`: its `draw()` clears the console, paints every row and calls `con_status_redraw()` last. A partial screen paints only its own rows: the read line, the on-screen keyboard and the pause line are partial.
+
+The redraw rule: no screen draws what is under it. The stack does it.
+
+- After a push or an invalidate, the next draw runs the top's `draw()` only. A read line or a keystroke stays cheap.
+- A pop or a replace marks the stack exposed. The next draw then runs the `draw()` of every visible screen, bottom-up: from the highest full screen, or from the bottom when none is full, to the top.
+- `uos_screen_expose()` asks for the same full redraw. The read screen calls it when the on-screen keyboard closes, so the rows under the keyboard come back.
+
+So BACK from the holotape reader over the login's user name prompt draws the login screen, then the read line. The table in [TESTING.md](TESTING.md#screen-redraws) lists every pair of screens checked.
+
+#### How to add a screen
+
+1. Fill a `uos_screen_t` with a short `name`, the callbacks you need and `ctx`.
+2. When `draw()` clears the console and paints everything, set `.full = 1` and call `con_status_redraw()` last. Otherwise leave `full` at 0 and paint only your rows.
+3. Never call another screen's `draw()`. When a partial screen shrinks, call `uos_screen_expose()`.
+4. Close with `uos_screen_pop()`. The screens below come back on their own.
+5. Add a `@RC` marker and a maintenance command, and a test in `tests/test_screens.py` that compares the grid before the screen opens and after it closes.
 
 ## The first screen
 
@@ -375,7 +393,7 @@ Keys of the line editor:
 
 The library's serial parser turns ESC, BS and DEL all into BACK, so BACK is backspace and Ctrl-C cancels. Held keys repeat for moves and deletes, never for SELECT. The history keeps the last 16 lines. It skips empty lines and a repeat of the newest line. An edit of a recalled line does not change the stored one. `CON_RL_MASK` shows `*` per character and never stores or recalls a line. `CON_RL_NOHIST` neither stores nor recalls. A line wider than its window scrolls, with `<` and `>` at the cut ends.
 
-The on-screen keyboard opens on F4 or on any GPIO button event while a line is read. The event that opens it does nothing else. It covers the bottom 5 rows; an input row under it moves to the row above. Each event goes to `osk_handle()` first, and its output goes to the line editor. The console keeps no saved layers, so when the keyboard closes, the read screen calls the `draw()` of the screen below, then draws its own row again. GPIO input is off for now, so the tests open the keyboard with F4 and `osk open`.
+The on-screen keyboard opens on F4 or on any GPIO button event while a line is read. The event that opens it does nothing else. It covers the bottom 5 rows; an input row under it moves to the row above. Each event goes to `osk_handle()` first, and its output goes to the line editor. The console keeps no saved layers, so when the keyboard closes, the read screen calls `uos_screen_expose()`: the stack redraws the screens below, then the read line. GPIO input is off for now, so the tests open the keyboard with F4 and `osk open`.
 
 `con_page_text(title, text, len, cb, ctx)` pushes a full-screen pager: a title row, 28 rows of body at 78 columns and a status row `line A to B of N` with the keys. It copies the text into the kernel heap with every byte outside printable ASCII as `.`, and allocates the pager's index there. It frees both when the person leaves. Texts up to 1 MiB are accepted; a 64 KiB text wraps in one loop pass. An empty text shows `(no text)`. One pager runs at a time.
 
