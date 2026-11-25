@@ -39,28 +39,35 @@ static int has_wild(const char *s)
 
 /* ---- Printing a text buffer in steps: TYPE and HELP ---- */
 
-/* Prints up to SH_LINES_PER_STEP lines of j->buf from j->bpos, wrapped at
- * the line width. Returns 1 while text remains. */
+/* Prints up to SH_LINES_PER_STEP rows of j->buf from j->bpos, wrapped at
+ * the line width. A long line counts one row per wrapped segment, and
+ * sh_next_row() reads at most a row's width ahead, so one step prints
+ * and scans at most SH_LINES_PER_STEP * (UOS_LINE_MAX + 3) bytes, however
+ * long the line. Returns 1 while text remains. */
 static int print_lines(sh_job_t *j)
 {
     char row[UOS_LINE_MAX + 2];
-    unsigned n = 0;
+    unsigned n;
     size_t start;
     size_t len;
 
-    while (n < SH_LINES_PER_STEP && sh_next_line(j->buf, j->blen, &j->bpos, &start, &len)) {
-        do {
-            size_t take = len > UOS_LINE_MAX + 1u ? UOS_LINE_MAX + 1u : len;
-
-            k_memcpy(row, j->buf + start, take);
-            row[take] = '\0';
-            sh_out(j, row);
-            start += take;
-            len -= take;
-            n++;
-        } while (len > 0);
+    for (n = 0; n < SH_LINES_PER_STEP; n++) {
+        if (!sh_next_row(j->buf, j->blen, UOS_LINE_MAX + 1u, &j->bpos, &start, &len)) {
+            break;
+        }
+        k_memcpy(row, j->buf + start, len);
+        row[len] = '\0';
+        sh_out(j, row);
     }
     return j->bpos < j->blen;
+}
+
+/* The count of matches the access table refused, as an information line. */
+static void say_skipped(sh_job_t *j)
+{
+    if (j->tally.refused > 0) {
+        sh_say(j, DCL_SYS_SKIPPED, NULL, j->tally.refused);
+    }
 }
 
 /* ---- DIRECTORY ---- */
@@ -96,11 +103,13 @@ static int dir_start(sh_job_t *j)
         return sh_end_err(j, SH_SRC_VFS, VFS_E_NOMEM, NULL);
     }
     rc = vfs_list(j->ctx, j->privs, spec, j->ents, SH_DIR_MAX, &j->ecount, &j->etotal);
+    j->tally.refused = vfs_last_refused();
     if (rc != VFS_OK) {
         return sh_end_err(j, SH_SRC_VFS, rc, spec[0] != '\0' ? spec : NULL);
     }
     if (j->ecount == 0) {
-        return sh_end(j, DCL_SYS_NOFILES, NULL, 0, 1);
+        /* Every match refused is no privilege; no match is no files. */
+        return sh_end_err(j, SH_SRC_VFS, VFS_E_NOFILES, NULL);
     }
     if (spec[0] == '\0') {
         (void)vp_show_default(j->ctx, j->tmp, sizeof(j->tmp));
@@ -140,6 +149,10 @@ static int dir_step(sh_job_t *j)
     if (j->etotal > j->ecount) {
         k_snprintf(line, sizeof(line), "%u more entries not shown.",
                    (unsigned)(j->etotal - j->ecount));
+        sh_out(j, line);
+    }
+    if (j->tally.refused > 0 &&
+        dcl_format_message(line, sizeof(line), DCL_SYS_SKIPPED, NULL, j->tally.refused) >= 0) {
         sh_out(j, line);
     }
     return sh_end(j, DCL_NORMAL, NULL, 0, 0);
@@ -192,11 +205,12 @@ static int loop_start(sh_job_t *j)
     j->confirm = on(j, "CONFIRM");
     j->log = on(j, "LOG");
     rc = vfs_iter_begin(&j->it, j->ctx, j->privs, param(j, 0), d->iter_op);
+    /* Refusals count on failure too: every match refused is NOPRIV. */
+    j->tally.refused = j->it.skipped;
     if (rc != VFS_OK) {
         return sh_end_err(j, SH_SRC_VFS, rc, param(j, 0));
     }
     j->it_open = 1;
-    j->tally.refused = j->it.skipped;
     j->phase = P_NEXT;
     return SH_MORE;
 }
@@ -226,6 +240,7 @@ static int loop_finish(sh_job_t *j)
     uint32_t num;
     dcl_msg_t m = sh_tally_result(&j->tally, d->ok, &num);
 
+    say_skipped(j);
     if (m == d->ok) {
         return sh_end(j, m, NULL, num, 1);
     }
@@ -347,11 +362,11 @@ static int type_start(sh_job_t *j)
 
     if (has_wild(spec)) {
         rc = vfs_iter_begin(&j->it, j->ctx, j->privs, spec, VP_OP_READ);
+        j->tally.refused = j->it.skipped;
         if (rc != VFS_OK) {
             return sh_end_err(j, SH_SRC_VFS, rc, spec);
         }
         j->it_open = 1;
-        j->tally.refused = j->it.skipped;
     }
     j->phase = P_NEXT;
     return SH_MORE;
@@ -378,6 +393,7 @@ static int type_step(sh_job_t *j)
         j->cur = j->tally.done + j->tally.failed == 0 ? param(j, 0) : NULL;
     }
     if (j->cur == NULL) {
+        say_skipped(j);
         if (j->tally.done == 0 && j->tally.failed > 0) {
             return sh_end(j, j->tally.last_err, NULL, 0, 0);
         }
@@ -395,7 +411,7 @@ static int type_step(sh_job_t *j)
     j->bpos = 0;
     sh_file_mark(j, "type", j->cur, "ok");
     if (on(j, "PAGE")) {
-        rc = con_page_text(j->cur, j->buf, len, type_paged, NULL);
+        rc = con_page_text(j->cur, j->buf, len, type_paged, sh_job_tag(j));
         vfs_free(j->buf);
         j->buf = NULL;
         if (rc != 0) {
@@ -414,8 +430,7 @@ static int type_step(sh_job_t *j)
 static void type_paged(int result, void *ctx)
 {
     (void)result;
-    (void)ctx;
-    if (!sh_job.active) {
+    if (!sh_job_live(ctx, "pager")) {
         return;
     }
     sh_job.tally.done++;
@@ -743,37 +758,46 @@ static int show_memory(sh_job_t *j)
 
 /* ---- RUN and HOLOTAPE ---- */
 
-static unsigned prog_run;           /* the run a done() call belongs to */
-static unsigned prog_seq;
-
-static void prog_done(int status, const char *text)
+/* A program's end. `tag` is the job identity its start received: a done()
+ * from a run whose job ended, by Ctrl-C or a logout, is ignored even when
+ * another RUN waits now. */
+static void prog_done(void *tag, int status, const char *text)
 {
     sh_job_t *j = &sh_job;
 
-    if (!j->active || prog_run != prog_seq) {
+    if (!sh_job_live(tag, "prog") || !j->prog_wait) {
         return;
     }
-    prog_run = 0;
+    j->prog_wait = 0;
     if (text != NULL) {
         k_snprintf(j->res_text, sizeof(j->res_text), "%s", text);
     }
-    sh_resume(j, sh_end(j, status == 0 ? DCL_NORMAL : DCL_SYS_PROGERR, NULL, 0, text != NULL));
+    (void)sh_end(j, status == 0 ? DCL_NORMAL : DCL_SYS_PROGERR, NULL, 0, text != NULL);
+    if (j->prog_in_start) {
+        /* Ended inside start(): run_program() returns SH_DONE itself. */
+        j->prog_sync = 1;
+        return;
+    }
+    sh_resume(j, SH_DONE);
 }
 
 static int run_program(sh_job_t *j, const char *name, const char *args)
 {
     sh_prog_start_fn start = sh_prog_find(&sh_progs, name);
+    int rc;
 
     if (start == NULL) {
         return sh_end(j, DCL_SYS_NOTINST, name, 0, 1);
     }
-    prog_seq++;
-    prog_run = prog_seq;
-    if (start(args, prog_done) != 0) {
-        prog_run = 0;
+    j->prog_wait = 1;
+    j->prog_in_start = 1;
+    rc = start(args, prog_done, sh_job_tag(j));
+    j->prog_in_start = 0;
+    if (rc != 0) {
+        j->prog_wait = 0;
         return sh_end(j, DCL_SYS_PROGERR, name, 0, 1);
     }
-    return prog_run == 0 ? SH_DONE : SH_WAIT;
+    return j->prog_sync ? SH_DONE : SH_WAIT;
 }
 
 static int run_start(sh_job_t *j)
@@ -790,8 +814,8 @@ static int holo_start(sh_job_t *j)
 
 static void run_stop(sh_job_t *j)
 {
-    (void)j;
-    prog_run = 0;
+    /* The run's later done() finds another identity, or no job. */
+    j->prog_wait = 0;
 }
 
 /* ---- Sessions ---- */

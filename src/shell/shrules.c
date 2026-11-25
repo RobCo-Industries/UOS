@@ -276,6 +276,56 @@ int sh_next_line(const char *text, size_t size, size_t *pos, size_t *start, size
     return 1;
 }
 
+int sh_next_row(const char *text, size_t size, size_t width, size_t *pos, size_t *start,
+                size_t *len)
+{
+    size_t p = *pos;
+    size_t e;
+    size_t lim;
+
+    if (text == NULL || p >= size) {
+        return 0;
+    }
+    if (width == 0) {
+        width = 1;
+    }
+    lim = size - p > width ? p + width : size;
+    e = p;
+    while (e < lim && text[e] != '\n' && text[e] != '\r') {
+        e++;
+    }
+    *start = p;
+    *len = e - p;
+    if (e == lim && e < size && text[e] != '\n' && text[e] != '\r') {
+        /* The line goes on: this row is full, the rest follows. */
+        *pos = e;
+        return 1;
+    }
+    if (e < size && text[e] == '\r') {
+        e++;
+    }
+    if (e < size && text[e] == '\n') {
+        e++;
+    }
+    *pos = e;
+    return 1;
+}
+
+int sh_output_write(dcl_msg_t final, int cancelled)
+{
+    char sev = dcl_msg_severity(final);
+
+    if (cancelled || final == DCL_SYS_CANCEL) {
+        return 0;
+    }
+    return sev == 'S' || sev == 'I';
+}
+
+int sh_tag_live(int active, uint32_t current, uint32_t tag)
+{
+    return active && tag != 0 && current == tag;
+}
+
 static int fit(int n, size_t size)
 {
     return (n < 0 || (size_t)n >= size) ? -1 : n;

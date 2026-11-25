@@ -1,5 +1,6 @@
 /* Host tests of src/shell/shrules.c: the shell's pure rules. */
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "rc_test.h"
@@ -179,6 +180,81 @@ TEST(next_line)
     CHECK_EQ(sh_next_line("\n\n", 2, &pos, &s, &n), 0);
 }
 
+/* Rows of `t` at `width`, joined with '|'. */
+static void rows_of(const char *t, size_t width, char *out, size_t size)
+{
+    size_t pos = 0, st, n, o = 0;
+
+    out[0] = '\0';
+    while (sh_next_row(t, strlen(t), width, &pos, &st, &n)) {
+        o += (size_t)snprintf(out + o, size - o, "%s%.*s", o ? "|" : "", (int)n, t + st);
+    }
+}
+
+TEST(next_row_wraps_in_bounded_rows)
+{
+    char b[128];
+    size_t pos = 0, st, n, rows = 0;
+    const size_t big = 1u << 20;
+    char *line;
+
+    rows_of("one\ntwo\r\nthree\rfour", 80, b, sizeof(b));
+    CHECK_STR(b, "one|two|three|four");
+    rows_of("abcdefgh\nxy", 3, b, sizeof(b));
+    CHECK_STR(b, "abc|def|gh|xy");
+    /* A line of exactly the width is one row, its line end consumed. */
+    rows_of("abc\r\nde", 3, b, sizeof(b));
+    CHECK_STR(b, "abc|de");
+    rows_of("abc\n\nde", 3, b, sizeof(b));
+    CHECK_STR(b, "abc||de");
+    rows_of("abcdef", 3, b, sizeof(b));
+    CHECK_STR(b, "abc|def");
+    CHECK_EQ(sh_next_row(NULL, 4, 3, &pos, &st, &n), 0);
+    CHECK_EQ(sh_next_row("ab", 2, 0, &pos, &st, &n), 1);
+    CHECK_EQ(n, 1);
+    /* A 1 MiB line: one row per call, each at most the width. */
+    line = malloc(big);
+    CHECK(line != NULL);
+    memset(line, 'x', big);
+    pos = 0;
+    while (sh_next_row(line, big, 81, &pos, &st, &n)) {
+        CHECK(n <= 81 && n > 0);
+        rows++;
+    }
+    CHECK_EQ(rows, (big + 80u) / 81u);
+    free(line);
+    /* A call reads at most width + 1 bytes ahead: the sanitizer catches
+     * a read past this exact-size buffer although `size` claims 1 MiB. */
+    line = malloc(82);
+    CHECK(line != NULL);
+    memset(line, 'x', 82);
+    pos = 0;
+    CHECK_EQ(sh_next_row(line, big, 81, &pos, &st, &n), 1);
+    CHECK_EQ(n, 81);
+    CHECK_EQ(pos, 81);
+    free(line);
+}
+
+TEST(output_written_only_on_success)
+{
+    CHECK_EQ(sh_output_write(DCL_NORMAL, 0), 1);
+    CHECK_EQ(sh_output_write(DCL_SYS_DELETED, 0), 1);
+    CHECK_EQ(sh_output_write(DCL_SYS_NOCLOCK, 0), 0);    /* W */
+    CHECK_EQ(sh_output_write(DCL_SYS_NOFILES, 0), 0);    /* W */
+    CHECK_EQ(sh_output_write(DCL_SYS_DNF, 0), 0);        /* E */
+    CHECK_EQ(sh_output_write(DCL_SYS_TOOBIG, 0), 0);
+    CHECK_EQ(sh_output_write(DCL_SYS_CANCEL, 0), 0);
+    CHECK_EQ(sh_output_write(DCL_NORMAL, 1), 0);
+}
+
+TEST(job_tags)
+{
+    CHECK_EQ(sh_tag_live(1, 7, 7), 1);
+    CHECK_EQ(sh_tag_live(1, 8, 7), 0);       /* a later job runs */
+    CHECK_EQ(sh_tag_live(0, 7, 7), 0);       /* no job */
+    CHECK_EQ(sh_tag_live(1, 0, 0), 0);       /* tag 0 is never a job */
+}
+
 TEST(numbers_and_dates)
 {
     char b[32];
@@ -291,17 +367,19 @@ TEST(help_files_shipped)
 
 /* ---- Programs ---- */
 
-static int prog_a(const char *args, sh_prog_done_fn done)
+static int prog_a(const char *args, sh_prog_done_fn done, void *tag)
 {
     (void)args;
     (void)done;
+    (void)tag;
     return 0;
 }
 
-static int prog_b(const char *args, sh_prog_done_fn done)
+static int prog_b(const char *args, sh_prog_done_fn done, void *tag)
 {
     (void)args;
     (void)done;
+    (void)tag;
     return 1;
 }
 

@@ -4,16 +4,25 @@
  * shrules.c. The commands are shcmds.c and shuaf.c.
  *
  *   sh state       sh state=<idle|prompt|running> kind= ask= verb= pending=
- *                  prompts= runs=
+ *                  prompts= runs= id=
  *   sh run <line>  runs one command line as the logged-in user. The line
  *                  is quoted as the console's markers quote text: a blank
  *                  is %20. Ends with ev=sh run=done status= result=
+ * Test builds only (UOS_TEST_HOOKS=1):
+ *   sh prog reg <NAME>        registers a test program for RUN <NAME>
+ *   sh prog done <n> <status> ends the n-th run of a test program, even
+ *                             one whose job has ended
+ *   sh hold <1|0>             1: the next step of a command waits ("ev=sh
+ *                             held=1"); 0: it runs. Ctrl-C still cancels.
  *
  * Markers:
  *   sh state=prompt kind=<cmd|contin|param|confirm|line|password> n=
  *   cmd state=start verb= src=<shell|port|api>
  *   cmd file= op= result=         one per file of a file loop
  *   cmd state=end verb= rc=<IDENT> sev= files= skipped= failed= steps= maxticks=
+ *   cmd output=<written|kept|toobig|failed> verb=   /OUTPUT, before the end
+ *   sh stale=<step|read|pager|prog> id= cur=         a late callback ignored
+ *   sh prog=<reg|start|done> n=                      test programs only
  * No marker holds a password: SET PASSWORD and AUTHORIZE read passwords
  * masked, and a command line never holds one.
  */
@@ -36,6 +45,8 @@ sh_progtab_t sh_progs;
 
 static int sh_up;
 static unsigned runs;
+static uint32_t job_seq;            /* the last job identity given */
+static int test_hold, test_held;    /* sh hold: test builds only */
 
 /* ---- The session's default folder ---- */
 
@@ -56,6 +67,25 @@ static vp_ctx_t *ctx_get(void)
 }
 
 /* ---- Runs a call on the next loop pass ---- */
+
+/* ---- Job identity: every callback the shell hands out carries it ---- */
+
+void *sh_job_tag(const sh_job_t *j)
+{
+    return (void *)(uintptr_t)j->id;
+}
+
+int sh_job_live(void *tag, const char *kind)
+{
+    uint32_t t = (uint32_t)(uintptr_t)tag;
+
+    if (sh_tag_live(sh_job.active, sh_job.id, t)) {
+        return 1;
+    }
+    UOS_MARK("sh stale=%s id=%u cur=%u", kind, (unsigned)t,
+             sh_job.active ? (unsigned)sh_job.id : 0u);
+    return 0;
+}
 
 static void later(uos_call_fn fn)
 {
@@ -313,6 +343,13 @@ static int shell_event(uos_screen_t *s, const uos_event_t *ev)
     (void)s;
     if (ev->type == UOS_EV_CHAR && ev->code == 3u && sh_job.active) {
         sh_job.cancel = 1;
+        /* A job that waits on a program with no screen of its own: no
+         * step is posted to see the flag, so post one. A read or a pager
+         * on top takes Ctrl-C itself. */
+        if (!sh_job.posted && (sh_job.prog_wait || test_held) && !con_line_active() &&
+            !con_page_active()) {
+            sh_resume(&sh_job, SH_MORE);
+        }
         return 1;
     }
     return ev->type == UOS_EV_KEY || ev->type == UOS_EV_CHAR;
@@ -406,6 +443,9 @@ static void ask_done(int result, const char *text, unsigned len, void *ctx)
 {
     con_line_fn cb = ask_cb;
 
+    if (!sh_job_live(ctx, "read")) {
+        return;
+    }
     ask_kind = NULL;
     ask_cb = NULL;
     if (cb != NULL) {
@@ -419,7 +459,7 @@ int sh_ask(const char *kind, const char *prompt, unsigned flags, unsigned max, c
 
     ask_kind = kind;
     ask_cb = cb;
-    rc = con_read_line(prompt, flags | CON_RL_NOHIST, max, ask_done, NULL);
+    rc = con_read_line(prompt, flags | CON_RL_NOHIST, max, ask_done, sh_job_tag(&sh_job));
     if (rc != 0) {
         ask_kind = NULL;
         ask_cb = NULL;
@@ -440,16 +480,22 @@ static void drive(void *arg)
     uint32_t dt;
     int rc;
 
-    (void)arg;
-    if (!j->active) {
+    if (!sh_job_live(arg, "step")) {
         return;
     }
+    j->posted = 0;
     if (j->cancel || j->impl == NULL || j->impl->step == NULL) {
         j->tally.cancelled = 1;
         (void)sh_end(j, DCL_SYS_CANCEL, NULL, 0, 1);
         finish();
         return;
     }
+    if (test_hold) {
+        test_held = 1;
+        UOS_MARK("sh held=1 id=%u", (unsigned)j->id);
+        return;
+    }
+    test_held = 0;
     t0 = uos_ticks();
     rc = j->impl->step(j);
     dt = uos_ticks() - t0;
@@ -466,10 +512,14 @@ void sh_resume(sh_job_t *j, int rc)
         return;
     }
     if (rc == SH_MORE) {
-        if (uos_post(drive, NULL) != 0) {
+        if (j->posted) {
+            return;
+        }
+        j->posted = 1;
+        if (uos_post(drive, sh_job_tag(j)) != 0) {
             uos_timer_id_t id;
 
-            if (uos_timer_start(1, 0, drive, NULL, &id) != 0) {
+            if (uos_timer_start(1, 0, drive, sh_job_tag(j), &id) != 0) {
                 (void)sh_end(j, DCL_SYS_INSFMEM, NULL, 0, 1);
                 finish();
             }
@@ -489,22 +539,33 @@ static int status_of(dcl_msg_t m)
     }
 }
 
+/* /OUTPUT: the collected text replaces the file in one atomic write, only
+ * when the command succeeded. A failure, a warning, a cancel or a full
+ * buffer leave the file exactly as it was: no partial text ever reaches
+ * it. The write is one call in this loop pass, so Ctrl-C cannot stop it
+ * halfway; a power cut leaves the whole old or the whole new file. */
 static void write_output(sh_job_t *j)
 {
+    const char *what = "written";
     int rc;
 
-    if (j->out_spec == NULL || j->msg == DCL_SYS_CANCEL) {
+    if (j->out_spec == NULL) {
         return;
     }
-    if (j->ofull) {
+    if (j->ofull && sh_output_write(j->msg, j->cancel)) {
         (void)sh_end(j, DCL_SYS_TOOBIG, j->out_spec, 0, 1);
-        return;
+        what = "toobig";
+    } else if (!sh_output_write(j->msg, j->cancel)) {
+        what = "kept";
+    } else {
+        rc = vfs_write_all(j->ctx, j->privs, j->out_spec, "LIS", j->obuf != NULL ? j->obuf : "",
+                           j->olen, 0);
+        if (rc != VFS_OK) {
+            (void)sh_end_err(j, SH_SRC_VFS, rc, j->out_spec);
+            what = "failed";
+        }
     }
-    rc = vfs_write_all(j->ctx, j->privs, j->out_spec, "LIS", j->obuf != NULL ? j->obuf : "",
-                       j->olen, 0);
-    if (rc != VFS_OK) {
-        (void)sh_end_err(j, SH_SRC_VFS, rc, j->out_spec);
-    }
+    UOS_MARK("cmd output=%s verb=%s", what, j->verb);
 }
 
 static void finish(void)
@@ -630,6 +691,10 @@ static int launch(const char *line, unsigned flags, const char *src, sh_done_fn 
         return SH_ERR_NOUSER;
     }
     k_memset(j, 0, sizeof(*j));
+    if (++job_seq == 0) {
+        job_seq = 1;
+    }
+    j->id = job_seq;
     k_snprintf(j->line, sizeof(j->line), "%s", line);
     rc = dcl_parse(j->line, &dcl_uos_table, &j->cmd);
     if (rc == DCL_NORMAL && j->cmd.verb == NULL && need != NULL) {
@@ -732,21 +797,140 @@ static void port_run(void *arg)
     }
 }
 
+#if defined(UOS_TEST_HOOKS) && UOS_TEST_HOOKS
+/* A test program: it pushes no screen and ends only when the port says
+ * so, with `sh prog done <n> <status>`, even after its job ended. */
+#define TP_MAX 8u
+
+static struct {
+    sh_prog_done_fn done;
+    void *tag;
+} tp[TP_MAX];
+static unsigned tp_n;
+static char tp_name[SH_PROG_NAME_MAX + 1];
+static unsigned tp_end_n;
+static int tp_end_status;
+static int tp_busy;
+
+static int test_prog_start(const char *args, sh_prog_done_fn done, void *tag)
+{
+    (void)args;
+    if (tp_n >= TP_MAX) {
+        return 1;
+    }
+    tp[tp_n].done = done;
+    tp[tp_n].tag = tag;
+    tp_n++;
+    UOS_MARK("sh prog=start n=%u", tp_n);
+    return 0;
+}
+
+static void test_prog_reg(void *arg)
+{
+    (void)arg;
+    tp_busy = 0;
+    UOS_MARK("sh prog=reg name=%s rc=%d", tp_name, sh_program_register(tp_name, test_prog_start));
+}
+
+static void test_prog_end(void *arg)
+{
+    char text[40];
+    unsigned n = tp_end_n;
+
+    (void)arg;
+    tp_busy = 0;
+    UOS_MARK("sh prog=done n=%u", n);
+    k_snprintf(text, sizeof(text), "TEST PROGRAM RUN %u ENDED", n);
+    tp[n - 1u].done(tp[n - 1u].tag, tp_end_status, text);
+}
+
+/* A small decimal number, or -1. */
+static int tp_num(const char *s)
+{
+    int v = 0;
+
+    if (*s == '\0') {
+        return -1;
+    }
+    for (; *s != '\0'; s++) {
+        if (*s < '0' || *s > '9' || v > 1000) {
+            return -1;
+        }
+        v = v * 10 + (*s - '0');
+    }
+    return v;
+}
+
+static void test_release(void *arg)
+{
+    (void)arg;
+    test_hold = 0;
+    if (test_held) {
+        test_held = 0;
+        sh_resume(&sh_job, SH_MORE);
+    }
+}
+
+static int test_prog_cmd(int argc, char **argv)
+{
+    if (tp_busy) {
+        return uos_maint_fail("busy");
+    }
+    if (argc == 2 && k_strcmp(argv[0], "reg") == 0) {
+        k_snprintf(tp_name, sizeof(tp_name), "%s", argv[1]);
+        if (uos_post(test_prog_reg, NULL) != 0) {
+            return uos_maint_fail("full");
+        }
+        tp_busy = 1;
+        return 0;
+    }
+    if (argc == 3 && k_strcmp(argv[0], "done") == 0) {
+        int n = tp_num(argv[1]);
+        int st = tp_num(argv[2]);
+
+        if (n <= 0 || (unsigned)n > tp_n || st < 0) {
+            return uos_maint_fail("no such run");
+        }
+        tp_end_n = (unsigned)n;
+        tp_end_status = st;
+        if (uos_post(test_prog_end, NULL) != 0) {
+            return uos_maint_fail("full");
+        }
+        tp_busy = 1;
+        return 0;
+    }
+    return uos_maint_fail("usage sh prog reg <NAME>|done <n> <status>");
+}
+#endif
+
 static int cmd_sh(int argc, char **argv)
 {
     if (argc == 1 && k_strcmp(argv[0], "state") == 0) {
         const char *st = sh_job.active ? "running" : (shp.reading ? "prompt" : "idle");
 
-        uos_maint_reply("sh state=%s kind=%s ask=%s verb=%s pending=%u prompts=%u runs=%u", st,
+        uos_maint_reply("sh state=%s kind=%s ask=%s verb=%s pending=%u prompts=%u runs=%u "
+                        "id=%u", st,
                         shp.reading ? kind_name[shp.kind] : "none",
                         ask_kind != NULL ? ask_kind : "none",
                         sh_job.active ? sh_job.verb : "none", input_pending(), shp.prompts,
-                        runs);
+                        runs, sh_job.active ? (unsigned)sh_job.id : 0u);
         return 0;
     }
     if (uos.phase != UOS_PHASE_READY) {
         return uos_maint_fail("not ready");
     }
+#if defined(UOS_TEST_HOOKS) && UOS_TEST_HOOKS
+    if (argc >= 3 && k_strcmp(argv[0], "prog") == 0) {
+        return test_prog_cmd(argc - 1, argv + 1);
+    }
+    if (argc == 2 && k_strcmp(argv[0], "hold") == 0) {
+        if (k_strcmp(argv[1], "1") == 0) {
+            test_hold = 1;
+            return 0;
+        }
+        return uos_post(test_release, NULL) == 0 ? 0 : uos_maint_fail("full");
+    }
+#endif
     if (argc >= 2 && k_strcmp(argv[0], "run") == 0) {
         char *text = uos_mt_rejoin(argv[1], argv[argc - 1]);
 

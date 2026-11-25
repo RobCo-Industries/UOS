@@ -50,6 +50,8 @@ typedef struct {
 
 struct sh_job {
     int active;
+    uint32_t id;                    /* this run's identity, from 1: callbacks carry it */
+    int posted;                     /* a step is posted: never two at once */
     unsigned flags;                 /* SH_RUN_* */
     const char *src;                /* "shell", "port" or "api" */
     char line[DCL_LINE_MAX + 1];
@@ -68,6 +70,9 @@ struct sh_job {
     uint32_t msg_num;
     int msg_print;
     char res_text[DCL_MSG_SIZE];    /* a program's own result line, "" for none */
+    int prog_wait;                  /* RUN waits for the program's done() */
+    int prog_in_start;              /* inside the program's start() */
+    int prog_sync;                  /* done() came before start() returned */
     /* /OUTPUT text. */
     const char *out_spec;
     char *obuf;
@@ -116,6 +121,14 @@ int sh_end_err(sh_job_t *j, int src, int code, const char *arg);
 /* shell.c: a callback hands the command back: SH_MORE posts a step,
  * SH_DONE ends it, SH_WAIT waits again. */
 void sh_resume(sh_job_t *j, int rc);
+
+/* shell.c: the tag a callback of job `j` carries as its context. */
+void *sh_job_tag(const sh_job_t *j);
+
+/* shell.c: 1 when `tag` is the running job; else a marker
+ * "ev=sh stale=<kind> id= cur=" and 0: a late callback of an ended run,
+ * which the caller ignores. */
+int sh_job_live(void *tag, const char *kind);
 
 /* shell.c: reads a line for the running command, with a marker
  * "ev=sh state=prompt kind=<kind>". 0 or a CON_ERR_* code. */

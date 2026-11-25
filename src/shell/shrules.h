@@ -87,6 +87,17 @@ const char *sh_spec_tail(const char *spec);
  * end (LF, CR LF or CR). Returns 0 at the end of the text, else 1. */
 int sh_next_line(const char *text, size_t size, size_t *pos, size_t *start, size_t *len);
 
+/*
+ * The next display row of `text` from *pos, at most `width` bytes: a line
+ * longer than `width` gives its first `width` bytes and leaves *pos inside
+ * the line; the last row of a line also steps over its end (LF, CR LF or
+ * CR). An empty line is one empty row. Reads at most width + 2 bytes per
+ * call, so a 1 MiB line costs the same per row as a short one. Returns 0
+ * at the end of the text, else 1. `width` 0 is taken as 1.
+ */
+int sh_next_row(const char *text, size_t size, size_t width, size_t *pos, size_t *start,
+                size_t *len);
+
 /* "D HH:MM:SS" for an uptime in seconds. Length or -1. */
 int sh_fmt_uptime(uint32_t seconds, char *buf, size_t size);
 
@@ -115,6 +126,22 @@ int sh_dir_total(uint32_t files, uint64_t bytes, unsigned cols, char *buf, size_
 /* 1 when a CREATE line ends the text: a line that holds one '.'. */
 int sh_create_end(const char *line);
 
+/* ---- /OUTPUT and job identity ---- */
+
+/*
+ * 1 when a command's /OUTPUT text replaces the file: the final message is
+ * S or I and the command was not cancelled. A warning (W), an error, a
+ * cancel or a full buffer leave the file as it was.
+ */
+int sh_output_write(dcl_msg_t final, int cancelled);
+
+/*
+ * 1 when a callback tagged with job `tag` belongs to the running job:
+ * a job is active and its identity is `tag`. Identities start at 1, so
+ * tag 0 never matches. A late callback of an ended job gets 0.
+ */
+int sh_tag_live(int active, uint32_t current, uint32_t tag);
+
 /* ---- HELP ---- */
 
 /*
@@ -130,8 +157,10 @@ dcl_msg_t sh_help_spec(const dcl_table_t *table, const char *topic, const char *
 #define SH_PROG_MAX       8
 #define SH_PROG_NAME_MAX  12
 
-typedef void (*sh_prog_done_fn)(int status, const char *text);
-typedef int (*sh_prog_start_fn)(const char *args, sh_prog_done_fn done);
+/* A program ends once with done(tag, status, text), passing back the `tag`
+ * its start received: the shell knows the run from it. */
+typedef void (*sh_prog_done_fn)(void *tag, int status, const char *text);
+typedef int (*sh_prog_start_fn)(const char *args, sh_prog_done_fn done, void *tag);
 
 typedef struct {
     char name[SH_PROG_NAME_MAX + 1];

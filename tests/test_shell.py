@@ -2,7 +2,9 @@
 qualifier, wildcards, access refusals per user, a read-only volume, a missing file,
 a stepped copy cancelled with Ctrl-C, SET HALT and its forms, LOGOUT, typing through
 the line editor with the continuation and missing-parameter prompts, AUTHORIZE and
-SET PASSWORD with masked reads, and no password on the serial lines."""
+SET PASSWORD with masked reads, and no password on the serial lines. /OUTPUT keeps the
+old file on a failure and a Ctrl-C; a late program end is ignored; wildcards count the
+refused matches; a 1 MiB line prints in bounded steps."""
 
 import configparser
 import os
@@ -12,8 +14,8 @@ import time
 import pytest
 
 from harness.boot import parse_markers
-from uos import (IDLE, ROOT, TIMEOUT, alone, answer, card, card_names, card_tree, dump_until,
-                 events, one, wait_ready)
+from uos import (IDLE, ROOT, TIMEOUT, _mtools, alone, answer, card, card_names, card_tree,
+                 dump_until, events, one, wait_ready)
 
 REBOOTED = re.compile(r"(@RC stage=uos ev=ready [^\n]*\n[\s\S]*){2}")
 
@@ -147,6 +149,9 @@ def expect(vm, line, rc, ident=None):
 
 
 BIG = bytes(range(256)) * 4096          # 1 MiB: 64 copy steps
+# The longest command step of TYPE: the 1 MiB read, one vfs call, is the
+# longest; a step of 8 rows is far shorter. 1 s at 100 Hz.
+MAX_STEP_TICKS = 100
 
 
 def test_show_help_and_simple_verbs(board, hooks_image, need_mtools, tmp_path):
@@ -514,3 +519,145 @@ def test_authorize_and_set_password(board, hooks_image, need_mtools, tmp_path):
     # The card holds a valid database of the three default users.
     names = card_names(tmp_path / "sd.img", "UOS")
     assert "SYSUAF.DAT" in names and not [n for n in names if n[0] in "~#"], names
+
+
+def card_get(sd, path, tmp_path):
+    """The bytes of one file on the card, through mtools."""
+    dst = tmp_path / "get.bin"
+    if dst.exists():
+        dst.unlink()
+    _mtools(sd, "mcopy", "-n", "::/" + path, os.fspath(dst))
+    return dst.read_bytes()
+
+
+OLD_LIS = b"OLD LISTING\r\nKEEP THESE BYTES\r\n"
+
+
+def test_output_kept_on_failure_and_ctrl_c(board, hooks_image, need_mtools, tmp_path):
+    """/OUTPUT=<existing file>: a failed DIRECTORY, a warning, no files and a Ctrl-C
+    between two steps leave the file byte for byte; a success replaces it whole."""
+    sd = shell_card(tmp_path, {"/UOS/HOME/ADMIN/LIST.LIS": OLD_LIS})
+    with alone(hooks_image, board, sd) as vm:
+        wait_ready(vm)
+        login(vm, "ADMIN")
+        expect(vm, "DIRECTORY [.NOPE] /OUTPUT=LIST.LIS", "DNF", "%UOS-E-DNF")
+        expect(vm, "SHOW TIME /OUTPUT=LIST.LIS", "NOCLOCK")
+        expect(vm, "DIR *.XYZ /OUTPUT=LIST.LIS", "NOFILES")
+        # Ctrl-C while the listing waits between two steps.
+        h = n_marks(vm, "sh held=1")
+        answer(vm, "sh hold 1")
+        c = send_line(vm, "DIRECTORY /FULL /OUTPUT=LIST.LIS")
+        wait_marker(vm, "sh held=1", h + 1)
+        vm.send("\x03")
+        res, end, _ = wait_done(vm, c)
+        assert end["rc"] == "CANCEL", (res, end)
+        answer(vm, "sh hold 0")
+        assert [m["verb"] for m in marks(vm, "cmd output=kept")] == \
+            ["DIRECTORY", "SHOW_TIME", "DIRECTORY", "DIRECTORY"], marks(vm, "cmd output")
+        assert not marks(vm, "cmd output=written")
+        _, _, s = expect(vm, "TYPE LIST.LIS", "NORMAL")
+        assert "KEEP THESE BYTES" in out(vm, s), out(vm, s)
+        # A success writes the whole listing.
+        expect(vm, "DIRECTORY /OUTPUT=NEW.LIS", "NORMAL")
+        assert marks(vm, "cmd output=written")[-1]["verb"] == "DIRECTORY"
+    assert card_get(sd, "UOS/HOME/ADMIN/LIST.LIS", tmp_path) == OLD_LIS
+    new = card_get(sd, "UOS/HOME/ADMIN/NEW.LIS", tmp_path)
+    assert b"Directory SD0:[HOME.ADMIN]" in new and b"Total of" in new, new
+    names = card_names(sd, "UOS/HOME/ADMIN")
+    assert not [n for n in names if n[0] in "~#"], names
+
+
+def test_late_program_end_is_ignored(board, hooks_image, need_mtools, tmp_path):
+    """A test program's run is cancelled, a second RUN starts, then the first run
+    ends: its end is a stale callback and the second job keeps waiting for its own."""
+    with alone(hooks_image, board, shell_card(tmp_path)) as vm:
+        wait_ready(vm)
+        login(vm, "ADMIN")
+        answer(vm, "sh prog reg TERMINAL")
+        assert wait_marker(vm, "sh prog=reg")["rc"] == "0"
+        c = send_line(vm, "RUN TERMINAL")
+        wait_marker(vm, "sh prog=start n=1")
+        first = wait_state(vm, state="running", verb="RUN")["id"]
+        vm.send("\x03")
+        res, end, _ = wait_done(vm, c)
+        assert end["rc"] == "CANCEL", (res, end)
+        c = send_line(vm, "RUN TERMINAL")
+        wait_marker(vm, "sh prog=start n=2")
+        second = wait_state(vm, state="running", verb="RUN")["id"]
+        assert second != first
+        # The first run ends late, with a failure: ignored.
+        answer(vm, "sh prog done 1 1")
+        wait_marker(vm, "sh prog=done n=1")
+        stale = wait_marker(vm, "sh stale=prog")
+        assert (stale["id"], stale["cur"]) == (first, second), stale
+        st = sh_state(vm)
+        assert (st["state"], st["id"]) == ("running", second), st
+        # The second run's own end completes it.
+        answer(vm, "sh prog done 2 0")
+        res, end, _ = wait_done(vm, c)
+        assert (end["verb"], end["rc"]) == ("RUN", "NORMAL"), end
+        assert res == "TEST PROGRAM RUN 2 ENDED", res
+        # Its end again, with no job running: ignored too.
+        answer(vm, "sh prog done 2 0")
+        assert wait_marker(vm, "sh stale=prog", 2)["cur"] == "0"
+        assert n_marks(vm, "sh run=done") == 2
+
+
+def test_wildcards_count_refused_matches(board, hooks_image, need_mtools, tmp_path):
+    """SYSUAF.DAT refused by the access table: every match refused is NOPRIV, some
+    refused give the skipped count in the marker and a SKIPPED line, none is NOFILES."""
+    sd = shell_card(tmp_path, {"/UOS/SPARE.TXT": b"SPARE\n", "/UOS/SPARE2.TXT": b"S2\n"})
+    with alone(hooks_image, board, sd) as vm:
+        wait_ready(vm)
+        login(vm, "ADMIN")
+        for line in ("DELETE SD0:[000000]SYSUAF.*", "RENAME SD0:[000000]SYSUAF.* X.*",
+                     "DELETE SD0:[000000]SY*.D%T"):
+            _, end, _ = expect(vm, line, "NOPRIV", "%UOS-E-NOPRIV")
+            assert end["skipped"] == "1", (line, end)
+        res, end, s = expect(vm, "DELETE SD0:[000000]S*.* /LOG", "DELETED")
+        assert res == "%DELETE-S-DELETED, 2 files deleted", res
+        assert (end["files"], end["skipped"]) == ("2", "1"), end
+        assert "%UOS-I-SKIPPED, 1 file skipped: not enough privilege" in out(vm, s), out(vm, s)
+        assert sorted(n for n, _ in files(vm, s, "delete")) == \
+            ["SD0:[000000]SPARE.TXT;1", "SD0:[000000]SPARE2.TXT;1"], files(vm, s)
+        _, end, _ = expect(vm, "DELETE SD0:[000000]NOPE*.*", "NOFILES", "%UOS-W-NOFILES")
+        assert end["skipped"] == "0", end
+    assert "SYSUAF.DAT" in card_names(sd, "UOS")
+
+
+LONG_LINE = b"0123456789" * ((1 << 20) // 10 + 1)
+ROW = re.compile(r"^[0-9]{80}\r?$", re.M)       # a full row: UOS_LINE_MAX + 1
+
+
+def long_rows(vm, start):
+    return len(ROW.findall(vm.serial[start:]))
+
+
+def test_type_long_line_in_bounded_steps(board, hooks_image, need_mtools, tmp_path):
+    """TYPE of a 1 MiB single-line file: rows come 8 per step, the tick runs during
+    it, the longest step stays in its bound, and Ctrl-C stops it."""
+    data = LONG_LINE[:(1 << 20)]
+    with alone(hooks_image, board, shell_card(tmp_path, {"/UOS/HOME/ADMIN/LONG.TXT": data})) \
+            as vm:
+        wait_ready(vm)
+        login(vm, "ADMIN")
+        c = send_line(vm, "TYPE LONG.TXT")
+        wait_state(vm, state="running", verb="TYPE")
+        t0 = int(answer(vm, "uptime")[0].split()[2].split("=")[1])
+        deadline = time.monotonic() + TIMEOUT
+        while long_rows(vm, c[2]) < 40:
+            assert time.monotonic() < deadline, vm.serial[-2000:]
+            time.sleep(0.05)
+        t1 = int(answer(vm, "uptime")[0].split()[2].split("=")[1])
+        assert t1 > t0, (t0, t1)
+        assert sh_state(vm)["state"] == "running"
+        vm.send("\x03")
+        res, end, _ = wait_done(vm, c)
+        rows = long_rows(vm, c[2])
+        print(f"\ntype board={board} rows={rows} steps={end['steps']} "
+              f"maxticks={end['maxticks']}")
+        assert end["rc"] == "CANCEL", (res, end)
+        assert rows < len(data) // 80, rows
+        # Eight rows a step: the read step prints none.
+        assert rows <= 8 * (int(end["steps"]) - 1), (rows, end)
+        assert int(end["maxticks"]) <= MAX_STEP_TICKS, end

@@ -231,16 +231,22 @@ TEST(list_keep)
     /* SYSUAF.DAT: SECURITY lists it, a plain user does not, nobody deletes it. */
     CHECK_EQ(vfs_list_keep(&d, "SYSUAF.DAT", 0, 0, "*", "*", "", VP_PRIV_SECURITY,
                            VP_OP_LIST, &e), 1);
-    CHECK_EQ(vfs_list_keep(&d, "SYSUAF.DAT", 0, 0, "*", "*", "", 0, VP_OP_LIST, &e), 0);
-    CHECK_EQ(vfs_list_keep(&d, "SYSUAF.DAT", 0, 0, "*", "*", "", sys, VP_OP_DELETE, &e), 0);
+    /* A refused match is told apart from no match: callers count it. */
+    CHECK_EQ(vfs_list_keep(&d, "SYSUAF.DAT", 0, 0, "*", "*", "", 0, VP_OP_LIST, &e),
+             VFS_KEEP_REFUSED);
+    CHECK_EQ(vfs_list_keep(&d, "SYSUAF.DAT", 0, 0, "*", "*", "", sys, VP_OP_DELETE, &e),
+             VFS_KEEP_REFUSED);
+    CHECK_EQ(vfs_list_keep(&d, "SYSUAF.DAT", 0, 0, "X*", "*", "", 0, VP_OP_LIST, &e),
+             VFS_KEEP_NO);
     CHECK_EQ(vfs_list_keep(&d, "UOS.CFG", 0, 0, "*", "*", "", sys, VP_OP_DELETE, &e), 1);
     /* Another home through READALL: listed, not deleted. */
     d = res_of("GUEST", "SD0:[HOME.ADMIN]");
-    CHECK_EQ(vfs_list_keep(&d, "DUTY.TXT", 0, 0, "*", "*", "GUEST", 0, VP_OP_LIST, &e), 0);
+    CHECK_EQ(vfs_list_keep(&d, "DUTY.TXT", 0, 0, "*", "*", "GUEST", 0, VP_OP_LIST, &e),
+             VFS_KEEP_REFUSED);
     CHECK_EQ(vfs_list_keep(&d, "DUTY.TXT", 0, 0, "*", "*", "GUEST", VP_PRIV_READALL,
                            VP_OP_LIST, &e), 1);
     CHECK_EQ(vfs_list_keep(&d, "DUTY.TXT", 0, 0, "*", "*", "GUEST", VP_PRIV_READALL,
-                           VP_OP_DELETE, &e), 0);
+                           VP_OP_DELETE, &e), VFS_KEEP_REFUSED);
 }
 
 static vfs_entry_t ent(const char *name, const char *type)

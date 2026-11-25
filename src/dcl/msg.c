@@ -81,6 +81,7 @@ static const dcl_msgdef_t msgs[DCL_MSG_COUNT] = {
     [DCL_SYS_FILDEL] = { "DELETE", 'I', "FILDEL", "!S deleted" },
     [DCL_SYS_FILREN] = { "RENAME", 'I', "FILREN", "!S renamed" },
     [DCL_SYS_PROGERR] = { "UOS", 'E', "PROGERR", "the program could not start" },
+    [DCL_SYS_SKIPPED] = { "UOS", 'I', "SKIPPED", "!N file!P skipped: not enough privilege" },
 };
 
 static const dcl_msgdef_t *def_of(dcl_msg_t id)

@@ -64,11 +64,13 @@ int sh_busy(void);
  * TERMINAL and HOLOTAPE. The HOLOTAPE verb runs the HOLOTAPE program
  * with its parameters as `args`.
  *
- * start(args, done) runs from the loop when RUN names the program. It
- * pushes its own screen and returns 0, then calls done(status, text) once
- * when it ends: status 0 for success, else a failure; text is one result
- * line or NULL. A non-zero return means it did not start and done is not
- * called. A program whose name has no entry answers
+ * start(args, done, tag) runs from the loop when RUN names the program.
+ * It pushes its own screen and returns 0, then calls done(tag, status,
+ * text) once when it ends, with the `tag` it received: status 0 for
+ * success, else a failure; text is one result line or NULL. The tag names
+ * the run: a done() that comes after its run was cancelled, even while a
+ * later RUN waits, is ignored with an "ev=sh stale=prog" marker. A
+ * non-zero return means it did not start and done is not called. A program whose name has no entry answers
  * "%UOS-W-NOTINST, <NAME> is not installed in this build".
  * Returns 0, SH_ERR_ARG, SH_ERR_DUP or SH_ERR_FULL.
  */

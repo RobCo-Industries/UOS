@@ -19,6 +19,7 @@
 
 static const vfs_dev_hooks_t *dev_hooks;
 static int last_vp;
+static uint32_t last_refused;
 /* Large scratch kept off the stack. One caller at a time: the loop. */
 static fs_stat_t st_a, st_b;
 static fs_dir_t dir_h;
@@ -56,6 +57,11 @@ int vfs_ready(void)
 int vfs_last_vp(void)
 {
     return last_vp;
+}
+
+uint32_t vfs_last_refused(void)
+{
+    return last_refused;
 }
 
 static int vp_rc(int rc)
@@ -613,9 +619,14 @@ static int holds_content(const vp_res_t *dir, const char *name)
     return vfs_atomic_pick(present(f.path), n, present(w)) == name[0];
 }
 
+/* Calls fn for each kept entry. Matches the access table refused are
+ * counted in *refused: files only when `files_only`. */
 static int walk(const vp_ctx_t *ctx, uint32_t privs, const vp_res_t *dir, const char *pname,
-                const char *ptype, int op, walk_fn fn, void *arg)
+                const char *ptype, int op, walk_fn fn, void *arg, uint32_t *refused,
+                int files_only)
 {
+    int k;
+
     vp_res_t er;
     int rc;
 
@@ -640,9 +651,11 @@ static int walk(const vp_ctx_t *ctx, uint32_t privs, const vp_res_t *dir, const 
             name++;     /* shown under the name recovery gives it */
             left = 0;
         }
-        if (vfs_list_keep(dir, name, st_a.is_dir, left, pname, ptype,
-                          ctx->home, privs, op, &er)) {
+        k = vfs_list_keep(dir, name, st_a.is_dir, left, pname, ptype, ctx->home, privs, op, &er);
+        if (k == VFS_KEEP_YES) {
             fn(&er, &st_a, arg);
+        } else if (k == VFS_KEEP_REFUSED && !(files_only && st_a.is_dir)) {
+            (*refused)++;
         }
     }
     (void)fs_closedir(&dir_h);
@@ -706,6 +719,7 @@ int vfs_list(const vp_ctx_t *ctx, uint32_t privs, const char *spec, vfs_entry_t 
     }
     *count = 0;
     *total = 0;
+    last_refused = 0;
     rc = resolve(ctx, spec, NULL, VP_R_WILD_OK | VP_R_EMPTY_OK, &r);
     if (rc != VFS_OK) {
         return rc;
@@ -726,7 +740,8 @@ int vfs_list(const vp_ctx_t *ctx, uint32_t privs, const char *spec, vfs_entry_t 
             rc = check_access(ctx, privs, &dir, VP_OP_LIST);
         }
         if (rc == VFS_OK) {
-            rc = walk(ctx, privs, &dir, pname, ptype, VP_OP_LIST, list_one, &a);
+            rc = walk(ctx, privs, &dir, pname, ptype, VP_OP_LIST, list_one, &a, &last_refused,
+                      0);
         }
     }
     *count = a.count;
@@ -769,6 +784,7 @@ int vfs_iter_begin(vfs_iter_t *it, const vp_ctx_t *ctx, uint32_t privs, const ch
     vp_res_t r, dir;
     const char *pname, *ptype;
     char path[VP_PATH_MAX];
+    uint32_t refused = 0;
     size_t i;
     int rc, ro;
 
@@ -818,7 +834,8 @@ int vfs_iter_begin(vfs_iter_t *it, const vp_ctx_t *ctx, uint32_t privs, const ch
     if (r.wild && vp_parse(spec, VP_P_WILD_OK, &sp) == VP_OK) {
         vp_list_pattern(&sp, &pname, &ptype);
     }
-    rc = walk(ctx, privs, &dir, pname, ptype, VP_OP_LIST, iter_one, &a);
+    rc = walk(ctx, privs, &dir, pname, ptype, VP_OP_LIST, iter_one, &a, &refused, 1);
+    a.skipped = (uint16_t)(a.skipped + refused);
     if (rc == VFS_OK && a.total > VFS_ITER_MAX) {
         rc = VFS_E_TOOBIG;
     }

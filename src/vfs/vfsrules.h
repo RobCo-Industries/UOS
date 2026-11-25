@@ -55,11 +55,19 @@ int vfs_parent_res(const vp_res_t *r, vp_res_t *dir);
  */
 int vfs_entry_res(const vp_res_t *dir, const char *fatname, int is_dir, vp_res_t *out);
 
+/* Results of vfs_list_keep(). */
+#define VFS_KEEP_NO       0   /* not a match: work file, not 8.3, other name */
+#define VFS_KEEP_YES      1   /* a match the caller may use */
+#define VFS_KEEP_REFUSED  2   /* a match the access table refused: count it */
+
 /*
- * The listing filter for one directory entry: 1 to show it with *out
- * filled, 0 to hide it. Hidden: library work files (`leftover`), names
- * that are not 8.3, names that do not match the pattern, and entries the
- * access table does not let `privs` list (op VP_OP_LIST) or use for `op`.
+ * The listing filter for one directory entry: VFS_KEEP_YES to show it
+ * with *out filled, VFS_KEEP_NO to hide it as no match, VFS_KEEP_REFUSED
+ * to hide it as a refused match. No match: library work files
+ * (`leftover`), names that are not 8.3, names that do not match the
+ * pattern. Refused: a match the access table does not let `privs` list
+ * (op VP_OP_LIST) or use for `op`. Callers count refused matches, so a
+ * wildcard whose every match is refused reports no privilege, not no files.
  */
 int vfs_list_keep(const vp_res_t *dir, const char *fatname, int is_dir, int leftover,
                   const char *pname, const char *ptype, const char *home, uint32_t privs,

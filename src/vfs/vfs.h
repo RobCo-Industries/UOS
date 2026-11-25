@@ -61,6 +61,9 @@ const char *vfs_strerror(int err);
 dcl_msg_t vfs_msg(int err);
 /* The vp_err_t behind the last VFS_E_SPEC or access refusal. Loop. */
 int vfs_last_vp(void);
+/* Entries the last vfs_list() hid because the access table refused them:
+ * matches of the pattern the caller may not list. Loop. */
+uint32_t vfs_last_refused(void);
 
 /* ---- Listing entries ---------------------------------------------------- */
 
@@ -164,9 +167,11 @@ typedef struct {
  * Resolves a specification, with or without wildcards, to its files in
  * the path module's order. Folders never match. Each file is checked
  * again with vp_access() for `op` (VP_OP_READ, VP_OP_WRITE or
- * VP_OP_DELETE); refused files are counted in `skipped` and left out.
- * No match left is VFS_E_NOFILES. On success the caller calls
- * vfs_iter_end() once. Loop.
+ * VP_OP_DELETE); refused files are counted in `skipped` and left out,
+ * both those the listing filter refused and those refused for `op`.
+ * No match left is VFS_E_NOFILES; `skipped` then tells "every match was
+ * refused" (skipped > 0) from "nothing matched" (skipped == 0). On
+ * success the caller calls vfs_iter_end() once. Loop.
  */
 int vfs_iter_begin(vfs_iter_t *it, const vp_ctx_t *ctx, uint32_t privs, const char *spec,
                    int op);

@@ -79,6 +79,7 @@ static const struct {
     { DCL_SYS_FILDEL, "%DELETE-I-FILDEL,  deleted" },
     { DCL_SYS_FILREN, "%RENAME-I-FILREN,  renamed" },
     { DCL_SYS_PROGERR, "%UOS-E-PROGERR, the program could not start" },
+    { DCL_SYS_SKIPPED, "%UOS-I-SKIPPED, 0 files skipped: not enough privilege" },
 };
 
 TEST(every_message_text)
