@@ -59,6 +59,7 @@ typedef void (*sh_done_fn)(int status, const char *result, void *ctx);
  * NULL. Returns 0 when the command started (cb follows, maybe before this
  * returns), or SH_ERR_DOWN, SH_ERR_ARG, SH_ERR_BUSY, SH_ERR_NOUSER,
  * SH_ERR_COVERED, checked in that order, with no callback. SH_ERR_COVERED:
+ * the shell screen is not on the stack yet, such as during the welcome, or
  * another screen covers the shell, so no command, question or program
  * starts. A command that runs when a screen opens over the shell waits:
  * its next step runs once the shell is on top again. The prompt treats an

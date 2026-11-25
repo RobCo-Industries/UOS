@@ -331,6 +331,11 @@ int sh_job_waits(int shell_on, int shell_on_top)
     return shell_on && !shell_on_top;
 }
 
+int sh_takes_job(int shell_on, int shell_on_top)
+{
+    return shell_on && shell_on_top;
+}
+
 int sh_owe(int *owed, int what)
 {
     int first = *owed == SH_OWE_NONE;

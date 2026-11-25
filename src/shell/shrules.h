@@ -155,6 +155,9 @@ int sh_tag_live(int active, uint32_t current, uint32_t tag);
  * and each of those would land on top of the covering screen.
  */
 int sh_job_waits(int shell_on, int shell_on_top);
+/* 1 when the shell may start a job: its screen is on the stack and its
+ * unit is on top. Else sh_run_line() returns SH_ERR_COVERED. */
+int sh_takes_job(int shell_on, int shell_on_top);
 /* Records `what` in *owed, keeping an end over a step. Returns 1 when the
  * shell owed nothing before: the caller marks the wait once. */
 int sh_owe(int *owed, int what);

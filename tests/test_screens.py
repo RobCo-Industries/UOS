@@ -688,3 +688,48 @@ def test_logout_during_a_job_takes_no_more_step(board, hooks_image, need_mtools,
         assert rows[ROW_MSG] == "SESSION CLOSED.", rows
         same(login_rows, rows, skip=(ROW_MSG,))
         back_at_login(vm, 2, reader=False)
+
+
+# The shell takes a job only when its screen is on the stack and its unit is on
+# top. Before a session's shell exists, `sh run` and `sh api` are refused and
+# the screen on top stays as it was.
+
+def refused_jobs(vm, want_run, want_rc):
+    runs = len([m for m in events(vm, "sh") if m.get("run") == "refused"])
+    calls = len([m for m in events(vm, "sh") if m.get("api") == "call"])
+    out = batch(vm, [run_line("DIRECTORY"), 'sh api - "DIRECTORY"'])
+    assert [r[0] for r in out] == ["ok", "ok"], out
+    run = wait_marker(vm, "sh run=refused", runs + 1)
+    call = wait_marker(vm, "sh api=call", calls + 1)
+    for k, v in want_run.items():
+        assert run.get(k) == v, run
+    assert (call["rc"], call["cbs"]) == (want_rc, "0"), call
+    assert not [m for m in events(vm, "cmd") if m.get("state") == "start"]
+
+
+def test_no_job_before_the_shell(board, hooks_image, need_mtools, tmp_path):
+    cfg = CFG + b"[login]\nretries = 1\nlockout_s = 3\n"
+    with alone(hooks_image, board, card(tmp_path, card_tree({"/UOS/UOS.CFG": cfg}))) as vm:
+        lockout(vm)
+        before = settled_rows(vm)
+        refused_jobs(vm, {"rc": "-3"}, "-3")
+        same(before, settled_rows(vm), skip=(ROW_COUNTDOWN,))
+        wait_marker(vm, "lockout state=end", 1)
+        wait_marker(vm, "login state=user", 2)
+        before = settled_rows(vm)
+        refused_jobs(vm, {"rc": "-3"}, "-3")
+        same(before, settled_rows(vm))
+        # The welcome: a session, and no shell screen yet.
+        answer(vm, "type GUEST")
+        wait_marker(vm, "login state=pass", 2)
+        answer(vm, "type GUEST")
+        wait_marker(vm, "session state=start", 1)
+        assert stack(vm) == ["welcome"]
+        before = settled_rows(vm)
+        refused_jobs(vm, {"why": "covered"}, "-7")
+        assert stack(vm) == ["welcome"]
+        same(before, settled_rows(vm))
+        wait_marker(vm, "session screen=shell", 1)
+        wait_marker(vm, "sh state=prompt kind=cmd", 1)
+        answer(vm, "type SHOW TIME")
+        wait_marker(vm, "cmd state=end", 1)

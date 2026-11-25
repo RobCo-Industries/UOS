@@ -770,8 +770,10 @@ static int launch(const char *line, unsigned flags, const char *src, sh_done_fn 
     if (!sess_logged_in()) {
         return SH_ERR_NOUSER;
     }
-    if (covered()) {
-        /* start() may ask, page or start a program's screen. */
+    if (!sh_takes_job(shp.on, uos_screen_unit_on_top(&shell_screen))) {
+        /* start() may ask, page or start a program's screen. A shell
+         * covered by another screen, or not on the stack yet, such as
+         * during the welcome, takes no job. */
         return SH_ERR_COVERED;
     }
     k_memset(j, 0, sizeof(*j));
@@ -882,7 +884,9 @@ static void port_run(void *arg)
         dcl_line_reset(&shp.ln);
     }
     rc = launch(port_line, 0, "port", port_done, NULL, NULL, 0);
-    if (rc != 0) {
+    if (rc == SH_ERR_COVERED) {
+        UOS_MARK("sh run=refused why=covered");
+    } else if (rc != 0) {
         UOS_MARK("sh run=refused rc=%d", rc);
     }
 }

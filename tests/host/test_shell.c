@@ -262,6 +262,10 @@ TEST(covered_shell_owes)
     CHECK_EQ(sh_job_waits(1, 0), 1);         /* a screen covers the shell */
     CHECK_EQ(sh_job_waits(1, 1), 0);
     CHECK_EQ(sh_job_waits(0, 0), 0);         /* no shell: nothing to wait for */
+    CHECK_EQ(sh_takes_job(1, 1), 1);
+    CHECK_EQ(sh_takes_job(1, 0), 0);         /* covered */
+    CHECK_EQ(sh_takes_job(0, 0), 0);         /* not on the stack: the welcome */
+    CHECK_EQ(sh_takes_job(0, 1), 0);
     CHECK_EQ(sh_owe(&owed, SH_OWE_STEP), 1); /* the first debt marks */
     CHECK_EQ(sh_owe(&owed, SH_OWE_STEP), 0);
     CHECK_EQ(owed, SH_OWE_STEP);
