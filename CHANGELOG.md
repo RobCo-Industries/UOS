@@ -18,8 +18,15 @@ All notable changes to UOS are recorded here. The format follows [Keep a Changel
 - `sh_run_line()` refuses an empty or comment-only line with `SH_ERR_ARG` and no callback, and `sh run` refuses it with `rc=-1`. The prompt still shows a new prompt for one.
 - `sh_program_register()` returns `SH_ERR_DOWN` before the shell service started.
 - `TYPE` and `HELP` print 8 display rows a step, wrapped segments of a long line included, so a 1 MiB line no longer holds the loop.
+- `DEVICES.CFG` and `TERMINAL.CFG` read with `ini_parse_sections()`: an empty section is `DV_ERR_EMPTY` or `TUI_E_EMPTY`, a repeated one is a counted error even right after itself, and section errors carry the header's line.
+- A repeated `[device NAME]`, `[expander N]` or `[entry N]` header is refused even when the first section was empty or bad. `TERMINAL.CFG` remembers every entry number, not the first 32.
+- The `ARM` rule: an expander output needs a relay named `ARM` on a Pi pin that is off at reset. Without one, each expander output is refused with `%DEVICE-E-NOARM`, shows ` REFUSED=NOARM` and is never driven.
+- RobCo-Core moved to `4249632`. The library's two-pass `test-host-gccwarn` and its `make ci-local` replace UOS's own `test-host-gccwarn-ci` and `tools/ci_local.sh`.
 
 ### Added
+
+- Expander pins work: the device service drives PCA9554 chips through the library's `gpiox.h`. A chip that does not answer at boot leaves its devices unreachable and `ARM` off. On panic and from the software watchdog no I2C transfer starts. The pin record names the chip.
+- An optional hardware watchdog, `UOS.CFG [watchdog]`, off by default. The loop's tick kicks it; a panic resets the board after the outputs went safe; a halt stops it. `dev hwdog` shows it.
 
 - The build: `UOS.SYS`, a sealed rimg linked at `0x00400000`, with host and QEMU tests and CI on four boards.
 - The kernel entry with the trust rule and one marker per bring-up step.

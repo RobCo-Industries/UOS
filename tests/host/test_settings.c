@@ -26,6 +26,30 @@ TEST(defaults)
     CHECK_EQ(s.hack_attempts, 4u);
     CHECK_EQ(s.hack_difficulty, UOS_DIFF_ADVANCED);
     CHECK_EQ(s.hack_lockout_s, 60u);
+    CHECK_EQ(s.hwdog_enabled, 0);
+    CHECK_EQ(s.hwdog_timeout_ms, 8000u);
+}
+
+TEST(watchdog_keys)
+{
+    uos_settings_t s;
+    uos_settings_report_t r;
+
+    CHECK_EQ(parse("[watchdog]\nenabled = on\ntimeout_ms = 4000\n", &s, &r), UOS_CFG_OK);
+    CHECK_EQ(r.keys, 2u);
+    CHECK_EQ(s.hwdog_enabled, 1);
+    CHECK_EQ(s.hwdog_timeout_ms, 4000u);
+    CHECK_EQ(parse("[watchdog]\ntimeout_ms = 999\n", &s, &r), UOS_CFG_OK);
+    CHECK_EQ(r.clamped, 1u);
+    CHECK_EQ(s.hwdog_timeout_ms, 1000u);
+    CHECK_EQ(s.hwdog_enabled, 0);
+    CHECK_EQ(parse("[watchdog]\ntimeout_ms = 16000\nenabled = maybe\nkick = 1\n", &s, &r),
+             UOS_CFG_OK);
+    CHECK_EQ(r.clamped, 1u);
+    CHECK_EQ(r.bad, 1u);
+    CHECK_EQ(r.unknown, 1u);
+    CHECK_EQ(s.hwdog_timeout_ms, 15000u);
+    CHECK_EQ(s.hwdog_enabled, 0);
 }
 
 TEST(empty_file_keeps_defaults)
@@ -206,4 +230,27 @@ TEST(names)
     CHECK_STR(uos_difficulty_name(UOS_DIFF_NOVICE), "novice");
     CHECK_STR(uos_difficulty_name(UOS_DIFF_EXPERT), "expert");
     CHECK_STR(uos_difficulty_name(-1), "unknown");
+}
+
+/* The shipped card keeps the hardware watchdog off: QEMU resets at once
+ * when it starts, so a card that turned it on could never boot there. */
+TEST(shipped_card_keeps_watchdog_off)
+{
+    static char text[4096];
+    uos_settings_t s;
+    uos_settings_report_t r;
+    FILE *f = fopen("card/UOS/UOS.CFG", "rb");
+    size_t n;
+
+    CHECK(f != NULL);
+    if (f == NULL) {
+        return;
+    }
+    n = fread(text, 1, sizeof(text), f);
+    fclose(f);
+    uos_settings_default(&s);
+    CHECK_EQ(uos_settings_parse(text, n, &s, &r), UOS_CFG_OK);
+    CHECK_EQ(r.bad + r.clamped + r.unknown, 0u);
+    CHECK_EQ(s.hwdog_enabled, 0);
+    CHECK_EQ(s.hwdog_timeout_ms, 8000u);
 }

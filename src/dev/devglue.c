@@ -3,7 +3,8 @@
  * its initial level, runs commands, ends pulses and polls sensors from the
  * tick, and drives every output to its safe state at shutdown. The rules
  * are pure, in devstate.c, devcfg.c and devsplan.c. This file holds the
- * GPIO calls, the markers, the software watchdog and the `dev` command.
+ * GPIO and expander calls, the markers, the software watchdog and the
+ * `dev` command.
  *
  * Safety, see docs/ARCHITECTURE.md, "devices":
  *   - the safe state of an output is its `initial` state; ARM is off;
@@ -15,18 +16,27 @@
  *   - a failed write to the safe level is owed and retried every tick;
  *     the state stays the one last written (devsplan.h, "Pin faults");
  *   - pulse ends come from dv_tick() with the tick value, so a late tick
- *     ends a pulse late, never not at all.
+ *     ends a pulse late, never not at all;
+ *   - expander chips are attached once at init; a chip that does not
+ *     answer leaves its outputs unreached and is not tried again;
+ *   - the panic path and the software watchdog start no I2C transfer:
+ *     expander outputs keep their level, ARM on a Pi pin cuts their
+ *     supply (see drive_safe()).
  */
 
 #include <robco/gpio.h>
+#include <robco/gpiox.h>
+#include <robco/i2c.h>
 #include <robco/input.h>
 #include <robco/klibc.h>
 #include <robco/power.h>
 #include <robco/tick.h>
 #include <robco/uart.h>
+#include <robco/wdog.h>
 
 #include "devs.h"
 #include "uos.h"
+#include "uos_hwdog.h"
 #include "uos_maint.h"
 #include "uos_service.h"
 #include "vfs.h"
@@ -36,6 +46,7 @@
 #define MS_PER_TICK         (1000u / UOS_TICK_HZ)
 #define POLL_TICKS          UOS_MS_TO_TICKS(DEVS_POLL_MS)
 #define WDOG_TICKS          UOS_MS_TO_TICKS(DEVS_WDOG_MS)
+#define EXP_I2C_HZ          100000u             /* the rate main.c sets for the RTC */
 
 
 static dv_set_t set;
@@ -50,6 +61,10 @@ static volatile uint32_t wd_kick;
 static volatile int wd_armed;
 static volatile int wd_stop;        /* no more kicks: `dev hang`, or after a shutdown */
 static volatile int wd_fired;
+
+/* The hardware watchdog, UOS.CFG [watchdog]: rules in uos_hwdog.h. */
+static uos_hwdog_t hw;
+static uint32_t hw_plan;            /* timeout to start with at the first tick, or 0 */
 
 #if defined(UOS_TEST_HOOKS) && UOS_TEST_HOOKS
 /* `dev sense`: a level per sensor that replaces the pin read, or -1. */
@@ -101,36 +116,84 @@ static int pi_read(unsigned pin)
 }
 
 /*
- * Expander pins. PENDING LIBRARY FEATURE: the pinned library has no I2C
- * expander driver. A later task replaces each of these three functions
- * with the driver's call. Until then every operation fails: nothing
- * pretends the pin changed.
+ * Expander pins, through the library's PCA9554 driver. Table index N is
+ * chip N of DEVICES.CFG. A chip that did not attach answers
+ * GPIOX_ERR_DETACHED without a bus transfer: DEVS_ERR_NOEXP, no fault,
+ * the output stays unreached. Any other driver error is DEVS_ERR_IO, so
+ * a failed write to the safe level is owed and retried every tick.
  */
+static int exp_code(int rc)
+{
+    if (rc >= 0) {
+        return rc;
+    }
+    return rc == GPIOX_ERR_DETACHED ? DEVS_ERR_NOEXP : DEVS_ERR_IO;
+}
+
+static unsigned exp_index(const dv_expander_t *chip)
+{
+    return (unsigned)(chip - set.exp);
+}
+
 static int exp_write(const dv_expander_t *chip, unsigned pin, int level)
 {
-    (void)chip;
-    (void)pin;
-    (void)level;
-    return DEVS_ERR_NOEXP;
+    return exp_code(gpiox_write(exp_index(chip), pin, level));
 }
 
 static int exp_config(const dv_expander_t *chip, unsigned pin, const dv_op_t *op)
 {
-    (void)chip;
-    (void)pin;
-    (void)op;
-    return DEVS_ERR_NOEXP;
+    /* The PCA9554 has a fixed pull-up on each input: op->pull is not used. */
+    if (op->kind == DV_OP_CONFIG_INPUT) {
+        return exp_code(gpiox_config(exp_index(chip), pin, GPIOX_IN, 0));
+    }
+    return exp_code(gpiox_config(exp_index(chip), pin, GPIOX_OUT, op->level));
 }
 
 static int exp_read(const dv_expander_t *chip, unsigned pin)
 {
+    int level = 0;
+    int rc = gpiox_read(exp_index(chip), pin, &level);
+
+    return rc < 0 ? exp_code(rc) : level;
+}
+
+/*
+ * The expander calls of the panic path and the software watchdog: none
+ * starts an I2C transfer. A panic may come from inside the driver or the
+ * I2C controller, and the shadow registers may be the damaged memory. The
+ * watchdog runs in IRQ context, which i2c.h does not allow, and the hung
+ * loop may sit inside a transfer. Neither case trusts the bus.
+ */
+static int exp_skip_write(const dv_expander_t *chip, unsigned pin, int level)
+{
     (void)chip;
     (void)pin;
-    return DEVS_ERR_NOEXP;
+    (void)level;
+    return DEVS_ERR_SKIP;
+}
+
+static int exp_skip_config(const dv_expander_t *chip, unsigned pin, const dv_op_t *op)
+{
+    (void)chip;
+    (void)pin;
+    (void)op;
+    return DEVS_ERR_SKIP;
+}
+
+static int exp_skip_read(const dv_expander_t *chip, unsigned pin)
+{
+    (void)chip;
+    (void)pin;
+    return DEVS_ERR_SKIP;
 }
 
 static const devs_io_t io = {
     pi_write, pi_config_output, pi_config_input, pi_read, exp_write, exp_config, exp_read,
+};
+
+static const devs_io_t io_noi2c = {
+    pi_write, pi_config_output, pi_config_input, pi_read,
+    exp_skip_write, exp_skip_config, exp_skip_read,
 };
 
 /* ---- Markers -------------------------------------------------------------- */
@@ -173,27 +236,47 @@ static uint32_t now_ms(uint32_t tick)
 
 /* ---- Safe state ----------------------------------------------------------- */
 
+/* "12" for a Pi pin, "X0.3" for an expander pin. */
+static const char *pin_text(const dv_op_t *op, char *buf, size_t size)
+{
+    if (op->chip == DV_CHIP_PI) {
+        k_snprintf(buf, size, "%u", (unsigned)op->pin);
+    } else if (gpiox_pin_name(op->chip, op->pin, buf, size) < 0) {
+        k_snprintf(buf, size, "X?");
+    }
+    return buf;
+}
+
 /*
  * Every output to its safe state: ARM off first, then the others at their
  * initial level, last device first. Each write is tried DEVS_SAFE_TRIES
  * times, then the next device comes, so one bad pin keeps no other one
- * active. Direct GPIO writes, no timers, no allocation: any context, IRQs
- * on or off. Runs once per boot.
+ * active. No timers, no allocation: any context, IRQs on or off. Runs once
+ * per boot.
+ *
+ * Expander pins: on reboot and halt they go through the driver, polled,
+ * each transfer bounded by its system timer deadline. On panic and from
+ * the software watchdog they are skipped (io_noi2c): no I2C transfer
+ * starts, the pins keep their level, and each gives a devsafe marker with
+ * tries=0. ARM, which the board puts on a Pi pin, goes off first and cuts
+ * the supply of every load. With the hardware watchdog on, the reset
+ * that follows sets every expander output to its initial level at boot.
  */
-static void drive_safe(const char *why)
+static void drive_safe(const char *why, const devs_io_t *with)
 {
     dv_op_t ops[DV_MAX_DEVICES];
     devs_ev_t ev[DV_MAX_DEVICES];
+    char p[GPIOX_NAME_SIZE + 4];
     int n, i;
 
     if (down_done) {
         return;
     }
     down_done = 1;
-    n = devs_down_run(&set, &io, &rec, uos_ticks(), ops, ev);
+    n = devs_down_run(&set, with, &rec, uos_ticks(), ops, ev);
     for (i = 0; i < n; i++) {
-        UOS_MARK("devsafe name=%s pin=%u level=%u rc=%d tries=%u", set.dev[ev[i].dev].name,
-                 ops[i].pin, ops[i].level, ev[i].rc, ev[i].tries);
+        UOS_MARK("devsafe name=%s pin=%s level=%u rc=%d tries=%u", set.dev[ev[i].dev].name,
+                 pin_text(&ops[i], p, sizeof(p)), ops[i].level, ev[i].rc, ev[i].tries);
     }
     UOS_MARK("devdown why=%s count=%d", why, n < 0 ? 0 : n);
 }
@@ -212,7 +295,7 @@ static void wd_check(void)
     }
     wd_fired = 1;
     UOS_MARK("wdog result=expired timeout_ms=%u", DEVS_WDOG_MS);
-    drive_safe("wdog");
+    drive_safe("wdog", &io_noi2c);
     uart_flush();
     power_reboot();
 }
@@ -223,7 +306,7 @@ static void wd_start(void)
     int rc = 0;
 
     for (i = 0; i < set.count; i++) {
-        outputs += set.dev[i].type != DV_TYPE_SENSOR;
+        outputs += set.dev[i].type != DV_TYPE_SENSOR && set.dev[i].refused == 0;
     }
     if (outputs != 0) {
         wd_kick = uos_ticks();
@@ -232,6 +315,59 @@ static void wd_start(void)
     }
     UOS_MARK("wdog result=%s timeout_ms=%u outputs=%u rc=%d", wd_armed ? "on" : "off",
              DEVS_WDOG_MS, outputs, rc);
+}
+
+/* ---- The hardware watchdog --------------------------------------------- */
+
+/*
+ * QEMU 10.1 does not count the PM watchdog: wdog_start() resets the board
+ * at once. So it is a setting, off by default and on no test card. The
+ * marker before the start is the last line a QEMU run prints.
+ */
+static void hw_start(uint32_t now)
+{
+    uint32_t ms = hw_plan;
+    int rc;
+
+    hw_plan = 0;
+    UOS_MARK("hwdog result=start timeout_ms=%u", (unsigned)ms);
+    uart_flush();
+    rc = wdog_start(ms);
+    if (rc == 0) {
+        uos_hwdog_started(&hw, ms, now, UOS_TICK_HZ);
+    }
+    UOS_MARK("hwdog result=%s timeout_ms=%u rc=%d", rc == 0 ? "on" : "err", (unsigned)ms, rc);
+}
+
+/* From the loop's tick only, never from an IRQ: a hung loop sends no kick. */
+static void hw_tick(uint32_t now)
+{
+    /* After every service is up and the kernel said ready. */
+    if (hw_plan != 0 && uos.phase == UOS_PHASE_READY) {
+        hw_start(now);
+    }
+    if (uos_hwdog_kick_due(&hw, now, !wd_stop)) {
+        (void)wdog_kick();
+        uos_hwdog_kicked(&hw, now);
+    }
+}
+
+/* After the outputs are safe. A panic leaves it running: the board resets
+ * when the timeout ends. A halt stops it: the terminal stays halted. */
+static void hw_shutdown(int why)
+{
+    int act;
+
+    hw_plan = 0;
+    if (hw.timeout_ms == 0) {
+        return;
+    }
+    act = uos_hwdog_shutdown(&hw, why);
+    if (act == UOS_HWDOG_STOP) {
+        wdog_stop();
+    }
+    UOS_MARK("hwdog result=%s why=%s remaining_ms=%u", act == UOS_HWDOG_STOP ? "stopped" : "left",
+             uos_shutdown_name(why), (unsigned)wdog_remaining_ms());
 }
 
 /* ---- Load and boot -------------------------------------------------------- */
@@ -295,6 +431,46 @@ static void load(void)
     }
     UOS_MARK("devcfg result=%s %s", rc == DV_OK ? "ok" : "syntax", summary);
     mark_cfg_lists();
+}
+
+/* "absent", "bus" and so on: the ident of a gpiox code, for markers. */
+static const char *exp_why(int rc)
+{
+    switch (rc) {
+    case 0:                 return "ok";
+    case GPIOX_ERR_ABSENT:  return "absent";
+    case GPIOX_ERR_ADDR:    return "addr";
+    case GPIOX_ERR_BUS:     return "bus";
+    default:                return "error";
+    }
+}
+
+/*
+ * Attaches each declared chip once, before the boot writes. A chip that
+ * does not answer stays detached: its outputs end up unreached and ARM
+ * stays off. The probe is one bounded I2C transfer, so a missing chip
+ * never blocks boot. main.c set the bus up for the RTC; when that failed,
+ * one more try here.
+ */
+static void attach_chips(void)
+{
+    unsigned c;
+    int rc;
+
+    for (c = 0; c < DV_MAX_EXPANDERS; c++) {
+        if (!set.exp[c].declared) {
+            continue;
+        }
+        if (i2c_get_hz() == 0) {
+            (void)i2c_init(EXP_I2C_HZ);
+        }
+        if (gpiox_present(c)) {
+            (void)gpiox_detach(c);
+        }
+        rc = gpiox_attach(c, set.exp[c].addr);
+        UOS_MARK("devexp chip=%u addr=0x%02x result=%s rc=%d", c, (unsigned)set.exp[c].addr,
+                 exp_why(rc), rc);
+    }
 }
 
 /* A sensor's level: the pin, or in test builds the level `dev sense` set. */
@@ -594,6 +770,14 @@ static int sub_rec(void)
     return 0;
 }
 
+static int sub_hwdog(void)
+{
+    uos_maint_reply("hwdog running=%d timeout_ms=%u remaining_ms=%u held=%u", wdog_running() != 0,
+                    (unsigned)wdog_timeout_ms(), (unsigned)wdog_remaining_ms(),
+                    (unsigned)hw.held);
+    return 0;
+}
+
 #if defined(UOS_TEST_HOOKS) && UOS_TEST_HOOKS
 static int sub_sense(int argc, char **argv)
 {
@@ -683,6 +867,9 @@ static int cmd_dev(int argc, char **argv)
     if (argc == 1 && k_strcmp(argv[0], "rec") == 0) {
         return sub_rec();
     }
+    if (argc == 1 && k_strcmp(argv[0], "hwdog") == 0) {
+        return sub_hwdog();
+    }
 #if defined(UOS_TEST_HOOKS) && UOS_TEST_HOOKS
     if (argc >= 1 && k_strcmp(argv[0], "sense") == 0) {
         return sub_sense(argc, argv);
@@ -697,7 +884,7 @@ static int cmd_dev(int argc, char **argv)
         return sub_stall(argc, argv);
     }
 #endif
-    return uos_maint_fail("usage: dev list|set|rec");
+    return uos_maint_fail("usage: dev list|set|rec|hwdog");
 }
 
 /* ---- The service ------------------------------------------------------------ */
@@ -711,11 +898,16 @@ static int devs_init(void)
     /* The file system starts first: DEV: names reach this service from now. */
     vfs_dev_register(&vfs_hooks);
     load();
+    attach_chips();
     if (set.count != 0) {
         boot();
     }
     wd_start();
-    return uos_maint_register("dev", cmd_dev, "devices: dev list|set|rec");
+    hw_plan = uos_hwdog_plan(uos_settings()->hwdog_enabled, uos_settings()->hwdog_timeout_ms);
+    if (hw_plan == 0) {
+        UOS_MARK("hwdog result=off why=setting");
+    }
+    return uos_maint_register("dev", cmd_dev, "devices: dev list|set|rec|hwdog");
 }
 
 static void devs_tick_fn(uint32_t now)
@@ -727,6 +919,7 @@ static void devs_tick_fn(uint32_t now)
     if (!wd_stop) {
         wd_kick = now;
     }
+    hw_tick(now);
     if (set.count == 0 || down_done) {
         return;
     }
@@ -765,9 +958,10 @@ static void devs_tick_fn(uint32_t now)
 
 static void devs_shutdown(int why)
 {
-    drive_safe(uos_shutdown_name(why));
+    drive_safe(uos_shutdown_name(why), why == UOS_SHUTDOWN_PANIC ? &io_noi2c : &io);
     /* After the outputs are safe: no more kicks. */
     wd_stop = 1;
+    hw_shutdown(why);
 }
 
 const uos_service_t uos_svc_devices = { "devices", devs_init, devs_tick_fn, devs_shutdown };

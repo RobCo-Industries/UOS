@@ -78,16 +78,17 @@ def uos_card(tmp_path, cfg=DEFAULT_CFG, extra=None, name="sd.img"):
 
 
 @contextlib.contextmanager
-def alone(image, board, sd=None, extra_args=None):
+def alone(image, board, sd=None, extra_args=None, qtest=False):
     """Boots UOS with no earlier stage: QEMU loads it at its link address, and
-    a two-word image at 0x8000 jumps to it with no boot info in r3."""
+    a two-word image at 0x8000 jumps to it with no boot info in r3. qtest=True
+    lets a test drive device inputs with vm.qmp.set_irq_in()."""
     with tempfile.TemporaryDirectory(prefix="uos") as tmp:
         tramp = os.path.join(tmp, "tramp.img")
         with open(tramp, "wb") as f:
             f.write(TRAMPOLINE)
         args = ["-device", f"loader,file={image},addr={OS_SLOT:#x},force-raw=on"]
         with boot(tramp, board, sd=sd, serial2=True,
-                  extra_args=args + list(extra_args or []),
+                  extra_args=args + list(extra_args or []), qtest=qtest,
                   elf=os.path.splitext(image)[0] + ".elf") as vm:
             yield vm
 
