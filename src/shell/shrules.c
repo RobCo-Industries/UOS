@@ -620,3 +620,36 @@ void sh_verb_word(const dcl_cmd_t *cmd, char *out, size_t size)
         (void)k_snprintf(out, size, "%s", cmd->verb->name);
     }
 }
+
+/* ---- SET HALT and the maintenance request ---- */
+
+int sh_halt_mreq(int qual)
+{
+    if (qual > 0) {
+        return SH_MREQ_WRITE;
+    }
+    return qual < 0 ? SH_MREQ_CLEAR : SH_MREQ_NONE;
+}
+
+int sh_maint_note(const char *user, char *buf, size_t size)
+{
+    static const char head[] = "UOS ";
+    size_t n = 0;
+    size_t i;
+
+    if (buf == NULL || size < sizeof(head) + 2u) {
+        return -1;
+    }
+    for (i = 0; head[i] != '\0'; i++) {
+        buf[n++] = head[i];
+    }
+    for (i = 0; user != NULL && user[i] != '\0' && n < 63u && n + 4u <= size; i++) {
+        unsigned char c = (unsigned char)user[i];
+
+        buf[n++] = c >= 0x20u && c <= 0x7Eu ? (char)c : '?';
+    }
+    buf[n++] = '\r';
+    buf[n++] = '\n';
+    buf[n] = '\0';
+    return (int)n;
+}

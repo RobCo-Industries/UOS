@@ -204,6 +204,22 @@ int sh_prog_add(sh_progtab_t *t, const char *name, sh_prog_start_fn start);
 /* The program of `name`, any case, or NULL. */
 sh_prog_start_fn sh_prog_find(const sh_progtab_t *t, const char *name);
 
+/* ---- SET HALT and the maintenance request ---- */
+
+#define SH_MREQ_NONE   0        /* leave /ROBCO/MAINT.REQ as it is */
+#define SH_MREQ_WRITE  1        /* /MAINTENANCE: write the request */
+#define SH_MREQ_CLEAR  2        /* /NOMAINTENANCE: remove a request */
+
+/* What SET HALT does to the request: `qual` is 0 without the qualifier,
+ * 1 for /MAINTENANCE, -1 for /NOMAINTENANCE. */
+int sh_halt_mreq(int qual);
+
+/* The request file's note, BOOT_PROTOCOL.md: "UOS <user>\r\n", one line of
+ * printable ASCII, at most 63 bytes before the line end. A byte outside
+ * 0x20 to 0x7E becomes '?'. A long name is cut to fit 63 bytes and `size`.
+ * Returns the length, or -1 when `size` is below 7. */
+int sh_maint_note(const char *user, char *buf, size_t size);
+
 /* ---- Markers ---- */
 
 /* The verb word of a marker: "DELETE", "SET_HALT", "-" for none. */
