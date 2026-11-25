@@ -306,7 +306,7 @@ static void wd_start(void)
     int rc = 0;
 
     for (i = 0; i < set.count; i++) {
-        outputs += set.dev[i].type != DV_TYPE_SENSOR;
+        outputs += set.dev[i].type != DV_TYPE_SENSOR && set.dev[i].refused == 0;
     }
     if (outputs != 0) {
         wd_kick = uos_ticks();

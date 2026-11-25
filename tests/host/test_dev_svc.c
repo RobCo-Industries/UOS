@@ -276,15 +276,16 @@ TEST(apply_failure_not_recorded)
 static const char *with_exp =
     "[expander 0]\naddr = 0x20\n"
     "[device LAMP]\ntype = light\ngpio = X0.3\n"
-    "[device PIR]\ntype = sensor\ngpio = X0.4\n";
+    "[device PIR]\ntype = sensor\ngpio = X0.4\n"
+    "[device ARM]\ntype = relay\ngpio = 13\n";
 
 TEST(apply_expander_goes_to_exp_functions)
 {
     dv_op_t ops[DV_MAX_DEVICES];
 
     CHECK_EQ(load(with_exp), DV_OK);
-    CHECK_EQ(g_set.count, 2);
-    CHECK_EQ(devs_boot_plan(&g_set, ops, DV_MAX_DEVICES), 2);
+    CHECK_EQ(g_set.count, 3);
+    CHECK_EQ(devs_boot_plan(&g_set, ops, DV_MAX_DEVICES), 3);
     CHECK_EQ(devs_apply(&fake, &g_set, &ops[0], &g_rec, 1), DEVS_ERR_NOEXP);
     CHECK_EQ(g_log[0].kind, 'C');
     CHECK_EQ(g_log[0].pin, 3);
@@ -315,7 +316,7 @@ TEST(apply_expander_records_chip)
     char line[48];
 
     CHECK_EQ(load(with_exp), DV_OK);
-    CHECK_EQ(devs_boot_plan(&g_set, ops, DV_MAX_DEVICES), 2);
+    CHECK_EQ(devs_boot_plan(&g_set, ops, DV_MAX_DEVICES), 3);
     g_exp_rc = 0;
     CHECK_EQ(devs_apply(&fake, &g_set, &ops[0], &g_rec, 7), 0);
     CHECK_EQ(g_rec.count, 1);
@@ -392,6 +393,75 @@ TEST(down_run_skip_not_retried)
     CHECK_EQ(devs_vfs_code(DEVS_ERR_SKIP), VFS_E_WRITE);
     CHECK_STR(devs_strerror(DEVS_ERR_SKIP),
               "%DEVICE-W-NOTWRITTEN, expander pin not written on panic");
+}
+
+/* After a panic the lamp's chip keeps ON in its register. The next boot
+ * writes every output to its initial level, then ARM, last. */
+TEST(boot_after_panic_expander_initial_before_arm)
+{
+    static const char *mixed =
+        "[expander 0]\naddr = 0x20\n"
+        "[device ARM]\ntype = relay\ngpio = 13\ninitial = on\n"
+        "[device LAMP]\ntype = light\ngpio = X0.3\n";
+    devs_ev_t ev[DV_MAX_DEVICES + 1];
+    unsigned nev = 0;
+
+    CHECK_EQ(load(mixed), DV_OK);
+    g_exp_rc = 0;
+    CHECK_EQ(devs_boot_run(&g_set, &fake, &g_rec, 0, ev, &nev), 2);
+    CHECK_EQ(g_log[0].kind, 'C');
+    CHECK_EQ(g_log[0].arg, 0);
+    CHECK_EQ(g_log[1].kind, 'o');
+    CHECK_EQ(g_log[1].pin, 13);
+    CHECK_EQ(g_log[1].arg, 1);
+    /* The chip does not answer at boot: the lamp may hold ON, ARM stays off. */
+    reset_fake();
+    CHECK_EQ(devs_boot_run(&g_set, &fake, &g_rec, 0, ev, &nev), 2);
+    CHECK_EQ(g_log[1].kind, 'o');
+    CHECK_EQ(g_log[1].arg, 0);
+    CHECK_EQ(g_set.st[0].on, 0);
+    CHECK_EQ(ev[nev - 1].kind, DEVS_EV_ARMHELD);
+}
+
+/* ARM on a Pi pin that is on at reset fails the rule: the expander output
+ * is refused, never written, and ARM never goes on at boot for it. */
+TEST(arm_rule_refused_output_holds_arm)
+{
+    static const char *cfg =
+        "[expander 0]\naddr = 0x20\n"
+        "[device LAMP]\ntype = light\ngpio = X0.3\n"
+        "[device PIR]\ntype = sensor\ngpio = X0.4\n"
+        "[device ARM]\ntype = relay\ngpio = 13\nactive = low\ninitial = on\n";
+    devs_ev_t ev[DV_MAX_DEVICES + 1];
+    dv_op_t ops[DV_MAX_DEVICES];
+    unsigned nev = 0, i;
+
+    CHECK_EQ(load(cfg), DV_OK);
+    CHECK_EQ(g_set.dev[0].refused, DV_ERR_NOARM);
+    CHECK_EQ(devs_arm_index(&g_set), 2);
+    g_exp_rc = 0;
+    CHECK_EQ(devs_boot_run(&g_set, &fake, &g_rec, 0, ev, &nev), 2);
+    for (i = 0; i < g_n; i++) {
+        CHECK(!(g_log[i].kind == 'C' && g_log[i].pin == 3));
+    }
+    CHECK_EQ(g_set.st[2].on, 0);
+    CHECK_EQ(nev, 1);
+    CHECK_EQ(ev[0].kind, DEVS_EV_ARMHELD);
+    CHECK_EQ(devs_unreachable(&g_set), 1);
+    CHECK_EQ(devs_cmd(&g_set, &fake, 0, DV_ACT_ON, DV_PRIV_SYSTEM, 0, &g_rec, 0), DV_ERR_NOARM);
+    CHECK_EQ(devs_vfs_code(DV_ERR_NOARM), VFS_E_WRITE);
+    /* Shutdown leaves it alone too: ARM, nothing else. */
+    reset_fake();
+    CHECK_EQ(devs_down_plan(&g_set, ops, DV_MAX_DEVICES), 1);
+    CHECK_EQ(ops[0].dev, 2);
+}
+
+TEST(arm_rule_arm_on_expander_is_not_arm)
+{
+    CHECK_EQ(load("[expander 0]\naddr = 0x20\n"
+                  "[device ARM]\ntype = relay\ngpio = X0.1\n"), DV_OK);
+    CHECK_EQ(g_set.dev[0].refused, DV_ERR_NOARM);
+    CHECK_EQ(devs_arm_index(&g_set), -1);
 }
 
 TEST(cmd_pulse_end_only_from_tick)

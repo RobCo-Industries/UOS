@@ -32,7 +32,7 @@
 #define DEVS_WDOG_MS        15000u
 
 /* The name of the relay that switches the supply of every load. */
-#define DEVS_ARM_NAME       "ARM"
+#define DEVS_ARM_NAME       DV_ARM_NAME
 
 /* ---- Debounce ---- */
 
@@ -54,12 +54,14 @@ int devs_deb_feed(devs_deb_t *d, int level, unsigned need);
 
 /* ---- Order ---- */
 
-/* Index of the relay named ARM, or -1. Another type named ARM is not it. */
+/* Index of the relay named ARM, or -1. Another type named ARM is not it,
+ * nor a refused ARM (on an expander pin: the ARM rule of dev.h). */
 int devs_arm_index(const dv_set_t *set);
 
 /*
  * dv_boot_ops() with the ARM relay's operation moved to the end, so it
- * changes after every other pin holds its initial level. Returns the
+ * changes after every other pin holds its initial level. A refused
+ * device has no operation. Returns the
  * count or a DV_ERR_* code.
  */
 int devs_boot_plan(dv_set_t *set, dv_op_t *ops, unsigned max);
@@ -67,7 +69,8 @@ int devs_boot_plan(dv_set_t *set, dv_op_t *ops, unsigned max);
 /*
  * The safe state: every output at its `initial` level, ARM off. Writes
  * CONFIG_OUTPUT operations: ARM off first, then every other output at
- * its initial level in reverse table order. Sensors get nothing. Changes
+ * its initial level in reverse table order. Sensors and refused devices
+ * get nothing. Changes
  * no state. Returns the count, or DV_ERR_SPACE (nothing written) when
  * `max` is too small, or DV_ERR_ARG.
  */
@@ -162,13 +165,14 @@ int devs_tick(dv_set_t *set, const devs_io_t *io, uint32_t now_ms, dv_rec_t *rec
  * fails is off: with a fault and its CONFIG_OUTPUT owed, or, when the
  * failure starts no fault (DEVS_ERR_NOEXP), marked unreached. ARM is
  * switched on at boot only if every other output was written to its
- * initial level; otherwise ARM is written off and an ARMHELD event added.
+ * initial level, so never while a refused output exists; otherwise ARM is written off and an ARMHELD event added.
  * `ev` (DV_MAX_DEVICES + 1 entries) gets FAIL, FAULT and ARMHELD events;
  * `*nev` their count. Returns the count of operations or a DV_ERR_* code.
  */
 /*
  * Outputs other than ARM that are not at a level the system chose: in
- * fault, or unreached since boot. An operator may still switch ARM on by
+ * fault, unreached since boot, or refused by the ARM rule (never written,
+ * so an expander output may hold a level from before a Pi reset). An operator may still switch ARM on by
  * hand; the glue then says how many outputs are unreachable.
  */
 unsigned devs_unreachable(const dv_set_t *set);
@@ -201,7 +205,8 @@ int devs_down_run(dv_set_t *set, const devs_io_t *io, dv_rec_t *rec, uint32_t ti
  * DEV: hooks. A length or 0 passes through. An unknown device or no
  * device table is VFS_E_NODEV, a missing privilege VFS_E_NOPRIV, a
  * command to a sensor VFS_E_READONLY, a short buffer VFS_E_TOOBIG, a GPIO
- * or expander failure VFS_E_WRITE, any other code VFS_E_ARG.
+ * or expander failure and a device the ARM rule refused VFS_E_WRITE, any
+ * other code VFS_E_ARG.
  */
 int devs_vfs_code(int code);
 

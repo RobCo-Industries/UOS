@@ -4,7 +4,9 @@
  * ini_parse_sections() reports every section header, so a device or
  * expander section with no keys is a counted DV_ERR_EMPTY, and a repeated
  * header opens a new section: DV_ERR_DUPNAME for a device, DV_ERR_EXPANDER
- * for an expander. Section errors carry the header's line.
+ * for an expander. Every header is remembered, valid or not, so a repeat
+ * is refused even when the first section was empty or bad: the first
+ * section wins. Section errors carry the header's line.
  */
 
 #include <robco/gpiox.h>
@@ -28,6 +30,9 @@ typedef struct {
     int over;               /* past the DV_MAX_DEVICES-th device section: ignored */
     unsigned nkeys;         /* keys in the current section */
     unsigned sections;      /* device sections seen so far */
+    char seen[DV_MAX_DEVICES][DV_NAME_MAX + 1];  /* every good device name in a header */
+    unsigned nseen;
+    uint8_t exp_seen;       /* bit N: an [expander N] header came, good or not */
     int err;                /* first bad field, DV_ERR_* or 0 */
     unsigned err_line;
     unsigned first_line;
@@ -234,6 +239,10 @@ static void dv_start(dv_parse_t *p, const char *section, unsigned line)
         p->raw[DV_NAME_MAX] = '\0';
         if (n[0] >= '0' && n[0] < (char)('0' + DV_MAX_EXPANDERS) && n[1] == '\0') {
             p->exp_chip = n[0] - '0';
+            if (p->exp_seen & (1u << p->exp_chip)) {
+                dv_field_err(p, DV_ERR_EXPANDER, line);
+            }
+            p->exp_seen |= (uint8_t)(1u << p->exp_chip);
         } else {
             dv_field_err(p, DV_ERR_EXPANDER, line);
         }
@@ -272,6 +281,13 @@ static void dv_start(dv_parse_t *p, const char *section, unsigned line)
         p->d.name[i] = c;
     }
     p->d.name[len] = '\0';
+    for (i = 0; i < p->nseen; i++) {
+        if (k_strcmp(p->seen[i], p->d.name) == 0) {
+            dv_field_err(p, DV_ERR_DUPNAME, line);
+            return;
+        }
+    }
+    k_memcpy(p->seen[p->nseen++], p->d.name, len + 1);
 }
 
 /* Decimal, or 0x hex, into 32 bits. Returns 0 on success. */
@@ -420,6 +436,53 @@ static void dv_check_chips(dv_parse_t *p)
     }
 }
 
+int dv_on_at_reset(const dv_device_t *d)
+{
+    unsigned up;
+
+    if (d == NULL || d->chip != DV_CHIP_PI || d->type == DV_TYPE_SENSOR || d->pin >= 32) {
+        return 0;
+    }
+    up = (DV_PINS_RESET_PULLUP >> d->pin) & 1u;
+    return up == (d->active_high != 0);
+}
+
+int dv_arm_ok(const dv_set_t *set)
+{
+    unsigned i;
+
+    if (set == NULL) {
+        return 0;
+    }
+    for (i = 0; i < set->count && i < DV_MAX_DEVICES; i++) {
+        const dv_device_t *d = &set->dev[i];
+
+        if (d->type == DV_TYPE_RELAY && k_strcmp(d->name, DV_ARM_NAME) == 0) {
+            return d->chip == DV_CHIP_PI && !dv_on_at_reset(d);
+        }
+    }
+    return 0;
+}
+
+/* After the whole file and dv_check_chips(): the ARM rule of dev.h. */
+static void dv_check_arm(dv_parse_t *p)
+{
+    dv_set_t *set = p->set;
+    unsigned i;
+
+    if (dv_arm_ok(set)) {
+        return;
+    }
+    for (i = 0; i < set->count; i++) {
+        dv_device_t *d = &set->dev[i];
+
+        if (d->chip != DV_CHIP_PI && d->type != DV_TYPE_SENSOR) {
+            d->refused = DV_ERR_NOARM;
+            dv_add_err(p->res, DV_ERR_NOARM, p->lines[i], d->name);
+        }
+    }
+}
+
 /* Each header closes the section before it and opens a new one. */
 static int dv_on_section(const char *section, unsigned line, void *ctx)
 {
@@ -498,10 +561,12 @@ int dv_cfg_parse_pins(const char *text, size_t len, uint32_t refused,
         res->parse_line = line;
         dv_add_err(res, DV_ERR_SYNTAX, line, "");
         dv_check_chips(&p);
+        dv_check_arm(&p);
         return DV_ERR_SYNTAX;
     }
     dv_finish(&p);
     dv_check_chips(&p);
+    dv_check_arm(&p);
     return DV_OK;
 }
 

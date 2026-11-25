@@ -27,6 +27,7 @@
 #define DV_MAX_EXPANDERS    4       /* I2C expander chips, X0 to X3 */
 #define DV_EXP_PINS         8       /* pins per expander chip, 0 to 7 */
 #define DV_CHIP_PI          0xFFu   /* chip value of a Pi pin */
+#define DV_ARM_NAME         "ARM"   /* the relay that switches the supply of every load */
 
 /*
  * Refused pin masks: bit n set refuses GPIO n. Pins from DV_PIN_LIMIT up
@@ -88,6 +89,7 @@ _Static_assert(DV_PRIV_SYSTEM == 0x1u && DV_PRIV_OPER == 0x2u,
 #define DV_ERR_EXPADDR      (-21)   /* addr missing, not 0x20-0x27 or 0x38-0x3F, or taken */
 #define DV_ERR_NOCHIP       (-22)   /* expander pin on a chip with no good [expander N] */
 #define DV_ERR_EMPTY        (-23)   /* a device or expander section with no keys */
+#define DV_ERR_NOARM        (-24)   /* expander output and no ARM relay on a Pi pin off at reset */
 
 /* Warning codes: the device loads, the result counts and names it. */
 #define DV_WARN_PULLUP      (-30)   /* active-high output on a pin pulled up at reset */
@@ -126,6 +128,7 @@ typedef struct {
     uint8_t initial_on;             /* outputs only */
     uint16_t pulse_ms;              /* 0: level device */
     uint32_t privs;                 /* bits needed to change it */
+    int8_t refused;                 /* 0, or DV_ERR_NOARM: never configured, written or commanded */
 } dv_device_t;
 
 typedef struct {
@@ -228,6 +231,25 @@ int dv_pin_refused_in(uint32_t refused, unsigned pin);
 int dv_pin_refused(unsigned pin);
 
 /*
+ * 1 when Pi output `d` is on from reset until boot configures it: its
+ * reset pull (DV_PINS_RESET_PULLUP) is its active level. 0 otherwise, and
+ * for an expander pin.
+ */
+int dv_on_at_reset(const dv_device_t *d);
+
+/*
+ * The ARM rule. An expander output keeps its level on a panic and when
+ * the software watchdog fires, since no I2C transfer may start then. Only
+ * an ARM relay on a Pi pin cuts its supply. So an expander output is
+ * usable only when the table has a relay named ARM on a Pi pin that is
+ * off at reset. dv_cfg_parse_pins() checks it after the whole file: when
+ * it fails, every expander output, ARM included when it sits on an
+ * expander, gets `refused` DV_ERR_NOARM and a counted DV_ERR_NOARM error.
+ * Returns 1 when the table passes, else 0.
+ */
+int dv_arm_ok(const dv_set_t *set);
+
+/*
  * Formats the result as "loaded=N skipped=N unknown=N ignored=N errors=N
  * parse=N warnings=N" for the ev=config marker. DV_ERR_SPACE if it does not fit,
  * with `buf` set to "" when size > 0.
@@ -249,7 +271,8 @@ const char *dv_type_name(unsigned type);
 dv_action_t dv_action_parse(const char *word);
 
 /*
- * Boot: one operation per device, in table order. Outputs get
+ * Boot: one operation per device, in table order, none for a refused
+ * device, which stays off. Outputs get
  * CONFIG_OUTPUT at their initial level, sensors CONFIG_INPUT with a pull
  * toward the inactive level (active high: pull down; active low: pull up).
  * Sets each output's state to its initial one. Returns the number of
@@ -259,7 +282,7 @@ int dv_boot_ops(dv_set_t *set, dv_op_t *ops, unsigned max);
 
 /*
  * Runs `act` on device `idx` for a user with privilege bits `privs`.
- * Checks in order: sensor (READONLY), word valid for the type
+ * Checks in order: refused (its `refused` code), sensor (READONLY), word valid for the type
  * (BADACTION), privileges (NOPRIV: SYSTEM passes, else every bit of the
  * device's mask is needed), PULSE length (NOPULSE). Any pending pulse
  * end is cancelled first. A device with pulse_ms > 0 pulses for an "on"
@@ -285,7 +308,8 @@ const char *dv_state_word(const dv_set_t *set, unsigned idx);
 
 /*
  * SHOW DEVICES columns: name 8, type 6, label 31, state 8, "GPIO n", then
- * " FAULT=<fails>" while a write is owed, then " UNREACHABLE" while the
+ * " FAULT=<fails>" while a write is owed, then " REFUSED=NOARM" for a
+ * device the ARM rule refused, then " UNREACHABLE" while the
  * boot write to the initial level has failed and nothing is owed. The state is the last one
  * written to the pin.
  * dv_status_header() and dv_status_line() fill `buf` or return

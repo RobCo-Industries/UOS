@@ -56,7 +56,8 @@ int devs_arm_index(const dv_set_t *set)
         return -1;
     }
     for (i = 0; i < set->count && i < DV_MAX_DEVICES; i++) {
-        if (set->dev[i].type == DV_TYPE_RELAY && k_strcmp(set->dev[i].name, DEVS_ARM_NAME) == 0) {
+        if (set->dev[i].type == DV_TYPE_RELAY && set->dev[i].refused == 0 &&
+            k_strcmp(set->dev[i].name, DEVS_ARM_NAME) == 0) {
             return (int)i;
         }
     }
@@ -73,9 +74,14 @@ int devs_boot_plan(dv_set_t *set, dv_op_t *ops, unsigned max)
     if (n <= 0 || arm < 0) {
         return n;
     }
-    /* One operation per device in table order: ops[arm] is ARM's. */
-    a = ops[arm];
-    for (i = arm; i + 1 < n; i++) {
+    /* Table order, refused devices left out: find ARM's operation. */
+    for (i = 0; i < n && ops[i].dev != (uint8_t)arm; i++) {
+    }
+    if (i == n) {
+        return n;
+    }
+    a = ops[i];
+    for (; i + 1 < n; i++) {
         ops[i] = ops[i + 1];
     }
     ops[n - 1] = a;
@@ -103,7 +109,7 @@ int devs_down_plan(const dv_set_t *set, dv_op_t *ops, unsigned max)
         return DV_ERR_ARG;
     }
     for (i = 0; i < set->count; i++) {
-        need += set->dev[i].type != DV_TYPE_SENSOR;
+        need += set->dev[i].type != DV_TYPE_SENSOR && set->dev[i].refused == 0;
     }
     if (max < need) {
         return DV_ERR_SPACE;
@@ -113,7 +119,7 @@ int devs_down_plan(const dv_set_t *set, dv_op_t *ops, unsigned max)
         down_op(set, (unsigned)arm, 0, &ops[n++]);
     }
     for (i = set->count; i-- > 0;) {
-        if (set->dev[i].type == DV_TYPE_SENSOR || (int)i == arm) {
+        if (set->dev[i].type == DV_TYPE_SENSOR || set->dev[i].refused != 0 || (int)i == arm) {
             continue;
         }
         down_op(set, i, set->dev[i].initial_on, &ops[n++]);
@@ -289,7 +295,7 @@ unsigned devs_unreachable(const dv_set_t *set)
     }
     for (i = 0; i < set->count && i < DV_MAX_DEVICES; i++) {
         if ((int)i != arm && set->dev[i].type != DV_TYPE_SENSOR &&
-            (set->st[i].fault || set->st[i].unreached)) {
+            (set->st[i].fault || set->st[i].unreached || set->dev[i].refused != 0)) {
             n++;
         }
     }
@@ -383,6 +389,8 @@ int devs_boot_run(dv_set_t *set, const devs_io_t *io, dv_rec_t *rec, uint32_t ti
     *nev = 0;
     dv_reset(set);
     arm = devs_arm_index(set);
+    /* A refused output was never written: ARM stays off for it too. */
+    faulted = devs_unreachable(set);
     n = devs_boot_plan(set, ops, DV_MAX_DEVICES);
     for (i = 0; i < n; i++) {
         unsigned d = ops[i].dev;
@@ -474,6 +482,7 @@ int devs_vfs_code(int code)
     case DEVS_ERR_NOEXP:
     case DEVS_ERR_FAULT:
     case DEVS_ERR_SKIP:
+    case DV_ERR_NOARM:
         return VFS_E_WRITE;
     default:
         return code >= 0 ? code : VFS_E_ARG;
