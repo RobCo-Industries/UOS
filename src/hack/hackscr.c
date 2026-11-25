@@ -534,13 +534,23 @@ static void reply_state(void)
 
 #if defined(UOS_TEST_HOOKS) && UOS_TEST_HOOKS
 /* Test builds only: the nm test proves the shipped image has none of this. */
+static void __attribute__((noinline)) uos_test_hack_seed_set(void *arg)
+{
+    hg.posted--;
+    hg.seed = (uint32_t)(uintptr_t)arg;
+    hg.fixed = 1;
+}
+
+/* Posted, as every command that acts: the seed applies after the input
+ * received before it. */
 static int __attribute__((noinline)) uos_test_hack_seed(char *arg)
 {
-    if (uos_dec_u32(arg, 0xffffffffu, &hg.seed) != 0) {
+    uint32_t n;
+
+    if (uos_dec_u32(arg, 0xffffffffu, &n) != 0) {
         return uos_maint_fail("usage hack seed <n>");
     }
-    hg.fixed = 1;
-    return 0;
+    return post_arg(uos_test_hack_seed_set, (void *)(uintptr_t)n);
 }
 #endif
 
