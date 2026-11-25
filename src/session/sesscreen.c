@@ -356,6 +356,7 @@ uos_screen_t sess_login_screen = {
 /* ---- The lockout screen ---- */
 
 static uos_timer_id_t lock_timer;
+static uos_screen_t lock_screen;
 
 static const char *lock_text(void)
 {
@@ -400,7 +401,7 @@ static void lock_second(void *arg)
         return;
     }
     UOS_MARK("lockout s=%u", (unsigned)left);
-    uos_screen_invalidate();
+    uos_screen_dirty(&lock_screen);
 }
 
 static void lock_enter(uos_screen_t *s)

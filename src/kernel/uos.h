@@ -166,6 +166,9 @@ uos_screen_t *uos_screen_at(unsigned i);
 void uos_screen_invalidate(void);
 /* Asks for a redraw of every visible screen, bottom-up, as after a pop. */
 void uos_screen_expose(void);
+/* `s` changed: redraws it through the stack when it shows, else
+ * nothing until it is uncovered. See uos_ss_dirty(). */
+void uos_screen_dirty(const uos_screen_t *s);
 
 /* Empties the queue, the timers and the screen stack. Once, before the first screen. */
 void uos_loop_init(void);

@@ -375,6 +375,44 @@ TEST(expose_and_replace_redraw_the_visible_screens)
     CHECK_STR(log_buf, "draw:login draw:line leave:line enter:other draw:login draw:other ");
 }
 
+/* A covered screen whose timer fires: it never draws over the top. Under a
+ * full screen nothing draws; under a partial one the stack repaints from the
+ * screen up, so the partial screen stays on top of it. */
+TEST(dirty_paints_a_covered_screen_only_through_the_stack)
+{
+    uos_sstack_t ss;
+    FULL(lock, "lock");
+    SCREEN(line, "line", 1);
+    FULL(reader, "reader");
+    SCREEN(stranger, "stranger", 1);
+
+    uos_ss_init(&ss);
+    uos_ss_push(&ss, &lock);
+    uos_ss_draw(&ss);
+    log_buf[0] = '\0';
+    CHECK_EQ(uos_ss_dirty(&ss, &lock), 1);
+    CHECK_EQ(uos_ss_draw(&ss), 1);
+    uos_ss_push(&ss, &line);
+    uos_ss_draw(&ss);
+    log_buf[0] = '\0';
+    CHECK_EQ(uos_ss_dirty(&ss, &lock), 1);
+    CHECK_EQ(uos_ss_draw(&ss), 2);
+    CHECK_STR(log_buf, "draw:lock draw:line ");
+    uos_ss_push(&ss, &reader);
+    uos_ss_draw(&ss);
+    log_buf[0] = '\0';
+    CHECK_EQ(uos_ss_dirty(&ss, &lock), 0);
+    CHECK_EQ(uos_ss_dirty(&ss, &line), 0);
+    CHECK_EQ(uos_ss_dirty(&ss, &stranger), 0);
+    CHECK_EQ(uos_ss_draw(&ss), 0);
+    CHECK_STR(log_buf, "");
+    uos_ss_pop(&ss, &reader);
+    CHECK_EQ(uos_ss_draw(&ss), 2);
+    CHECK_STR(log_buf, "leave:reader draw:lock draw:line ");
+    CHECK_EQ(uos_ss_dirty(NULL, &lock), 0);
+    CHECK_EQ(uos_ss_dirty(&ss, NULL), 0);
+}
+
 static uos_sstack_t *uc_ss;
 static uos_screen_t *uc_push;   /* uncover() pushes this, once */
 

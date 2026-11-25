@@ -197,7 +197,7 @@ static void scan_done(void)
     UOS_MARK("holo op=scan result=%s total=%u kept=%u damaged=%u unchecked=%u rc=%d",
              hs_scan_name(hs.scan), (unsigned)hs.total, (unsigned)hs.kept, (unsigned)damaged,
              (unsigned)unchecked, hs.scan_rc);
-    uos_screen_invalidate();
+    uos_screen_dirty(&holo_screen);
 }
 
 static void scan_step(void *arg)
@@ -251,7 +251,7 @@ static void scan_begin(void)
     hs.total = (uint32_t)total;
     hs.next = 0;
     hs.st = ST_SCAN;
-    uos_screen_invalidate();
+    uos_screen_dirty(&holo_screen);
     later(scan_step);
 }
 
@@ -280,7 +280,7 @@ static void pager_done(int result, void *ctx)
     hs.st = ST_LIST;
     (void)hf_reader_event(&hs.r, HF_EV_BACK, &a);
     act(&a);
-    uos_screen_invalidate();
+    uos_screen_dirty(&holo_screen);
 }
 
 static void load_step(void *arg)
@@ -321,7 +321,7 @@ static void load_step(void *arg)
             hs.tapes[hs.open].err = hrc;
         }
     }
-    uos_screen_invalidate();
+    uos_screen_dirty(&holo_screen);
 }
 
 static void act(const hf_action_t *a)
@@ -333,7 +333,7 @@ static void act(const hf_action_t *a)
         hs.open = a->tape;
         hs.st = ST_LOADING;
         hs_loading_text(hs.tapes[a->tape].file, hs.msg, sizeof(hs.msg));
-        uos_screen_invalidate();
+        uos_screen_dirty(&holo_screen);
         /* The draw runs before the next pass: the loading line shows
          * while the read holds the loop. */
         later(load_step);
@@ -378,7 +378,7 @@ static void model_event(hf_event_t ev)
         act(&a);
     }
     if (hs.st != ST_CLOSED) {
-        uos_screen_invalidate();
+        uos_screen_dirty(&holo_screen);
     }
 }
 

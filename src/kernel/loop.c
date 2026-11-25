@@ -162,6 +162,11 @@ void uos_screen_expose(void)
     uos_ss_expose(&ss);
 }
 
+void uos_screen_dirty(const uos_screen_t *s)
+{
+    (void)uos_ss_dirty(&ss, s);
+}
+
 /* Input events become kernel events, port calls included, in queue
  * order. Releases and dial turns are dropped. */
 static void take_input(const input_event_t *in)

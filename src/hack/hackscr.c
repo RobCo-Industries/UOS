@@ -159,7 +159,7 @@ static void say(const char *text)
     if (text[0] != '\0') {
         serial_line(text);
     }
-    uos_screen_invalidate();
+    uos_screen_dirty(&hack_screen);
 }
 
 /* ---- Start ---- */

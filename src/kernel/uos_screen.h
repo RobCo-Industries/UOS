@@ -111,6 +111,12 @@ void uos_ss_invalidate(uos_sstack_t *ss);
  * visible screen, as after a pop. For a partial screen that shrinks,
  * such as the read line when its keyboard closes. */
 void uos_ss_expose(uos_sstack_t *ss);
+/* `s` changed what it shows. On top: the stack is dirty. Covered but
+ * visible under partial screens only: the stack is exposed, so `s` and
+ * the screens over it repaint in order. Hidden under a full screen, or
+ * not on the stack: nothing, since the pop that shows `s` again exposes
+ * it. Only the draw pass paints `s`. Returns 1 when a draw is due. */
+int uos_ss_dirty(uos_sstack_t *ss, const uos_screen_t *s);
 /* Draws when dirty: the top, or every visible screen when exposed.
  * Then, when a pop left the top uncovered, calls its uncover() once,
  * then each owner's in the chain, as above.

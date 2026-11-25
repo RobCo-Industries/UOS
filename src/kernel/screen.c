@@ -216,6 +216,26 @@ static unsigned visible_base(const uos_sstack_t *ss)
     return 0;
 }
 
+int uos_ss_dirty(uos_sstack_t *ss, const uos_screen_t *s)
+{
+    unsigned i;
+
+    if (ss == NULL || s == NULL || ss->depth == 0) {
+        return 0;
+    }
+    if (ss->stack[ss->depth - 1] == s) {
+        ss->dirty = 1;
+        return 1;
+    }
+    for (i = visible_base(ss); i < ss->depth; i++) {
+        if (ss->stack[i] == s) {
+            uos_ss_expose(ss);
+            return 1;
+        }
+    }
+    return 0;
+}
+
 int uos_ss_draw(uos_sstack_t *ss)
 {
     unsigned i, depth;

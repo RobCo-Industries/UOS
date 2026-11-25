@@ -120,7 +120,7 @@ static void on_clock(void *arg)
     (void)arg;
     if (uos.rtc) {
         read_clock();
-        uos_screen_invalidate();
+        uos_screen_dirty(&uos_first_screen);
     }
 }
 
@@ -140,7 +140,7 @@ void uos_first_set_notice(const char *row0, const char *row1, int reboot)
     info.notice[0] = notice_set ? notice[0] : NULL;
     info.notice[1] = notice_set ? notice[1] : NULL;
     if (shown) {
-        uos_screen_invalidate();
+        uos_screen_dirty(&uos_first_screen);
     }
 }
 
@@ -168,8 +168,9 @@ static void show(void *arg)
     }
     shown = 1;
     read_clock();
-    /* Drawn now, so the screen is complete when "ready" goes out. */
-    draw(&uos_first_screen);
+    /* The stack draws it before the next port command, and only when it
+     * shows: a screen pushed over the banner stays as it is. */
+    uos_screen_dirty(&uos_first_screen);
     if (uos_timer_start(CLOCK_TICKS, CLOCK_TICKS, on_clock, NULL, &clock_id) != 0) {
         uos_set_error("timer");
     }
@@ -303,7 +304,7 @@ static int event(uos_screen_t *s, const uos_event_t *ev)
     UOS_MARK("key screen=first type=%s code=%u name=%s keys=%u", uos_ev_name(ev->type),
              (unsigned)ev->code, key_name, info.keys);
     if (shown) {
-        uos_screen_invalidate();
+        uos_screen_dirty(&uos_first_screen);
     }
     return 1;
 }
