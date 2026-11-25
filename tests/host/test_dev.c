@@ -153,7 +153,7 @@ TEST(cfg_bad_fields_alone)
     expect_bad("privs = 4294967296", DV_ERR_PRIVS);
     expect_bad("privs = oper", DV_ERR_PRIVS);
     expect_bad("pulse_ms = 100\ninitial = on", DV_ERR_INITIAL);
-    CHECK_EQ(g_res.errs[0].line, 2);
+    CHECK_EQ(g_res.errs[0].line, 1);
 }
 
 TEST(cfg_field_limits_good)
@@ -211,7 +211,7 @@ TEST(cfg_duplicates)
                    "[device a]\ntype = light\ngpio = 25\n"), DV_OK);
     CHECK_EQ(g_res.loaded, 1);
     CHECK_EQ(g_res.errs[0].code, DV_ERR_DUPNAME);
-    CHECK_EQ(g_res.errs[0].line, 5);
+    CHECK_EQ(g_res.errs[0].line, 4);
     CHECK_STR(g_res.errs[0].name, "a");
     CHECK_EQ(parse("[device A]\ntype = door\ngpio = 4\n"
                    "[device B]\ntype = light\ngpio = 4\n"
@@ -341,7 +341,7 @@ TEST(cfg_warns_active_high_output_on_reset_pullup)
     CHECK_EQ(g_res.loaded, 1);
     CHECK_EQ(g_res.warn_count, 1);
     CHECK_EQ(g_res.warns[0].code, DV_WARN_PULLUP);
-    CHECK_EQ(g_res.warns[0].line, 2);
+    CHECK_EQ(g_res.warns[0].line, 1);
     CHECK_STR(g_res.warns[0].name, "D1");
     CHECK_EQ(g_res.err_count, 0);
     /* No warning: active low, a sensor, or a pin pulled down at reset. */
@@ -516,7 +516,7 @@ TEST(cfg_expander_pin_needs_its_chip)
     CHECK_EQ(g_res.skipped, 1);
     CHECK_EQ(g_res.err_count, 1);
     CHECK_EQ(g_res.errs[0].code, DV_ERR_NOCHIP);
-    CHECK_EQ(g_res.errs[0].line, 5);
+    CHECK_EQ(g_res.errs[0].line, 4);
     CHECK_STR(g_res.errs[0].name, "LAMP");
     CHECK_STR(g_set.dev[0].name, "A");
     CHECK_STR(g_set.dev[1].name, "B");
@@ -579,7 +579,7 @@ TEST(cfg_expander_numbers_and_duplicates)
         CHECK_EQ(parse(buf), DV_OK);
         CHECK_EQ(g_res.err_count, 1);
         CHECK_EQ(g_res.errs[0].code, DV_ERR_EXPANDER);
-        CHECK_EQ(g_res.errs[0].line, 2);
+        CHECK_EQ(g_res.errs[0].line, 1);
     }
     /* The same chip twice: the second one is refused. */
     CHECK_EQ(parse("[expander 0]\naddr = 0x20\n[x]\ny = 1\n[expander 0]\naddr = 0x21\n"), DV_OK);
@@ -592,6 +592,54 @@ TEST(cfg_expander_numbers_and_duplicates)
     CHECK_STR(g_res.errs[0].name, "X1");
     CHECK_EQ(g_set.exp[0].declared, 1);
     CHECK_EQ(g_set.exp[1].declared, 0);
+}
+
+/* ini_parse_sections() shows headers: an empty section is a named error. */
+TEST(cfg_empty_sections_counted)
+{
+    CHECK_EQ(parse("[device A]\ntype = door\ngpio = 12\n"
+                   "[device EMPTY]\n"
+                   "[expander 1]\n"
+                   "; a comment is not a key\n"
+                   "[device B]\ntype = light\ngpio = 13\n"), DV_OK);
+    CHECK_EQ(g_res.loaded, 2);
+    CHECK_EQ(g_res.skipped, 1);
+    CHECK_EQ(g_res.err_count, 2);
+    CHECK_EQ(g_res.errs[0].code, DV_ERR_EMPTY);
+    CHECK_EQ(g_res.errs[0].line, 4);
+    CHECK_STR(g_res.errs[0].name, "EMPTY");
+    CHECK_EQ(g_res.errs[1].code, DV_ERR_EMPTY);
+    CHECK_EQ(g_res.errs[1].line, 5);
+    CHECK_STR(g_res.errs[1].name, "X1");
+    CHECK_EQ(g_set.exp[1].declared, 0);
+    /* The last section of the file, empty, counts too. */
+    CHECK_EQ(parse("[device A]\ntype = door\ngpio = 12\n[device Z]\n"), DV_OK);
+    CHECK_EQ(g_res.err_count, 1);
+    CHECK_EQ(g_res.errs[0].code, DV_ERR_EMPTY);
+    CHECK_STR(g_res.errs[0].name, "Z");
+    /* An empty section of another kind is not a device: nothing counts. */
+    CHECK_EQ(parse("[notes]\n[device A]\ntype = door\ngpio = 12\n"), DV_OK);
+    CHECK_EQ(g_res.err_count, 0);
+    CHECK_EQ(g_res.loaded, 1);
+    CHECK_STR(dv_strerror(DV_ERR_EMPTY), "%DEVICE-E-EMPTY, section has no keys");
+}
+
+/* A header repeated right after itself is a new section, not a merge. */
+TEST(cfg_repeated_sections_counted)
+{
+    CHECK_EQ(parse("[device A]\ntype = door\ngpio = 12\n"
+                   "[device A]\ntype = light\ngpio = 13\n"), DV_OK);
+    CHECK_EQ(g_res.loaded, 1);
+    CHECK_EQ(g_res.err_count, 1);
+    CHECK_EQ(g_res.errs[0].code, DV_ERR_DUPNAME);
+    CHECK_EQ(g_res.errs[0].line, 4);
+    CHECK_STR(g_res.errs[0].name, "A");
+    CHECK_EQ(g_set.dev[0].pin, 12);
+    CHECK_EQ(parse("[expander 0]\naddr = 0x20\n[expander 0]\naddr = 0x21\n"), DV_OK);
+    CHECK_EQ(g_res.err_count, 1);
+    CHECK_EQ(g_res.errs[0].code, DV_ERR_EXPANDER);
+    CHECK_EQ(g_res.errs[0].line, 3);
+    CHECK_EQ(g_set.exp[0].addr, 0x20);
 }
 
 TEST(cfg_expander_pin_syntax)

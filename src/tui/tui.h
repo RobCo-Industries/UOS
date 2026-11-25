@@ -75,7 +75,9 @@ enum {
 #define TUI_E_DEPTH         (-15)   /* a menu would nest deeper than 8 */
 #define TUI_E_STATE         (-16)   /* call not valid in this state */
 #define TUI_E_SPACE         (-17)   /* caller buffer too small */
-#define TUI_E_COUNT         17
+#define TUI_E_EMPTY         (-18)   /* [terminal] or [entry N] with no keys */
+#define TUI_E_DUP_SECTION   (-19)   /* [terminal] given twice, the first wins */
+#define TUI_E_COUNT         19
 
 /* One line of text for an error code. Unknown codes give "unknown error". */
 const char *tui_strerror(int code);

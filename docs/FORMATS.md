@@ -11,7 +11,7 @@ UOS reads its files from the `/UOS` folder of the card. This page lists every fo
 | `/UOS/WORDS/Wnn.TXT` | text, one word per line | `src/hack/hack.c` | [hack](modules/hack.md#word-list-format) |
 | `/UOS/HOLO/*.HTP` | sealed rimg with an HTXT archive | `src/holo/holofmt.c` | [holo](modules/holo.md#file-layout) |
 
-The INI files use the RobCo-Core INI reader. Comments start with `;` or `#`. LF and CR LF line ends both work. The reader reports keys only, so a section with no keys is never seen. See [Pending library features](ARCHITECTURE.md#pending-library-features).
+The INI files use the RobCo-Core INI reader. Comments start with `;` or `#`. LF and CR LF line ends both work. `DEVICES.CFG` and `TERMINAL.CFG` go through `ini_parse_sections()`, which also reports each section header, so a section with no keys or a repeated section is a counted error.
 
 ## UOS.CFG
 

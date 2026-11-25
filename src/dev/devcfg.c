@@ -1,13 +1,13 @@
 /*
  * DEVICES.CFG parser. Pure: text in, device table out.
  *
- * PENDING LIBRARY FEATURE: ini_parse() reports keys only, so a section
- * with no keys is never seen, and a repeated section header is not
- * reported. RobCo-Core will add ini_parse_sections() in a later pin
- * bump. Then switch to it so an empty or repeated section is a counted
- * error. See docs/ARCHITECTURE.md, "Pending library features".
+ * ini_parse_sections() reports every section header, so a device or
+ * expander section with no keys is a counted DV_ERR_EMPTY, and a repeated
+ * header opens a new section: DV_ERR_DUPNAME for a device, DV_ERR_EXPANDER
+ * for an expander. Section errors carry the header's line.
  */
 
+#include <robco/gpiox.h>
 #include <robco/ini.h>
 #include <robco/klibc.h>
 
@@ -25,7 +25,8 @@ typedef struct {
     int seen_addr;
     uint8_t exp_addr;
     unsigned lines[DV_MAX_DEVICES];  /* first line of each loaded device */
-    int over;               /* past the 16th device section: ignored */
+    int over;               /* past the DV_MAX_DEVICES-th device section: ignored */
+    unsigned nkeys;         /* keys in the current section */
     unsigned sections;      /* device sections seen so far */
     int err;                /* first bad field, DV_ERR_* or 0 */
     unsigned err_line;
@@ -109,18 +110,15 @@ static void dv_field_err(dv_parse_t *p, int code, unsigned line)
     }
 }
 
-/* 1 for an expander address: PCF8574 0x20 to 0x27, PCF8574A 0x38 to 0x3F. */
-static int dv_exp_addr_ok(uint32_t a)
-{
-    return (a >= 0x20 && a <= 0x27) || (a >= 0x38 && a <= 0x3F);
-}
-
 /* Closes an [expander N] section: declares the chip or adds an error. */
 static void dv_finish_expander(dv_parse_t *p)
 {
     dv_set_t *set = p->set;
     unsigned i;
 
+    if (p->err == 0 && p->nkeys == 0) {
+        dv_field_err(p, DV_ERR_EMPTY, p->first_line);
+    }
     if (p->err == 0 && !p->seen_addr) {
         dv_field_err(p, DV_ERR_EXPADDR, p->first_line);
     }
@@ -156,6 +154,9 @@ static void dv_finish(dv_parse_t *p)
     if (p->over) {
         p->res->ignored++;
         return;
+    }
+    if (p->err == 0 && p->nkeys == 0) {
+        dv_field_err(p, DV_ERR_EMPTY, p->first_line);
     }
     if (p->err == 0 && !p->seen_type) {
         dv_field_err(p, DV_ERR_TYPE, p->first_line);
@@ -210,6 +211,7 @@ static void dv_start(dv_parse_t *p, const char *section, unsigned line)
     p->seen_addr = 0;
     p->exp_addr = 0;
     p->over = 0;
+    p->nkeys = 0;
     p->err = 0;
     p->err_line = 0;
     p->first_line = line;
@@ -418,15 +420,26 @@ static void dv_check_chips(dv_parse_t *p)
     }
 }
 
+/* Each header closes the section before it and opens a new one. */
+static int dv_on_section(const char *section, unsigned line, void *ctx)
+{
+    dv_parse_t *p = ctx;
+
+    dv_finish(p);
+    dv_start(p, section, line);
+    return 0;
+}
+
 static int dv_handler(const char *section, const char *key, const char *value,
                       unsigned line, void *ctx)
 {
     dv_parse_t *p = ctx;
 
-    if (!p->have_section || k_strcmp(section, p->section) != 0) {
-        dv_finish(p);
+    if (!p->have_section) {
+        /* A key before any section header. */
         dv_start(p, section, line);
     }
+    p->nkeys++;
     if (p->is_expander) {
         uint32_t v;
 
@@ -436,7 +449,7 @@ static int dv_handler(const char *section, const char *key, const char *value,
             dv_field_err(p, DV_ERR_EXPADDR, line);
         } else {
             p->seen_addr = 1;
-            if (k_strlen(value) > 4 || dv_parse_u32(value, 1, &v) != 0 || !dv_exp_addr_ok(v)) {
+            if (k_strlen(value) > 4 || dv_parse_u32(value, 1, &v) != 0 || !gpiox_addr_valid(v)) {
                 dv_field_err(p, DV_ERR_EXPADDR, line);
             } else {
                 p->exp_addr = (uint8_t)v;
@@ -479,7 +492,7 @@ int dv_cfg_parse_pins(const char *text, size_t len, uint32_t refused,
     if (len == 0) {
         return DV_OK;
     }
-    rc = ini_parse(text, len, dv_handler, &p, &line);
+    rc = ini_parse_sections(text, len, dv_handler, dv_on_section, &p, &line);
     if (rc != 0) {
         res->parse_rc = rc;
         res->parse_line = line;

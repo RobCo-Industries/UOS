@@ -7,6 +7,7 @@ All notable changes to UOS are recorded here. The format follows [Keep a Changel
 ### Changed
 
 - Rebuilt UOS on RobCo-Core. The prototype is gone.
+- `DEVICES.CFG` and `TERMINAL.CFG` read with `ini_parse_sections()`: an empty section is `DV_ERR_EMPTY` or `TUI_E_EMPTY`, a repeated one is a counted error even right after itself, and section errors carry the header's line.
 - RobCo-Core moved to `4249632`. The library's two-pass `test-host-gccwarn` and its `make ci-local` replace UOS's own `test-host-gccwarn-ci` and `tools/ci_local.sh`.
 
 ### Added

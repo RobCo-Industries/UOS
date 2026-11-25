@@ -376,6 +376,8 @@ const char *dv_strerror(int code)
         return "%DEVICE-E-BADADDR, expander addr must be 0x20 to 0x27 or 0x38 to 0x3F, once";
     case DV_ERR_NOCHIP:
         return "%DEVICE-E-NOCHIP, expander pin on an undeclared chip";
+    case DV_ERR_EMPTY:
+        return "%DEVICE-E-EMPTY, section has no keys";
     case DV_WARN_PULLUP:
         return "%DEVICE-W-PULLUP, active-high output on a pin pulled up at reset";
     default:

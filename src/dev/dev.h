@@ -87,6 +87,7 @@ _Static_assert(DV_PRIV_SYSTEM == 0x1u && DV_PRIV_OPER == 0x2u,
 #define DV_ERR_EXPANDER     (-20)   /* [expander N]: N not 0 to 3, or declared twice */
 #define DV_ERR_EXPADDR      (-21)   /* addr missing, not 0x20-0x27 or 0x38-0x3F, or taken */
 #define DV_ERR_NOCHIP       (-22)   /* expander pin on a chip with no good [expander N] */
+#define DV_ERR_EMPTY        (-23)   /* a device or expander section with no keys */
 
 /* Warning codes: the device loads, the result counts and names it. */
 #define DV_WARN_PULLUP      (-30)   /* active-high output on a pin pulled up at reset */
@@ -155,7 +156,7 @@ typedef struct {
 
 typedef struct {
     int code;                       /* DV_ERR_* */
-    unsigned line;                  /* line of the bad key, or of the section's first key */
+    unsigned line;                  /* line of the bad key, or of the section header */
     char name[DV_NAME_MAX + 1];     /* device name as written, cut to 8; "X" and N for an expander */
 } dv_cfg_err_t;
 

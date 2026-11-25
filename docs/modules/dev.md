@@ -35,8 +35,9 @@ Keys are lower-case. Rules:
 - Only the first 24 device sections are read, `DV_MAX_DEVICES`. Later ones are ignored and counted without checks.
 - Two devices may not share a name or a pin. The later one is skipped.
 - A sensor with `pulse_ms` other than 0 is skipped.
-- A section with no keys is never seen by the reader, so it is not counted. This waits on a library feature, see [Pending library features](../ARCHITECTURE.md#pending-library-features).
-- Two sections with the same name in a row merge into one, because the reader reports keys only.
+- A `[device NAME]` or `[expander N]` section with no keys is skipped with `DV_ERR_EMPTY`, `%DEVICE-E-EMPTY`. The reader is `ini_parse_sections()`, which reports every header.
+- A repeated header opens a new section, also right after itself: a repeated device is `DV_ERR_DUPNAME`, a repeated expander `DV_ERR_EXPANDER`. The first one wins.
+- An error about the whole section, such as a bad name, a missing key or a duplicate, carries the line of the section header. An error about one key carries that key's line.
 - If the INI reader stops on a bad line, devices finished before that line stay loaded. The device in progress is dropped.
 
 - An output with `active = high` on a pin pulled up at reset loads with a warning. Each warning adds its code, line and name to `warns`, and `warn_count` counts them all.
