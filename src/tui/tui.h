@@ -29,7 +29,7 @@
 #define TUI_DEVWORD_MAX     15      /* characters in a device action word */
 #define TUI_TARGET_MAX      127     /* bytes in any stored target */
 #define TUI_CFG_ERR_LOG     8       /* errors kept with their line; all are counted */
-#define TUI_SEEN_MAX        32      /* entry numbers remembered for the duplicate check */
+#define TUI_ENTRY_NUM_MAX   999     /* highest N of [entry N]: 1 to 3 digits */
 #define TUI_DEPTH_MAX       8       /* menus nest up to 8 deep */
 #define TUI_HEADER_LINES    8       /* header text lines shown */
 #define TUI_SYSNAME_MAX     31      /* characters in the system name */

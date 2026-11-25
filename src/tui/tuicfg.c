@@ -134,12 +134,13 @@ typedef struct {
     unsigned keys;
     unsigned sec_line;
     unsigned valid;             /* valid entries, visible and hidden */
-    unsigned nseen;
     unsigned tkeys;             /* keys seen in [terminal] */
     unsigned nkeys;             /* keys in the current section */
     int in_section;             /* a section, or keys before any header, started */
     int terminal_seen;          /* a [terminal] header came already */
-    uint16_t seen[TUI_SEEN_MAX];
+    /* Every [entry N] header, valid or not: bit N. A fixed list would
+     * miss repeats once full. */
+    uint8_t seen[(TUI_ENTRY_NUM_MAX + 8) / 8];
     tui_entry_t e;
 } cfg_ctx_t;
 
@@ -361,7 +362,6 @@ static void finish_entry(cfg_ctx_t *c)
 static void start_section(cfg_ctx_t *c, const char *section, unsigned line)
 {
     int n;
-    unsigned i;
 
     c->keys = 0;
     c->bad = 0;
@@ -388,16 +388,12 @@ static void start_section(cfg_ctx_t *c, const char *section, unsigned line)
         add_err(c, TUI_E_ENTRY_NUM, line, 0);
         return;
     }
-    for (i = 0; i < c->nseen; i++) {
-        if (c->seen[i] == n) {
-            c->kind = SEC_SKIP;
-            add_err(c, TUI_E_DUP_ENTRY, line, (unsigned)n);
-            return;
-        }
+    if (c->seen[n / 8] & (1u << (n % 8))) {
+        c->kind = SEC_SKIP;
+        add_err(c, TUI_E_DUP_ENTRY, line, (unsigned)n);
+        return;
     }
-    if (c->nseen < TUI_SEEN_MAX) {
-        c->seen[c->nseen++] = (uint16_t)n;
-    }
+    c->seen[n / 8] |= (uint8_t)(1u << (n % 8));
     c->kind = SEC_ENTRY;
     k_memset(&c->e, 0, sizeof(c->e));
     c->e.num = (uint16_t)n;

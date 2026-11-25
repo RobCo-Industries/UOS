@@ -386,6 +386,32 @@ TEST(cfg_repeated_sections)
     CHECK_STR(tui_strerror(TUI_E_DUP_SECTION), "section given twice");
 }
 
+/* Every header counts, valid or not, however many came before: an empty
+ * [entry 40] after 40 other headers still takes its number. */
+TEST(cfg_repeat_after_empty_entry_many_headers)
+{
+    static char buf[2048];
+    size_t n = 0;
+    int i;
+
+    for (i = 1; i <= 40; i++) {
+        n += (size_t)snprintf(buf + n, sizeof(buf) - n, "[entry %d]\n", i + 100);
+    }
+    n += (size_t)snprintf(buf + n, sizeof(buf) - n,
+                          "[entry 40]\n[entry 40]\nlabel = Late\ntype = logout\n");
+    CHECK_EQ(parse(buf, 0), TUI_OK);
+    CHECK_EQ(m.count, 0);
+    CHECK_EQ(m.errors, 42);
+    /* An invalid first section, then the same number with good keys. */
+    CHECK_EQ(parse("[entry 2]\nlabel = A\ntype = bad\n[entry 2]\nlabel = B\ntype = logout\n", 0),
+             TUI_OK);
+    CHECK_EQ(m.count, 0);
+    CHECK_EQ(m.errors, 2);
+    CHECK_EQ(m.err[1].code, TUI_E_DUP_ENTRY);
+    CHECK_EQ(parse("[entry 999]\n[entry 999]\nlabel = B\ntype = logout\n", 0), TUI_OK);
+    CHECK_EQ(m.count, 0);
+}
+
 TEST(cfg_error_log_overflow)
 {
     char buf[1024];
