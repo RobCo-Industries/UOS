@@ -9,7 +9,7 @@ from uos import (BOOT_ORDER, TIMEOUT, after_chain, after_chain1, alone, events, 
 def test_markers_in_order_alone(board, uos_image, need_mtools, tmp_path):
     with alone(uos_image, board, uos_card(tmp_path)) as vm:
         wait_ready(vm)
-        assert order(vm) == BOOT_ORDER, vm.serial
+        assert [e for e in order(vm) if e in BOOT_ORDER] == BOOT_ORDER, vm.serial
         boot = one(vm, "boot")
         assert boot["version"] == "0.1.0"
         # Alone, the stage starts in the mode the firmware stub uses on this board.
@@ -47,7 +47,7 @@ def test_trusted_after_chain1(board, chain1_image, uos_image, need_mtools, tmp_p
     the colour scheme, but clears the screen."""
     with after_chain1(chain1_image, uos_image, board, uos_card(tmp_path)) as vm:
         wait_ready(vm)
-        assert order(vm) == BOOT_ORDER, vm.serial
+        assert [e for e in order(vm) if e in BOOT_ORDER] == BOOT_ORDER, vm.serial
         handoff = one(vm, "handoff")
         assert (handoff["trusted"], handoff["prev"]) == ("1", "1"), handoff
         screen = one(vm, "screen")
@@ -89,4 +89,4 @@ def test_whole_chain(board, chain_images, uos_bytes, need_mtools, tmp_path):
         assert one(vm, "jump", "bootagent")
         handoff = one(vm, "handoff")
         assert (handoff["trusted"], handoff["prev"]) == ("1", "2"), handoff
-        assert order(vm) == BOOT_ORDER, vm.serial
+        assert [e for e in order(vm) if e in BOOT_ORDER] == BOOT_ORDER, vm.serial

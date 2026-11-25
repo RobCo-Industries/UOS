@@ -30,14 +30,17 @@ SRCS       := $(sort $(wildcard src/*/*.c src/*/*.S))
 # Pure files: no hardware access. The host tests link all of them. Two
 # lists: the pure files the design names, picked up when they exist, and
 # the kernel's own pure files, one per line and sorted.
-PURE_NAMED := src/dcl/*.c \
-              src/dev/devcfg.c src/dev/devstate.c \
+PURE_NAMED := src/console/conview.c \
+              src/console/lineedit.c \
+              src/dcl/*.c \
+              src/dev/devcfg.c src/dev/devsplan.c src/dev/devstate.c \
               src/hack/hack.c \
               src/holo/holofmt.c src/holo/holoread.c \
               src/osk/osk.c \
               src/session/lockout.c src/session/sha256.c src/session/uaf.c \
               src/tui/pager.c src/tui/tui.c src/tui/tuicfg.c \
-              src/vfs/path.c
+              src/vfs/path.c \
+              src/vfs/vfsrules.c
 PURE_KERNEL := \
               src/kernel/bootlines.c \
               src/kernel/event.c \
@@ -46,6 +49,7 @@ PURE_KERNEL := \
               src/kernel/service.c \
               src/kernel/settings.c \
               src/kernel/timerq.c \
+              src/kernel/u64dec.c \
 
 
 PURE_SRCS  := $(sort $(wildcard $(PURE_NAMED))) $(PURE_KERNEL)
@@ -65,6 +69,8 @@ HOST_GEN_HDRS := $(HOST_GEN)/uaf_vectors.h
 HOST_INCLUDES := $(SRC_INCLUDES) $(HOST_GEN)
 # Tests run from the repository root and read the shipped card files.
 HOST_DEFINES  := UAF_CARD_PATH='"card/UOS/SYSUAF.DAT"'
+# The library's FatFs glue over a host file: test_vfs_card.c runs vfs.c on it.
+HOST_CORE_SETS := fs fatfs
 
 ifeq ($(wildcard $(ROBCO_CORE)/mk/robco.mk),)
 $(error $(ROBCO_CORE) is empty: run git submodule update --init)
@@ -178,6 +184,8 @@ ci-local:
 
 # Generated headers exist before any host test builds.
 $(HOST_TESTS): $(HOST_GEN_HDRS)
+# test_vfs_card.c includes vfs.c: rebuild it when vfs.c changes.
+$(HOST_BUILD)/test_vfs_card: src/vfs/vfs.c
 
 $(HOST_GEN)/uaf_vectors.h: tests/vectors/uaf.json tools/mkuaf.py
 	@mkdir -p $(dir $@)

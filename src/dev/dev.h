@@ -23,7 +23,7 @@
 #define DV_MAX_ERRORS       8       /* config errors kept with details */
 #define DV_CMD_OPS          2       /* pin operations one command needs */
 #define DV_REC_SIZE         64      /* pin operations the record ring keeps */
-#define DV_STATUS_LINE_MAX  80      /* bytes of a status line, with the NUL */
+#define DV_STATUS_LINE_MAX  96      /* bytes of a status line, with the NUL */
 #define DV_MAX_EXPANDERS    4       /* I2C expander chips, X0 to X3 */
 #define DV_EXP_PINS         8       /* pins per expander chip, 0 to 7 */
 #define DV_CHIP_PI          0xFFu   /* chip value of a Pi pin */
@@ -132,6 +132,11 @@ typedef struct {
     uint8_t level;          /* last pin level written or read */
     uint8_t pending;        /* a pulse end is due */
     uint32_t due;           /* tick of the pulse end */
+    uint8_t fault;          /* a write to the safe level failed and is owed */
+    uint8_t owed;           /* the pin level owed */
+    uint8_t owed_kind;      /* dv_op_kind_t of the owed write */
+    uint16_t fails;         /* failed tries of the owed write, stops at 65535 */
+    uint8_t unreached;      /* boot: the initial write failed and nothing is owed */
 } dv_dstate_t;
 
 /* One I2C expander chip, from an [expander N] section. */
@@ -278,7 +283,10 @@ int dv_sensor_update(dv_set_t *set, unsigned idx, int level);
 const char *dv_state_word(const dv_set_t *set, unsigned idx);
 
 /*
- * SHOW DEVICES columns: name 8, type 6, label 31, state 8, "GPIO n".
+ * SHOW DEVICES columns: name 8, type 6, label 31, state 8, "GPIO n", then
+ * " FAULT=<fails>" while a write is owed, then " UNREACHABLE" while the
+ * boot write to the initial level has failed and nothing is owed. The state is the last one
+ * written to the pin.
  * dv_status_header() and dv_status_line() fill `buf` or return
  * DV_ERR_SPACE (buf set to "" when size > 0). Return the length otherwise.
  */

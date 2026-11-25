@@ -75,7 +75,7 @@ Rules:
 - Two devices may not share one expander pin. The same pin number on another chip, or on the Pi, is fine.
 - Refused pins and the pull-up warning apply to Pi pins only.
 
-Each device and each pin operation has a `chip` field: `DV_CHIP_PI` for a Pi pin, or 0 to 3. `dv_set_t.exp[chip]` holds the chip's address. The status line shows `X1.0` in place of `GPIO n`. The expander driver is not in the library yet, so no glue applies expander operations. The pin record ring keeps the pin number only.
+Each device and each pin operation has a `chip` field: `DV_CHIP_PI` for a Pi pin, or 0 to 3. `dv_set_t.exp[chip]` holds the chip's address. The status line shows `X1.0` in place of `GPIO n`. The glue in `src/dev/devglue.c` routes expander operations to `exp_write()`, `exp_config()` and `exp_read()`. Until the library's expander driver is pinned, these refuse every operation with `DEVS_ERR_NOEXP`, `%DEVICE-E-NOEXPDRV`. The pin record ring keeps the pin number only.
 
 ## Refused pins
 
@@ -128,7 +128,7 @@ A device with `pulse_ms` above 0 pulses for every word that turns it on: `ON`, `
 
 ## Status lines
 
-`SHOW DEVICES` uses `dv_status_header()` and `dv_status_line()`. Columns: name 8, type 6, label 31, state 8, then `GPIO n`. The longest line is 64 characters.
+`SHOW DEVICES` uses `dv_status_header()` and `dv_status_line()`. Columns: name 8, type 6, label 31, state 8, then `GPIO n`. The longest line is 64 characters. A device in fault adds ` FAULT=<count>`, at most 12 more characters. An output unreached at boot adds ` UNREACHABLE`. `devs_status()` adds ` UNREACH=<count>` on `ARM`'s line while other outputs are unreachable. `DV_STATUS_LINE_MAX` is 96 to hold them all.
 
 ```
 NAME     TYPE   LABEL                           STATE    PIN
@@ -136,6 +136,14 @@ DOOR1    DOOR   Workshop door                   CLOSED   GPIO 12
 ```
 
 `dv_state_word()` gives the one word for a `DEV:NAME` read.
+
+## Pin faults
+
+The device service keeps a fault per device in `dv_dstate_t`: `fault`, the `owed` level, the `owed_kind` of operation and the `fails` count. The rule: after a failed write, the model never says a state the pin does not have. A failed write toward the safe level leaves the state as last written and owes the write. `devs_tick()` retries it every tick until it succeeds. A device in fault refuses commands with `DEVS_ERR_FAULT`. A failed write away from the safe level only returns its code. `unreached` marks an output whose boot write failed without a fault, such as `NOEXPDRV`. Any successful write to it clears the mark. `ARM` is switched on at boot only if every other output was written to its initial level. The rule for each write site is in `docs/ARCHITECTURE.md`, "Pin faults".
+
+```
+VAULT    LOCK   Vault bolt                      UNLOCKED GPIO 20 FAULT=3
+```
 
 ## Messages
 

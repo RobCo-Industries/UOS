@@ -875,7 +875,9 @@ int vp_access(const vp_res_t *r, const char *home, uint32_t privs, int op)
         if (k == 1) {
             return (op == VP_OP_LIST && (privs & VP_PRIV_READALL)) ? VP_OK : VP_E_NOPRIV;
         }
-        if (home != NULL && home[0] != '\0' && k_strcmp(r->dir[1], home) == 0) {
+        /* dir[1] exists only from depth 2: a file directly in HOME has none. */
+        if (r->depth >= 2 && home != NULL && home[0] != '\0' &&
+            k_strcmp(r->dir[1], home) == 0) {
             if (k == 2) {
                 return reading ? VP_OK : VP_E_NOPRIV;
             }
