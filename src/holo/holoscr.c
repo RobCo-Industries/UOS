@@ -12,15 +12,18 @@
  *   holo list          one line per tape: i= file= err= title=
  *   holo pick <n>      moves the selection to item n of the shown list, then ENTER
  *   holo state         state= scan= tapes= total= sel= entry= open= msg= pending=
+ * Test builds only (UOS_TEST_HOOKS=1):
+ *   holo hog           takes the heap until no tape fits, or gives it back
  * Markers:
- *   holo state=open|exit
- *   holo tape i= file= result=<ok|hf error> bytes= us=      one per scanned tape
- *   holo scan result=<list|empty|nocard|nofolder|error> total= kept= damaged= rc=
- *   holo load file= result=<ok|nomem|nocard|gone|damaged> why= bytes= us= ticks=
- *   holo show tape= entry= bytes=
- *   holo close file=
+ *   holo op=open, holo op=exit
+ *   holo op=tape i= file= result=<ok|hf error> bytes= us=      one per scanned tape
+ *   holo op=scan result=<list|empty|nocard|nofolder|error> total= kept= damaged= rc=
+ *   holo op=load file= result=<ok|nomem|nocard|gone|damaged> why= bytes= us= ticks=
+ *   holo op=show tape= entry= bytes=
+ *   holo op=close file=
  */
 
+#include <robco/alloc.h>
 #include <robco/console.h>
 #include <robco/input.h>
 #include <robco/klibc.h>
@@ -171,7 +174,7 @@ static void scan_done(void)
     }
     (void)hf_reader_init(&hs.r, hs.tapes, hs.kept);
     hs.st = ST_LIST;
-    UOS_MARK("holo scan result=%s total=%u kept=%u damaged=%u rc=%d", hs_scan_name(hs.scan),
+    UOS_MARK("holo op=scan result=%s total=%u kept=%u damaged=%u rc=%d", hs_scan_name(hs.scan),
              (unsigned)hs.total, (unsigned)hs.kept, (unsigned)damaged, hs.scan_rc);
     uos_screen_invalidate();
 }
@@ -206,7 +209,7 @@ static void scan_step(void *arg)
         ti->err = hs_read_err(rc);
     }
     vfs_free(buf);
-    UOS_MARK("holo tape i=%u file=%s result=%s bytes=%u us=%u rc=%d", (unsigned)hs.next,
+    UOS_MARK("holo op=tape i=%u file=%s result=%s bytes=%u us=%u rc=%d", (unsigned)hs.next,
              ti->file, hf_err_name(ti->err), (unsigned)len, (unsigned)us, rc);
     hs.next++;
     later(scan_step);
@@ -237,7 +240,7 @@ static void scan_begin(void)
 static void close_tape(void)
 {
     if (hs.buf != NULL) {
-        UOS_MARK("holo close file=%s", hs.tapes[hs.open].file);
+        UOS_MARK("holo op=close file=%s", hs.tapes[hs.open].file);
         vfs_free(hs.buf);
         hs.buf = NULL;
     }
@@ -280,7 +283,7 @@ static void load_step(void *arg)
         hrc = hs_read_err(rc);
     }
     res = hs_load_result(rc, hrc);
-    UOS_MARK("holo load file=%s result=%s why=%s bytes=%u us=%u ticks=%u", file,
+    UOS_MARK("holo op=load file=%s result=%s why=%s bytes=%u us=%u ticks=%u", file,
              hs_load_name(res), rc == VFS_OK ? hf_err_name(hrc) : vfs_strerror(rc),
              (unsigned)len, (unsigned)us, (unsigned)(uos_ticks() - t0));
     hs.st = ST_LIST;
@@ -312,11 +315,11 @@ static void act(const hf_action_t *a)
         break;
     case HF_ACT_REFUSED:
         k_snprintf(hs.msg, sizeof(hs.msg), "%s", hs_load_text(HS_LOAD_DAMAGED));
-        UOS_MARK("holo load file=%s result=refused", hs.tapes[a->tape].file);
+        UOS_MARK("holo op=load file=%s result=refused", hs.tapes[a->tape].file);
         break;
     case HF_ACT_SHOW:
         rc = con_page_text(a->title, a->text, a->len, pager_done, NULL);
-        UOS_MARK("holo show tape=%s entry=%u bytes=%u rc=%d", hs.tapes[hs.open].file,
+        UOS_MARK("holo op=show tape=%s entry=%u bytes=%u rc=%d", hs.tapes[hs.open].file,
                  (unsigned)hs.r.sel_entry, (unsigned)a->len, rc);
         if (rc == 0) {
             hs.st = ST_READING;
@@ -359,7 +362,7 @@ static void model_event(hf_event_t ev)
 static void holo_enter(uos_screen_t *s)
 {
     (void)s;
-    UOS_MARK("holo state=open");
+    UOS_MARK("holo op=open");
     scan_begin();
 }
 
@@ -373,7 +376,7 @@ static void holo_leave(uos_screen_t *s)
     hs.st = ST_CLOSED;
     hs.done = NULL;
     hs.msg[0] = '\0';
-    UOS_MARK("holo state=exit");
+    UOS_MARK("holo op=exit");
     if (done != NULL) {
         done(ctx);
     }
@@ -478,6 +481,43 @@ static int post(uos_call_fn fn)
     return 0;
 }
 
+#if defined(UOS_TEST_HOOKS) && UOS_TEST_HOOKS
+/* Test builds only: the nm test proves the shipped image has none of this.
+ * Each block holds the next one's address in its first word. */
+static void *hog_list;
+
+static void __attribute__((noinline)) uos_test_holo_hog(void)
+{
+    k_heap_stats_t st;
+    void *p;
+    size_t n;
+
+    if (hog_list != NULL) {
+        while (hog_list != NULL) {
+            p = hog_list;
+            hog_list = *(void **)p;
+            k_free(p);
+        }
+        uos_maint_reply("hog freed");
+        return;
+    }
+    for (;;) {
+        k_heap_stats(&st);
+        if (st.largest_free < HF_TAPE_MAX) {
+            break;
+        }
+        n = st.largest_free - HF_TAPE_MAX / 2;
+        p = k_malloc(n);
+        if (p == NULL) {
+            break;
+        }
+        *(void **)p = hog_list;
+        hog_list = p;
+    }
+    uos_maint_reply("hog largest_free=%u", (unsigned)st.largest_free);
+}
+#endif
+
 static int cmd_holo(int argc, char **argv)
 {
     char word[HF_TITLE_MAX * 3 + 1];
@@ -508,6 +548,12 @@ static int cmd_holo(int argc, char **argv)
     if (uos.phase != UOS_PHASE_READY) {
         return uos_maint_fail("not ready");
     }
+#if defined(UOS_TEST_HOOKS) && UOS_TEST_HOOKS
+    if (argc == 1 && k_strcmp(argv[0], "hog") == 0) {
+        uos_test_holo_hog();
+        return 0;
+    }
+#endif
     if (argc == 1 && k_strcmp(argv[0], "open") == 0) {
         return post(post_open);
     }

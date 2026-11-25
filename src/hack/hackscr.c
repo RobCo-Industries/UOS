@@ -9,7 +9,7 @@
  * the PL011 gets the markers and the result lines, never the board.
  *
  * Maintenance command:
- *   hack start             posts hack_screen_start()
+ *   hack op=start             posts hack_screen_start()
  *   hack move <dir> [n]    posts n moves (1 to 64): up, down, left, right
  *   hack select            posts SELECT
  *   hack back              posts BACK
@@ -19,12 +19,12 @@
  * Test builds only (UOS_TEST_HOOKS=1):
  *   hack seed <n>          the next games use seed n in place of the RNG
  * Markers (none names the password before the game ends):
- *   hack rng=<hw|fallback> rc=
- *   hack start result=<ok|refused|nocard|nolist|badlist|nomem|config> why= len= words=
+ *   hack op=rng result=<hw|fallback> rc=
+ *   hack op=start result=<ok|refused|nocard|nolist|badlist|nomem|config> why= len= words=
  *        attempts= difficulty= lockout_s= seed=<hw|fixed>
- *   hack guess word=<WORD> result=<denied|win|lockout> likeness= attempts=
- *   hack bracket result=<dud|reset> attempts=
- *   hack end result=<won|lost|left>
+ *   hack op=guess word=<WORD> result=<denied|win|lockout> likeness= attempts=
+ *   hack op=bracket result=<dud|reset> attempts=
+ *   hack op=end result=<won|lost|left>
  */
 
 #include <robco/console.h>
@@ -68,8 +68,6 @@ static struct {
     int how;
     uos_timer_id_t pause;
     unsigned posted;
-    hk_dir_t move_dir;
-    unsigned move_n;
 #if defined(UOS_TEST_HOOKS) && UOS_TEST_HOOKS
     int fixed;
     uint32_t seed;
@@ -195,12 +193,12 @@ static int start_game(void)
 
     refused = sess_hack_check();
     if (refused != LG_HACK_OK) {
-        UOS_MARK("hack start result=refused why=%s", lg_hack_name((lg_hack_t)refused));
+        UOS_MARK("hack op=start result=refused why=%s", lg_hack_name((lg_hack_t)refused));
         say(lg_hack_text((lg_hack_t)refused));
         return -1;
     }
     if (hg_config(cfg->hack_attempts, cfg->hack_lockout_s, UOS_TICK_HZ, &hc) != HK_OK) {
-        UOS_MARK("hack start result=%s", hg_start_name(HG_START_CONFIG));
+        UOS_MARK("hack op=start result=%s", hg_start_name(HG_START_CONFIG));
         (void)hg_start_text(HG_START_CONFIG, NULL, hg.msg, sizeof(hg.msg));
         return -1;
     }
@@ -221,7 +219,7 @@ static int start_game(void)
     vfs_free(buf);
     k_memset(&hg.pick, 0, sizeof(hg.pick));
     res = hg_start_result(rc, hk);
-    UOS_MARK("hack start result=%s why=%s len=%u words=%u attempts=%u difficulty=%s "
+    UOS_MARK("hack op=start result=%s why=%s len=%u words=%u attempts=%u difficulty=%s "
              "lockout_s=%u seed=%s line=%u",
              hg_start_name(res), rc != VFS_OK ? vfs_strerror(rc) : hk_strerror(hk), len,
              res == HG_START_OK ? (unsigned)game.board.count : 0u, (unsigned)hc.attempts,
@@ -286,12 +284,12 @@ static void do_select(void)
     case HK_EV_DENIED:
     case HK_EV_WIN:
     case HK_EV_LOCKOUT:
-        UOS_MARK("hack guess word=%s result=%s likeness=%u attempts=%u", word, hg_event_name(ev),
+        UOS_MARK("hack op=guess word=%s result=%s likeness=%u attempts=%u", word, hg_event_name(ev),
                  like, (unsigned)game.attempts);
         break;
     case HK_EV_DUD:
     case HK_EV_RESET:
-        UOS_MARK("hack bracket result=%s attempts=%u", hg_event_name(ev),
+        UOS_MARK("hack op=bracket result=%s attempts=%u", hg_event_name(ev),
                  (unsigned)game.attempts);
         break;
     default:
@@ -299,12 +297,12 @@ static void do_select(void)
     }
     if (ev == HK_EV_WIN) {
         hg.st = hg_next(hg.st, HG_E_WIN);
-        UOS_MARK("hack end result=won");
+        UOS_MARK("hack op=end result=won");
         say("PASSWORD ACCEPTED. OPENING A SESSION.");
         pause_start();
     } else if (ev == HK_EV_LOCKOUT) {
         hg.st = hg_next(hg.st, HG_E_LOSE);
-        UOS_MARK("hack end result=lost");
+        UOS_MARK("hack op=end result=lost");
         say("NO ATTEMPT LEFT. THE TERMINAL LOCKS.");
         pause_start();
     }
@@ -357,7 +355,7 @@ static void hack_leave(uos_screen_t *s)
         hg.pause = UOS_TIMER_NONE;
     }
     if (hg.how == HACK_DONE_LEFT) {
-        UOS_MARK("hack end result=left");
+        UOS_MARK("hack op=end result=left");
     }
     hg.st = HG_S_OFF;
     hg.done = NULL;
@@ -433,14 +431,16 @@ static void post_start(void *arg)
     }
 }
 
+/* The direction and the count travel in the argument: two moves posted
+ * back to back each keep their own. */
 static void post_move(void *arg)
 {
+    uintptr_t v = (uintptr_t)arg;
     unsigned i;
 
-    (void)arg;
     hg.posted--;
-    for (i = 0; i < hg.move_n; i++) {
-        do_key(HG_K_MOVE, hg.move_dir);
+    for (i = 0; i < (v & 0xffu); i++) {
+        do_key(HG_K_MOVE, (hk_dir_t)(v >> 8));
     }
 }
 
@@ -458,13 +458,18 @@ static void post_back(void *arg)
     do_key(HG_K_BACK, HK_UP);
 }
 
-static int post(uos_call_fn fn)
+static int post_arg(uos_call_fn fn, void *arg)
 {
-    if (uos_post(fn, NULL) != 0) {
+    if (uos_post(fn, arg) != 0) {
         return uos_maint_fail("full");
     }
     hg.posted++;
     return 0;
+}
+
+static int post(uos_call_fn fn)
+{
+    return post_arg(fn, NULL);
 }
 
 static void reply_state(void)
@@ -509,7 +514,7 @@ static void reply_state(void)
 
 #if defined(UOS_TEST_HOOKS) && UOS_TEST_HOOKS
 /* Test builds only: the nm test proves the shipped image has none of this. */
-static int uos_test_hack_seed(char *arg)
+static int __attribute__((noinline)) uos_test_hack_seed(char *arg)
 {
     if (uos_dec_u32(arg, 0xffffffffu, &hg.seed) != 0) {
         return uos_maint_fail("usage hack seed <n>");
@@ -536,6 +541,7 @@ static int parse_dir(const char *s, hk_dir_t *dir)
 static int cmd_hack(int argc, char **argv)
 {
     uint32_t n = 1;
+    hk_dir_t dir = HK_UP;
 
     if (argc == 1 && k_strcmp(argv[0], "state") == 0) {
         reply_state();
@@ -554,12 +560,11 @@ static int cmd_hack(int argc, char **argv)
         return post(post_back);
     }
     if ((argc == 2 || argc == 3) && k_strcmp(argv[0], "move") == 0) {
-        if (parse_dir(argv[1], &hg.move_dir) != 0 ||
+        if (parse_dir(argv[1], &dir) != 0 ||
             (argc == 3 && (uos_dec_u32(argv[2], MOVES_MAX, &n) != 0 || n == 0))) {
             return uos_maint_fail("usage hack move up|down|left|right [n]");
         }
-        hg.move_n = n;
-        return post(post_move);
+        return post_arg(post_move, (void *)(((uintptr_t)dir << 8) | n));
     }
 #if defined(UOS_TEST_HOOKS) && UOS_TEST_HOOKS
     if (argc == 2 && k_strcmp(argv[0], "seed") == 0) {
@@ -577,7 +582,7 @@ static int hack_svc_init(void)
 
     hg.rng_hw = rc == 0;
     hg.pause = UOS_TIMER_NONE;
-    UOS_MARK("hack rng=%s rc=%d", hg.rng_hw ? "hw" : "fallback", rc);
+    UOS_MARK("hack op=rng result=%s rc=%d", hg.rng_hw ? "hw" : "fallback", rc);
     (void)sess_set_hack_entry(from_login);
     return uos_maint_register("hack", cmd_hack, "the password game: start move select back state");
 }

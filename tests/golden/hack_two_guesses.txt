@@ -1,0 +1,25 @@
+UOS PASSWORD RECOVERY. DIAGNOSTIC MEMORY VIEW.
+TARGET ACCOUNT: GUEST
+
+ATTEMPTS LEFT: 7  # # # # # # #
+
+0x41D7 =#<)'?@.^[,"  0x4297 !_.^+@>,"%%]
+0x41E3 {["'$+\=_*}{  0x42A3 -&<{.^&/@:}[
+0x41EF _;?;$|&&!COR  0x42AF +:)'GLOW+@$+
+0x41FB D")#]={,@-#!  0x42BB !{!?+]=),_+/
+0x4207 "&?$(/>%)#??  0x42C7 ^#>!;.(|_=&<
+0x4213 }'\+,\#;%->#  0x42D3 *^(&|!:_*:[$
+0x421F >/+LIST{(]?.  0x42DF $#"#TOWN>/}-
+0x422B +;*^=#}:%<{<  0x42EB ,;^?$&[;)'{;
+0x4237 )$_!>]}>[,]-  0x42F7 }{>^"!#{$(-!
+0x4243 SINK<+[+]+!>  0x4303 *?){>!*BOOT$
+0x424F ?&)%[[)&^.{{  0x430F '&{@&|)-)?]\   CORD
+0x425B *>"=:&]%))!"  0x431B !;)?%#''<*,,   Entry denied.
+0x4267 +?.\].]!]CAS  0x4327 ,!;:"DRUM:;:   Likeness=1
+0x4273 E\]\*>!_!,.,  0x4333 ,&$:">-*,[%%   LIST
+0x427F >#'}([$@@'//  0x433F ^>|^']}/},?{   Entry denied.
+0x428B ]/>^<'*\;\/<  0x434B (#;-'>":###,   Likeness=1
+
+> LIST
+
+ARROWS MOVE   SELECT TRIES A WORD OR BRACKETS   BACK LEAVES
