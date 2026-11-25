@@ -30,6 +30,7 @@ The tests run from the repository root, so the ones that read the default card o
 
 | File | Covers |
 |---|---|
+| `test_portcall.c` | Port calls in the input queue: a key then a call, a call then a key, mixed sequences taken in steps of 1 to 8 events, all in arrival order. A full slot table and a full input queue refuse; releases, dials and stale slots are dropped. |
 | `test_timerq.c` | Timers: one-shot, periodic, catch-up, the tick wrap, cancel before and after expiry, limits. Delivery through a full event queue: a one-shot, a periodic timer over several periods, a cancel while pending, 16 timers due, a timer started from a callback. The event queue. |
 | `test_screen.c` | The screen stack rules: push, pop, replace, events passed down, draws |
 | `test_settings.c` | `UOS.CFG`: every key, `[login] idle_s` included, clamps, bad values, unknown keys, syntax errors |
@@ -133,6 +134,8 @@ The tests read the session state with `sess state` and wait for `pending=0` firs
 ### Pending input and the state replies
 
 A maintenance command runs inside `input_poll()`. The loop takes input events into its own queue before it hands them to a screen, so the input layer can be empty while keys still wait. The `hack`, `holo` and `sess` state replies count those keys through `uos_input_pending()`. `test_buttons_move_and_select` failed about one run in four on raspi3b before this: the state said `pending=0` with the cursor short by exactly the keys still queued. `test_state_counts_keys_the_loop_holds` sends buttons and state lines in one write and checks every reply.
+
+A call posted by a maintenance command used to go straight into the loop's queue, ahead of keys still in the input layer. `test_pick_after_the_reader_closed` failed about half the time on raspi3b for that reason. Now the call goes through the input queue. Ordering tests send a key and an acting command in one write, in both orders: `test_pick_then_back_in_one_write` in `test_holo.py`, `test_key_and_command_keep_their_order` in `test_hack.py` and `test_key_and_logout_keep_their_order` in `test_login.py`. Only the key-first order could go wrong before; the other order guards against a call put behind later keys. The key-first tests send `FILLER` from `tests/uos.py` before the key: 20 characters the screens ignore. The loop takes one input event per poll, so the key is still in the input layer when the command comes, and the old code failed these tests on every run, not only on a loaded host.
 
 ### The copy step bound
 

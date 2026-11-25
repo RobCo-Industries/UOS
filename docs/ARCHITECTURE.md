@@ -91,15 +91,39 @@ A `UOS.CFG` scheme applies only when the boot info gave none. Bad values are ski
 One thread of control. `uos_loop_run()` repeats:
 
 1. Posts one `TICK` event for the ticks since the last one, and one `TIMER` event per timer expiry due.
-2. Takes input events while the queue has room. Key releases are dropped. The rest waits in the input layer.
+2. Takes input events while the queue has room, in the order the input layer received them, port calls included. Key releases and dial turns are dropped. The rest waits in the input layer.
 3. Delivers the events queued before this step, drawing the top screen after each one when it is dirty. An event posted meanwhile waits for the next pass, so a call that posts itself again, such as a copy step, runs once per pass and time and input get their turn between two steps.
 4. Sleeps in `wfi`, through `input_wait()`, until input or the next tick. A pass that left events queued skips the sleep.
 
 Each `TICK` event first calls the `tick` function of every started service, then goes to the screens.
 
-Event types, `uos_event.h`: `KEY`, `CHAR`, `TICK`, `TIMER` and `CALL`. `uos_post(fn, arg)` queues a call from any context. The queue holds 32 events. A full queue refuses an event and counts it in `uos_events_dropped()`: `uos_post()` then returns `UOS_EVQ_ERR_FULL`, and the call never runs unless the caller posts it again. A key that finds the queue full is dropped and counted. Under a flood the loop takes input only while there is room, so drops are rare; the PL011 console then stalls instead of dropping.
+Event types, `uos_event.h`: `KEY`, `CHAR`, `TICK`, `TIMER` and `CALL`. `uos_post(fn, arg)` queues a call from main context. The queue holds 32 events. A full queue refuses an event and counts it in `uos_events_dropped()`: `uos_post()` then returns `UOS_EVQ_ERR_FULL`, and the call never runs unless the caller posts it again. A key that finds the queue full is dropped and counted. Under a flood the loop takes input only while there is room, so drops are rare; the PL011 console then stalls instead of dropping.
 
-Maintenance commands run inside `input_poll()`, while the loop may hold keys it took and has not dispatched. `uos_input_pending()`, loop only, counts both those keys and the events still in the input layer. Every `pending=` field of a state reply uses it.
+Maintenance commands run inside `input_poll()`, while the loop may hold keys it took and has not dispatched. `uos_input_pending()`, loop only, counts both those keys and the events still in the input layer, port calls included. Every `pending=` field of a state reply uses it.
+
+### Arrival order
+
+What the system received first is handled first, whatever path it came in on. Keys go into the input layer's queue. A call that a maintenance command posts with `uos_post()` goes into the same queue, behind the keys received before the command. The input event has the UOS type `UOS_INPUT_EV_CALL`, and its code names a slot of the port call table, `uos_portcall.h`. The loop turns input events into kernel events in queue order, so the call runs after every earlier key and before every later one.
+
+The rule holds by construction. `maint.c` marks the time a command runs with `uos_port_command()`, and `uos_post()` routes the call by that mark. A new command cannot post around the queue. A call posted from the loop, such as a stepped copy, still goes straight into the loop's queue.
+
+```mermaid
+flowchart LR
+    K[key, button, type] --> IQ[input queue]
+    C[port command posts a call] --> IQ
+    IQ -->|take_input, in order| EQ[loop queue]
+    T[ticks, timers, loop posts] --> EQ
+    EQ --> D[dispatch]
+```
+
+What stays the same:
+
+- The loop still runs only the events queued before each pass.
+- Ticks and timers still enter the loop's queue before the input of the same pass. Their order relative to input is unchanged.
+- The input queue keeps its `INPUT_DROP_NEWEST` policy. A full queue refuses the call, and the command answers `err full`. UOS never sets `INPUT_DROP_OLDEST`: under it a dropped call would keep its slot.
+- A key goes to the screen on top when the loop dispatches it. A call posted after a key that changes screens runs on the new screen, as a key sent at that point would.
+
+A port call counts in `pending=` until it has run. The holotape reader and the password game add their own count of posted calls, so their count can be higher than the work left. Zero still means everything sent before the query has been handled.
 
 ### Timers
 
@@ -175,6 +199,19 @@ The base commands enter the table on the first use of the registry: `uos_maint_s
 | `bench uaf <n>` | Test builds only. Posts `uaf_hash()` over `n` iterations, 1 to 100000, on a fixed salt and password to the loop, which prints `ev=bench name=uaf iterations=<n> rc=<rc> ticks=<ticks> us=<us>` |
 
 The test commands are not registered in the shipped image, and they answer `err unknown command` once the loop has stopped.
+
+A command that acts posts its work, so it runs in arrival order with the keys, see [arrival order](#arrival-order). A query answers at once. A few commands act at once on purpose:
+
+| Command | Kind | Why |
+|---|---|---|
+| `key`, `char`, `text`, `dial`, `type`, `button` | Input | They push input events into the input queue, in order by nature |
+| `holo open`, `holo pick`, `hack start`, `hack move`, `hack select`, `hack back`, `hack seed`, `sess logout`, `sess login`, `fs` requests, `readline`, `page`, `osk open`, `osk close`, `dev stall`, `fault`, `panic`, `halt`, `bench` | Posts | Run in arrival order |
+| `state`, `dump`, `timers`, `help`, `services`, `uptime`, `holo state`, `holo list`, `hack state`, `sess state`, `osk state`, `dev list`, `dev rec`, `stats` | Query | Answer at once. `pending=` tells a test that earlier input is not handled yet. |
+| `reboot` | At once | A reset must work even when the loop is stuck or the queue is full |
+| `wait` | At once | Built in: it holds the port, not the loop |
+| `dev set` | At once | Its reply carries the new device state. A test that also types device commands waits for `pending=0` first. |
+| `dev sense`, `dev fail`, `dev hang`, `holo hog`, `fs fakedev` | At once | Test builds only. They change the outside world: a sensor level, a pin fault, the watchdog feed, free memory, a fake device. Real hardware changes the same way, with no queue. |
+| `fs default`, `fs who` | At once | They set the port's own path context. No screen reads it, and each `fs` request copies it when posted. |
 
 ## Services
 
@@ -268,7 +305,9 @@ static int cmd_mail(int argc, char **argv)
 
 `argv[0]` is the first word after the command name. `uos_maint_reply()` sends one complete line per call. `uos_maint_fail(reason)` sets the `err` text and returns a negative code.
 
-A command function runs inside the input layer's script handler. That is in the loop between two events, or after a panic or a halt in the idle poll with IRQs off. It must not block, wait for ticks or do anything that can fault. It posts such work to the loop with `uos_post()`, after it checks that `uos.phase` is `UOS_PHASE_READY`, and the posted call reports its result with a marker. `uos_maint.h` states the same rules.
+A command function runs inside the input layer's script handler. That is in the loop between two events, or after a panic or a halt in the idle poll with IRQs off. It must not block, wait for ticks or do anything that can fault. It posts such work to the loop with `uos_post()`, after it checks that `uos.phase` is `UOS_PHASE_READY`, and the posted call reports its result with a marker.
+
+A command that changes what a screen, a service or the session does must post, even when the change itself is quick. Inside a command `uos_post()` puts the call behind the keys received before it, so it never jumps the queue. Act at once only for a query, a reset, or a test hook that stands for the outside world, and add the command to the table above with the reason. `uos_maint.h` states the same rules.
 
 ### uptime
 
