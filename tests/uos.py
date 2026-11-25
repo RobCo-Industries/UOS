@@ -138,6 +138,13 @@ def answer(vm, command):
     return reply.lines
 
 
+# Characters the screens ignore, sent before a key in an ordering test. The
+# loop takes one input event per poll, so the key and a command sent after it
+# reach the loop while these still fill the input layer: a call that jumps the
+# input queue then runs before the key every time, not only on a loaded host.
+FILLER = "text " + "z" * 20
+
+
 def batch(vm, commands, timeout=TIMEOUT):
     """Several maintenance commands in one port write. Returns one ScriptReply-like
     (status, lines) pair per command, in order: the port answers the commands one by

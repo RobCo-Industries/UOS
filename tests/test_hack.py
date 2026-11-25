@@ -10,7 +10,8 @@ import time
 
 from harness.env import minimal_env
 from test_panic import nm
-from uos import (ROOT, TICK_HZ, TIMEOUT, alone, answer, batch, card, card_tree, check_golden,
+from uos import (FILLER, ROOT,
+                 TICK_HZ, TIMEOUT, alone, answer, batch, card, card_tree, check_golden,
                  dump_until, events, key, wait_marker, wait_ready)
 
 # A seed whose first two board words are not the password, with the settings below.
@@ -352,6 +353,29 @@ def test_moves_in_one_write_and_a_move_for_an_ended_game(board, hooks_image, nee
         wait_marker(vm, "hack result=gone", 2)
         assert state(vm).f["state"] == "off"
         assert not [m for m in events(vm, "hack") if m.get("op") == "guess"]
+
+
+def test_key_and_command_keep_their_order(board, hooks_image, need_mtools, tmp_path):
+    """BACK, then a move, in one write: BACK leaves the game first and the move finds
+    no game. A move, then BACK: the move runs in the game, then BACK leaves it."""
+    with alone(hooks_image, board, hack_card(tmp_path, cfg())) as vm:
+        wait_ready(vm)
+        at_login(vm)
+        answer(vm, f"hack seed {SEED}")
+        start_from_login(vm)
+        assert state(vm).f["cursor"] == "0"
+        replies = batch(vm, [FILLER, "key back", "hack move down 1"])
+        assert [r[0] for r in replies] == ["ok", "ok", "ok"], replies
+        wait_marker(vm, "hack op=end result=left", 1)
+        wait_marker(vm, "hack result=gone", 1)
+        assert state(vm).f["state"] == "off"
+        wait_marker(vm, "login state=user", 2)
+        start_from_login(vm, 2)
+        replies = batch(vm, ["hack move down 1", "key back"])
+        assert [r[0] for r in replies] == ["ok", "ok"], replies
+        wait_marker(vm, "hack op=end result=left", 2)
+        assert state(vm).f["state"] == "off"
+        assert len([m for m in events(vm, "hack") if m.get("result") == "gone"]) == 1
 
 
 def test_refusals(board, hooks_image, need_mtools, tmp_path):
