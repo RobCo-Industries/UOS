@@ -150,8 +150,10 @@ def expect(vm, line, rc, ident=None):
 
 BIG = bytes(range(256)) * 4096          # 1 MiB: 64 copy steps
 # The longest command step of TYPE: the 1 MiB read, one vfs call, is the
-# longest; a step of 8 rows is far shorter. 1 s at 100 Hz.
-MAX_STEP_TICKS = 100
+# longest; a step of 8 rows takes a tick or less. Measured: 28 to 34 ticks on
+# raspi0, raspi1ap and raspi2b, 143 to 180 on raspi3b, whose SD model is slower.
+MAX_STEP_TICKS = {"raspi3b": 400}
+MAX_STEP_TICKS_DEFAULT = 100
 
 
 def test_show_help_and_simple_verbs(board, hooks_image, need_mtools, tmp_path):
@@ -553,7 +555,8 @@ def test_output_kept_on_failure_and_ctrl_c(board, hooks_image, need_mtools, tmp_
         assert end["rc"] == "CANCEL", (res, end)
         answer(vm, "sh hold 0")
         assert [m["verb"] for m in marks(vm, "cmd output=kept")] == \
-            ["DIRECTORY", "SHOW_TIME", "DIRECTORY", "DIRECTORY"], marks(vm, "cmd output")
+            ["DIRECTORY", "SHOW_TIME", "DIRECTORY", "DIRECTORY"], \
+            [m for m in marks(vm, "cmd") if "output" in m]
         assert not marks(vm, "cmd output=written")
         _, _, s = expect(vm, "TYPE LIST.LIS", "NORMAL")
         assert "KEEP THESE BYTES" in out(vm, s), out(vm, s)
@@ -660,4 +663,5 @@ def test_type_long_line_in_bounded_steps(board, hooks_image, need_mtools, tmp_pa
         assert rows < len(data) // 80, rows
         # Eight rows a step: the read step prints none.
         assert rows <= 8 * (int(end["steps"]) - 1), (rows, end)
-        assert int(end["maxticks"]) <= MAX_STEP_TICKS, end
+        bound = MAX_STEP_TICKS.get(board, MAX_STEP_TICKS_DEFAULT)
+        assert int(end["maxticks"]) <= bound, end
