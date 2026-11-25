@@ -16,6 +16,8 @@ static uos_evq_t evq;
 static uos_timerq_t tq;
 static uos_sstack_t ss;
 static uint32_t last_tick;
+/* The tick of the last key or character taken, for the idle rule. */
+static volatile uint32_t last_input;
 
 uint32_t uos_ticks(void)
 {
@@ -99,7 +101,13 @@ static void take_input(const input_event_t *in)
     ev.source = in->source;
     ev.code = in->code;
     ev.value = in->value;
+    last_input = tick_count();
     (void)uos_post_event(&ev);
+}
+
+uint32_t uos_last_input(void)
+{
+    return last_input;
 }
 
 /*

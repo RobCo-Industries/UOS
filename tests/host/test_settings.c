@@ -20,6 +20,7 @@ TEST(defaults)
     CHECK_EQ(s.mode, UOS_MODE_SHELL);
     CHECK_EQ(s.login_retries, 3u);
     CHECK_EQ(s.login_lockout_s, 30u);
+    CHECK_EQ(s.login_idle_s, 0u);
     CHECK_EQ(s.hack_enabled, 1);
     CHECK_STR(s.hack_user, "GUEST");
     CHECK_EQ(s.hack_attempts, 4u);
@@ -89,6 +90,12 @@ TEST(values_at_the_limits_are_not_clamped)
     CHECK_EQ(s.login_lockout_s, 0u);
     CHECK_EQ(s.hack_attempts, 1u);
     CHECK_EQ(s.hack_lockout_s, 3600u);
+    CHECK_EQ(parse("[login]\nidle_s = 600\n", &s, &r), UOS_CFG_OK);
+    CHECK_EQ(s.login_idle_s, 600u);
+    CHECK_EQ(r.clamped, 0u);
+    CHECK_EQ(parse("[login]\nidle_s = 86401\n", &s, &r), UOS_CFG_OK);
+    CHECK_EQ(s.login_idle_s, 86400u);
+    CHECK_EQ(r.clamped, 1u);
 }
 
 TEST(bad_values_are_skipped_and_counted)

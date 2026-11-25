@@ -77,11 +77,13 @@ int uos_first_line(unsigned row, const uos_first_t *info, char *buf, size_t size
     case 1:
         n = k_snprintf(buf, size, "%s", "------------------------------------------------");
         break;
-    case 2:
-        n = k_snprintf(buf, size, "%s", "LOGIN IS NOT BUILT YET.");
+    case UOS_FIRST_ROW_NOTICE:
+        n = k_snprintf(buf, size, "%s", info->notice[0] != NULL ? info->notice[0] :
+                       "LOGIN IS NOT AVAILABLE.");
         break;
-    case 3:
-        n = k_snprintf(buf, size, "%s", "THIS TERMINAL RUNS THE KERNEL BASE ONLY.");
+    case UOS_FIRST_ROW_NOTICE + 1:
+        n = k_snprintf(buf, size, "%s", info->notice[1] != NULL ? info->notice[1] :
+                       "THIS TERMINAL RUNS THE KERNEL BASE ONLY.");
         break;
     case 4:
         n = k_snprintf(buf, size, "%s", card_text(info->card));

@@ -33,10 +33,13 @@ typedef struct {
     uint8_t month, day, hour, minute, second;
     unsigned keys;              /* keys seen on this screen */
     const char *last_key;       /* name of the last key, NULL for none */
+    const char *notice[2];      /* rows 2 and 3, NULL for the default text */
 } uos_first_t;
 
 /* Rows of the placeholder screen, uos_first_line(0) to (UOS_FIRST_ROWS - 1). */
 #define UOS_FIRST_ROWS          10
+/* The notice rows: what the system can do, set by the session service. */
+#define UOS_FIRST_ROW_NOTICE    2
 /* Rows that change: the clock and the key line. */
 #define UOS_FIRST_ROW_CLOCK     6
 #define UOS_FIRST_ROW_KEYS      8

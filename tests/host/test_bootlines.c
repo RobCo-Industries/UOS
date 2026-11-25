@@ -43,8 +43,10 @@ TEST(placeholder_rows)
 
     CHECK_EQ(uos_first_line(0, &f, buf, sizeof(buf)), 13);
     CHECK_STR(buf, "TEST TERMINAL");
-    uos_first_line(2, &f, buf, sizeof(buf));
-    CHECK_STR(buf, "LOGIN IS NOT BUILT YET.");
+    uos_first_line(UOS_FIRST_ROW_NOTICE, &f, buf, sizeof(buf));
+    CHECK_STR(buf, "LOGIN IS NOT AVAILABLE.");
+    uos_first_line(UOS_FIRST_ROW_NOTICE + 1, &f, buf, sizeof(buf));
+    CHECK_STR(buf, "THIS TERMINAL RUNS THE KERNEL BASE ONLY.");
     uos_first_line(4, &f, buf, sizeof(buf));
     CHECK_STR(buf, "CARD: READY");
     uos_first_line(5, &f, buf, sizeof(buf));
@@ -55,6 +57,20 @@ TEST(placeholder_rows)
     CHECK_STR(buf, "KEYS: NONE YET");
     CHECK_EQ(uos_first_line(UOS_FIRST_ROWS, &f, buf, sizeof(buf)), -1);
     CHECK_STR(buf, "");
+}
+
+/* The session service's notice replaces the two default rows. */
+TEST(notice_rows)
+{
+    uos_first_t f = base();
+    char buf[UOS_LINE_MAX + 1];
+
+    f.notice[0] = "USER DATABASE MISSING.";
+    f.notice[1] = "PRESS F4.";
+    uos_first_line(UOS_FIRST_ROW_NOTICE, &f, buf, sizeof(buf));
+    CHECK_STR(buf, "USER DATABASE MISSING.");
+    uos_first_line(UOS_FIRST_ROW_NOTICE + 1, &f, buf, sizeof(buf));
+    CHECK_STR(buf, "PRESS F4.");
 }
 
 TEST(card_states)

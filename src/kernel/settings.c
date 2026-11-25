@@ -194,6 +194,8 @@ static int on_key(const char *section, const char *key, const char *value, unsig
             set_range(c, value, &s->login_retries, UOS_RETRIES_MIN, UOS_RETRIES_MAX);
         } else if (same(key, "lockout_s")) {
             set_range(c, value, &s->login_lockout_s, UOS_LOGIN_LOCK_MIN, UOS_LOGIN_LOCK_MAX);
+        } else if (same(key, "idle_s")) {
+            set_range(c, value, &s->login_idle_s, UOS_LOGIN_IDLE_MIN, UOS_LOGIN_IDLE_MAX);
         } else {
             c->r->unknown++;
         }
@@ -228,6 +230,7 @@ void uos_settings_default(uos_settings_t *s)
     s->mode = UOS_MODE_SHELL;
     s->login_retries = UOS_RETRIES_DEF;
     s->login_lockout_s = UOS_LOGIN_LOCK_DEF;
+    s->login_idle_s = UOS_LOGIN_IDLE_DEF;
     s->hack_enabled = 1;
     k_memcpy(s->hack_user, UOS_DEFAULT_HACK_USER, sizeof(UOS_DEFAULT_HACK_USER));
     s->hack_attempts = UOS_ATTEMPTS_DEF;
