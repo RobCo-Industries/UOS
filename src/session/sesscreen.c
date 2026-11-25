@@ -250,6 +250,7 @@ static void check_done(void)
     unsigned ticks = (unsigned)(uos_ticks() - chk_t0);
     unsigned us = (unsigned)(timer_now_us() - chk_us0);
     int locked;
+    uint32_t now;
 
     lg_name_word(sess.typed, name);
     /* A disabled account counts as a failure and shows the same message:
@@ -263,7 +264,13 @@ static void check_done(void)
         sess_go(LG_E_GOOD);
         return;
     }
-    locked = lk_fail(&sess.lk, sess_now_ms());
+    /* One reading for the lock and its start marker: a tick between two
+     * readings would make the marker later than the lock. */
+    now = uos_ticks();
+    locked = lk_fail(&sess.lk, now * (1000u / UOS_TICK_HZ));
+    if (locked) {
+        sess.lock_tick = now;
+    }
     UOS_MARK("login user=%s result=bad left=%u steps=%u ticks=%u us=%u maxstep_us=%u", name,
              lk_tries_left(&sess.lk), (unsigned)steps, ticks, us, (unsigned)chk_maxstep_us);
     sess.typed[0] = '\0';
@@ -377,27 +384,28 @@ static void lock_draw(uos_screen_t *s)
     con_status_redraw();
 }
 
-static void lock_end(void)
+/* `now` is the tick that saw the lock expire. */
+static void lock_end(uint32_t now)
 {
     if (sess.st != LG_S_LOCKED) {
         return;
     }
     (void)uos_timer_cancel(lock_timer);
     lock_timer = UOS_TIMER_NONE;
-    UOS_MARK("lockout state=end t=%u why=%s", (unsigned)uos_ticks(),
-             sess.lock_hack ? "hack" : "login");
+    UOS_MARK("lockout state=end t=%u why=%s", (unsigned)now, sess.lock_hack ? "hack" : "login");
     sess.lock_hack = 0;
     sess_go(LG_E_LOCK_END);
 }
 
 static void lock_second(void *arg)
 {
+    uint32_t now = uos_ticks();
     uint32_t left;
 
     (void)arg;
-    left = lk_remaining_s(&sess.lk, sess_now_ms());
+    left = lk_remaining_s(&sess.lk, now * (1000u / UOS_TICK_HZ));
     if (left == 0) {
-        lock_end();
+        lock_end(now);
         return;
     }
     UOS_MARK("lockout s=%u", (unsigned)left);
@@ -410,7 +418,7 @@ static void lock_enter(uos_screen_t *s)
     uint32_t left = lk_remaining_s(&sess.lk, sess_now_ms());
 
     (void)s;
-    UOS_MARK("lockout state=start s=%u t=%u why=%s", (unsigned)left, (unsigned)uos_ticks(),
+    UOS_MARK("lockout state=start s=%u t=%u why=%s", (unsigned)left, (unsigned)sess.lock_tick,
              sess.lock_hack ? "hack" : "login");
     header(1);
     sess_serial(lock_text());
@@ -437,8 +445,10 @@ static int lock_event(uos_screen_t *s, const uos_event_t *ev)
 {
     (void)s;
     if (ev->type == UOS_EV_TICK) {
-        if (!lk_locked(&sess.lk, sess_now_ms())) {
-            lock_end();
+        uint32_t now = uos_ticks();
+
+        if (!lk_locked(&sess.lk, now * (1000u / UOS_TICK_HZ))) {
+            lock_end(now);
         }
         return 0;
     }

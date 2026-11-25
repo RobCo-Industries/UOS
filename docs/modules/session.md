@@ -272,7 +272,7 @@ The screen shows a header, then `USERNAME:` and `PASSWORD:` read by `con_read_li
 | `sesswarn why=lockout count=` | The `[login]` values were refused |
 | `login state=<user\|pass\|check>` | A prompt or the check starts. `rc=` is the result of `con_read_line()` |
 | `login user=<NAME> result=<ok\|bad> left= steps= ticks= us= maxstep_us=` | A check ended. `left` is the tries left. `us` is from the check's start to its end, `maxstep_us` the longest step |
-| `lockout state=start s= t= why=<login\|hack>`, `lockout s=`, `lockout state=end t= why=` | The lock starts, each second of the countdown, the lock ends. `t` is the tick, `why` what locked it |
+| `lockout state=start s= t= why=<login\|hack>`, `lockout s=`, `lockout state=end t= why=` | The lock starts, each second of the countdown, the lock ends. `t` is the tick the lock itself used: the start tick of the lock, and the tick that saw it expire. `why` is what locked it |
 | `login state=hack` | F2 on an empty user name: the password game's entry |
 | `session state=start user= privs= how=<login\|test\|hack>` | A session starts. `hack` is a won password game |
 | `session result=refused why= how=hack` | `sess_hack_begin()` refused |
