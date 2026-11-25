@@ -382,9 +382,8 @@ def test_two_sess_logins_in_one_write(board, hooks_image, need_mtools, tmp_path)
 
 def test_key_and_logout_keep_their_order(board, hooks_image, need_mtools, tmp_path):
     """`LOGOUT` typed at the shell, then `sess logout`, in one write: one session
-    end, never two. `sess logout`, then typed
-    text: the logout ends the session, and the text goes to the login prompt, not to
-    the shell."""
+    end, never two. `sess logout`, then BACK:
+    the logout ends the session, and BACK finds the login, not the shell."""
     with alone(hooks_image, board, uaf_card(tmp_path)) as vm:
         wait_ready(vm)
         prompt(vm, "user", 1)
@@ -401,11 +400,11 @@ def test_key_and_logout_keep_their_order(board, hooks_image, need_mtools, tmp_pa
         answer(vm, "sess login GUEST")
         wait_marker(vm, "session screen=shell", 2)
         wait_marker(vm, "sh state=prompt kind=cmd", 2)
-        replies = batch(vm, ["sess logout", "type GUEST"])
+        replies = batch(vm, ["sess logout", "key back"])
         assert [r[0] for r in replies] == ["ok", "ok"], replies
         end = wait_marker(vm, "session state=end", 2)
         assert end["reason"] == "maint", end
-        prompt(vm, "pass", 1)
+        wait_user_prompt(vm)
         assert sess_state(vm)["user"] == "none"
         assert n_marks(vm, "session state=end") == 2
 
