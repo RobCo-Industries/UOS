@@ -156,6 +156,7 @@ Shape: `%FACILITY-S-IDENT, text`. Severity is `S`, `I`, `W`, `E` or `F`. In the 
 | `DCL_SYS_PROTECT` | `%UOS-E-PROTECT, file is protected` |
 | `DCL_SYS_TOOBIG` | `%UOS-E-TOOBIG, file is too large` |
 | `DCL_SYS_INSFMEM` | `%UOS-E-INSFMEM, not enough memory for this operation` |
+| `DCL_SYS_SKIPPED` | `%UOS-I-SKIPPED, !N file!P skipped: not enough privilege` |
 
 ## The UOS command table
 

@@ -10,6 +10,11 @@ This is the reference of every command of the UOS shell. The command table in `s
 - A missing parameter is asked for at a `_<name>:` prompt. An empty answer asks again. Ctrl-C drops the command.
 - File specifications are those of [vfs path](modules/vfs-path.md): `SD0:[HOME.ADMIN]A.TXT`, `[.SUB]`, `SYS$LOGIN:`, `SYS$HELP:`, `BOOT:`, `DEV:`. `*` matches any characters, `%` one.
 - Each file of a wildcard is checked against the access table again, so `DELETE *.*` never deletes `SYSUAF.DAT` and never touches a file the user may not delete.
+- A wildcard counts the matches the access table refused. Three outcomes follow, for `DIRECTORY`, `TYPE`, `COPY`, `DELETE` and `RENAME` alike:
+  - every match refused: `%UOS-E-NOPRIV`;
+  - some refused: the command acts on the others, then prints `%UOS-I-SKIPPED, N files skipped: not enough privilege` before its count message, and the `cmd state=end` marker has `skipped=N`;
+  - nothing matched: `%UOS-W-NOFILES`, with `skipped=0`.
+- `/OUTPUT=file` replaces the file only when the command succeeds, with a final message of severity `S` or `I`. An error, a warning such as `%UOS-W-NOCLOCK` or `%UOS-W-NOFILES`, Ctrl-C or text over 64 KiB leave an existing file exactly as it was. The new text goes in with one atomic write, so a power cut leaves the whole old or the whole new file.
 - Ctrl-C stops a command that runs in steps: a copy, a wildcard loop, a listing, a long `TYPE`.
 - Every message comes from the catalogue in `src/dcl/msg.c` through one map, `sh_err_msg()`. The messages are `%FACILITY-S-IDENT, text`, with `S` the severity: `S` success, `I` information, `W` warning, `E` error.
 
@@ -47,11 +52,11 @@ Lists a folder, or the files that match a wildcard. With no parameter, the curre
 | `/SIZE`, neg | The size in bytes |
 | `/DATE`, neg | The FAT date and time |
 | `/FULL`, neg | Size and date |
-| `/OUTPUT=file` | Writes the listing to a file, default type `.LIS` |
+| `/OUTPUT=file` | Writes the listing to a file, default type `.LIS`, only on success |
 
 Privileges: none; the access table decides which folders a user may list.
 
-Messages: `%UOS-W-NOFILES` when nothing matches, `%UOS-E-DNF`, `%UOS-E-NOPRIV`, `%UOS-E-IVSPEC`.
+Messages: `%UOS-W-NOFILES` when nothing matches, `%UOS-E-NOPRIV` when the access table hid every match, `%UOS-E-DNF`, `%UOS-E-IVSPEC`. When it hid some, the listing ends with a `%UOS-I-SKIPPED` line.
 
 ```
 $ DIR *.TXT /SIZE
@@ -110,7 +115,7 @@ Deletes files, one per step. The user database is protected: `DELETE SD0:[000000
 | `/LOG`, neg | `%DELETE-I-FILDEL, <file> deleted` per file |
 | `/CONFIRM`, neg | `<file>, delete? [N]:` per file, answers as for `COPY` |
 
-Messages: `%DELETE-S-DELETED, N files deleted`, `%UOS-W-NOFILES`, `%UOS-E-NOPRIV` or `%UOS-E-PROTECT` when every match was refused.
+Messages: `%DELETE-S-DELETED, N files deleted`, `%UOS-I-SKIPPED` before it when some matches were refused, `%UOS-W-NOFILES` when nothing matched, `%UOS-E-NOPRIV` when every match was refused. `DELETE SD0:[000000]SYSUAF.*` gives `%UOS-E-NOPRIV`.
 
 ```
 $ DELETE OLD*.TXT /CONFIRM
@@ -185,7 +190,7 @@ SYSTEM RESTARTING.
 
 ## SHOW
 
-Format: `SHOW keyword [/OUTPUT=file]`. `/OUTPUT` writes the text to a file.
+Format: `SHOW keyword [/OUTPUT=file]`. `/OUTPUT` writes the text to a file, only on success: `SHOW TIME /OUTPUT` with no clock chip ends with a warning and leaves the file alone.
 
 | Keyword | Shows |
 |---|---|
@@ -207,7 +212,7 @@ Format: `HELP [topic]`. Prints `SYS$HELP:<verb>.HLP`, the file the command table
 
 ## RUN
 
-Format: `RUN program`, one of `HACK`, `TERMINAL`, `HOLOTAPE`. Starts a program another task registered with `sh_program_register()`. With no entry: `%UOS-W-NOTINST, HACK is not installed in this build`. A program that fails to start gives `%UOS-E-PROGERR`.
+Format: `RUN program`, one of `HACK`, `TERMINAL`, `HOLOTAPE`. Starts a program another task registered with `sh_program_register()`. With no entry: `%UOS-W-NOTINST, HACK is not installed in this build`. A program that fails to start gives `%UOS-E-PROGERR`. Ctrl-C ends the wait for a program; if that program ends later, its result is ignored, also when another `RUN` waits by then.
 
 ## LOGIN
 

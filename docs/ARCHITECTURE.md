@@ -236,6 +236,7 @@ Every command each service registers. The `fs`, `readline`, `page` and `osk` com
 | `dev sense`, `dev hang`, `dev stall` | `devices` | Test builds only |
 | `sess state\|logout` | `session` | The login state and the session, see [Session](#session) |
 | `sh state\|run` | `shell` | The prompt state; a command line run as the session, see [The shell](#the-shell) |
+| `sh hold`, `sh prog` | `shell` | Test builds only: hold a command between two steps; register and end a test program for `RUN` |
 | `sess login <user>` | `session` | Test builds only: a session with no password |
 | `button <key>` | `console` | Test builds only: a key from the GPIO source, which opens the on-screen keyboard during a read |
 
@@ -281,7 +282,8 @@ Every call that touches the card runs from the loop only. The service reads `uos
 - A read-only card keeps its work files. `settle()` then finds the name that holds the content, by the library's recovery table, and reads it. Reads, `stat` and listings work and show the real name. Every write, delete, rename, copy or folder creation fails with `VFS_E_READONLY`.
 - Listings never show work files. A work file that holds a file's content after recovery is listed under the file's name. A listing changes nothing on the card. `DEV:` names are never touched.
 - `vfs_list()` returns the first `max` entries in the path module's order, and the total. It hides work files, names that are not 8.3 and entries the access table hides from the caller. Dates are FAT dates, shown as `DD-MMM-YYYY HH:MM:SS`.
-- `vfs_iter_begin()` resolves a wildcard to at most 128 files and checks access per file. DELETE, RENAME and COPY use it.
+- `vfs_iter_begin()` resolves a wildcard to at most 128 files and checks access per file. DELETE, RENAME and COPY use it. `skipped` counts every refused match, from the listing filter and from the check for the operation. With no match left, `VFS_E_NOFILES` and `skipped > 0` mean every match was refused.
+- `vfs_list_keep()` tells a refused match, `VFS_KEEP_REFUSED`, from no match, `VFS_KEEP_NO`. `vfs_last_refused()` gives the refused entries of the last `vfs_list()`.
 - `vfs_copy_begin()` and `vfs_copy_step()` copy in steps of 16 KiB. The new file is written as `~NAME` and moved into place through `#NAME`, the library's recovery names. `vfs_copy()` runs every step in one call, for small files.
 - `vfs_dev_register()` takes the device service's `read`, `write` and `list` hooks for `DEV:` names. Without hooks, `DEV:` calls return `VFS_E_NODEV`. A `list` hook that fails on index 0 makes the listing `VFS_E_NODEV` too.
 - `vfs_sys_read_all()` and `vfs_sys_write_all()` skip the access check, for system files such as `/UOS/SYSUAF.DAT`.
@@ -412,7 +414,7 @@ One command runs at a time, for the prompt and every other caller together. Othe
 |---|---|---|
 | `sh_run_line(line, flags, cb, ctx)` | loop | Runs one line as the logged-in user, with the shell's current folder. `SH_RUN_QUIET` keeps the output off the console. The callback gets a status, `SH_OK`, `SH_WARN`, `SH_FAIL` or `SH_CANCELLED`, and the final message's first line. A missing parameter is an error here: only the prompt asks. Returns 0, or `SH_ERR_BUSY`, `SH_ERR_NOUSER`, `SH_ERR_ARG`, `SH_ERR_DOWN` with no callback. |
 | `sh_busy()` | any | Non-zero while a command runs |
-| `sh_program_register(name, start)` | loop | A program for `RUN`. `start(args, done)` pushes its screen, returns 0, and calls `done(status, text)` once. A name with no entry answers `%UOS-W-NOTINST, <NAME> is not installed in this build`. At most 8 programs. |
+| `sh_program_register(name, start)` | loop | A program for `RUN`. `start(args, done, tag)` pushes its screen, returns 0, and calls `done(tag, status, text)` once, with the tag it got. A name with no entry answers `%UOS-W-NOTINST, <NAME> is not installed in this build`. At most 8 programs. |
 
 The terminal menu runs its `COMMAND` entries through `sh_run_line()`. Questions a command asks, such as `/CONFIRM` or a password, are read with `con_read_line()` on top of the caller's screen.
 
@@ -437,11 +439,29 @@ stateDiagram-v2
     done --> [*]: stop, /OUTPUT file, message, marker, callback
 ```
 
-- A step does a bounded piece of work: one 16 KiB copy step, one file of a wildcard loop, 8 lines of `TYPE` or `HELP`, 8 rows of `DIRECTORY`. The next step is posted to the loop, so input, ticks and the device watchdog run between two steps.
-- Ctrl-C on the shell screen while a command steps sets a flag; the next step ends the command with `%UOS-I-CANCEL`. `stop` frees what the command holds: a running copy is aborted and its work file removed.
+- A step does a bounded piece of work. The next step is posted to the loop, so input, ticks and the device watchdog run between two steps. The bound of each step:
+
+| Command | One step | Bound |
+|---|---|---|
+| `TYPE`, `HELP` printing | 8 display rows | A long line counts one row per 80-column segment. `sh_next_row()` reads at most 81 bytes ahead, so a step costs the same for a 1 MiB line as for short ones. |
+| `TYPE` read | `vfs_read_all()` of one file | 1 MiB, `SH_TYPE_MAX`, in one call. Measured in QEMU: 28 to 34 ticks on raspi0, raspi1ap and raspi2b, 143 to 180 on raspi3b. The vfs service has no stepped read. |
+| `HELP` read | one help file | 64 KiB, `SH_OUT_MAX` |
+| `TYPE /PAGE` | `con_page_text()` | Copies and indexes at most 1 MiB in one call |
+| `DIRECTORY` start | `vfs_list()` | One pass over the folder's entries, each a filter and an insert into at most 256 kept ones. The folder's size bounds it: FAT allows 65536 entries. |
+| `DIRECTORY` rows | 8 rows | Text up to 64 KiB for `/OUTPUT` |
+| File loops start | `vfs_iter_begin()` | One pass over the folder, at most 128 matches kept |
+| File loops | one file: a delete, a rename, a question | One vfs call |
+| `COPY` | one `vfs_copy_step()` | 16 KiB |
+| `SHOW DEVICES` | every device, in `start` | 32 entries, `DEV:` reads of 256 bytes |
+| `AUTHORIZE LIST` | every user, in `start` | 32 users, `UAF_MAX_USERS` |
+| End of a command | `/OUTPUT` write | 64 KiB, one atomic write |
+
+- Ctrl-C on the shell screen while a command steps sets a flag; the next step ends the command with `%UOS-I-CANCEL`. A command that waits on a program with no screen of its own gets a step posted, so Ctrl-C ends it too. `stop` frees what the command holds: a running copy is aborted and its work file removed.
+- Each command run gets an identity, a number from 1 that grows with every run. Every callback the shell hands out carries it as its context: the posted step, the `con_read_line()` of a `/CONFIRM` question, a `CREATE` line or a masked password, the `TYPE /PAGE` pager, and a program's `done()`. A callback whose identity is not the running job's comes from an ended run: the shell ignores it and prints `sh stale=<step|read|pager|prog> id= cur=`. So a program that ends after its run was cancelled cannot end a later `RUN` with its result. At most one step is posted at a time.
 - When the session ends under a command, the shell's `tick` ends it the same way: a logout pops every screen, so a read or a program it waited on never calls back.
 - Every error goes through `sh_err_msg()`, the one map from file system, `DEV:`, path and user database codes to `dcl` messages. `DEV:` codes keep the device service's meaning: a sensor gives `%DEVICE-E-SENSOR`, a bad action word `%DEVICE-E-IVACT`.
-- File loops walk `vfs_iter_begin()`, which checks access per matched file, and count done, failed, refused and declined files. `sh_tally_result()` gives the final message.
+- File loops walk `vfs_iter_begin()`, which checks access per matched file, and count done, failed, refused and declined files. `sh_tally_result()` gives the final message. The refused count comes from the listing filter, `vfs_list_keep()`, as well as from the per-file check, so a wildcard whose matches are all refused is `%UOS-E-NOPRIV`, not `%UOS-W-NOFILES`. `DIRECTORY` reads the same count from `vfs_last_refused()`.
+- `/OUTPUT` text collects in a buffer. When the command ends, `sh_output_write()` decides: only a final message of severity `S` or `I`, not cancelled, replaces the file, with one `vfs_write_all()`, which is atomic. Every other end leaves the file as it was and prints `cmd output=kept`.
 
 #### Passwords and the user database
 
@@ -454,7 +474,10 @@ stateDiagram-v2
 | `sh state=prompt kind=<cmd\|contin\|param\|confirm\|line\|password> n= rc=` | A read starts |
 | `cmd state=start verb=<VERB[_KEY]> src=<shell\|port\|api>` | A command starts |
 | `cmd file=<quoted> op=<copy\|delete\|rename\|type> result=<ok\|skip\|IDENT>` | One file of a file loop |
+| `cmd output=<written\|kept\|toobig\|failed> verb=` | A command with `/OUTPUT` ends, before its end marker |
 | `cmd state=end verb= rc=<IDENT> sev= files= skipped= failed= steps= maxticks=` | A command ends |
+| `sh stale=<step\|read\|pager\|prog> id= cur=` | A callback of an ended run, ignored |
+| `sh held=1 id=`, `sh prog=<reg\|start\|done>` | Test builds: `sh hold` and the test program |
 | `term scheme=<name>` | `SET TERMINAL /SCHEME` |
 | `uaf result=written users=` | `SYSUAF.DAT` was written |
 | `sh run=done status= result=<quoted>`, `sh run=refused rc=` | The end of `sh run` |
@@ -463,7 +486,10 @@ No marker holds a password or a command line.
 
 | Command | Answer |
 |---|---|
-| `sh state` | `sh state=<idle\|prompt\|running> kind= ask= verb= pending= prompts= runs=`. `pending` counts input events the loop has not taken yet. |
+| `sh state` | `sh state=<idle\|prompt\|running> kind= ask= verb= pending= prompts= runs= id=`. `pending` counts input events the loop has not taken yet. `id` is the running job's identity, 0 when idle. |
+| `sh hold <1\|0>` | Test builds. 1: the next step of a command waits and prints `sh held=1`; Ctrl-C still cancels it. 0: it runs on. |
+| `sh prog reg <NAME>` | Test builds. Registers a test program for `RUN <NAME>`. It pushes no screen and prints `sh prog=start n=` per run. |
+| `sh prog done <n> <status>` | Test builds. Ends the n-th run of the test program, with the tag that run got, even after its job ended. |
 | `sh run <line>` | Runs the line as the session. The line is quoted as the console's markers quote text: a blank is `%20`. A read at the prompt gives way and comes back after. |
 
 ### Devices
