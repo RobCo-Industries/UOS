@@ -45,4 +45,7 @@ All notable changes to UOS are recorded here. The format follows [Keep a Changel
 - Files: every call sees a file cut mid-write as recovery leaves it. A copy finds a source held only in a work file, and a new-only copy or write sees the restored target. Listings show the real name, never a work file.
 - Files: on a read-only card, reads and listings find the content a work file holds, and writes fail as read-only instead of "not found".
 - The loop runs only the events queued before each pass, so a stepped copy no longer holds off input and the tick until it ends.
+- Files: a multi-file `fs copy` keeps the user, privileges and default of its start for every file. `fs who` and `fs default` answer `err busy` while a request runs.
+- Files: `fs free` prints the full 64-bit total and free bytes, so a card over 4 GiB reports its real size.
+- Console: a `readline` refused as busy no longer changes the flags of the running read, so a masked line can no longer show in its marker.
 - `vp_access()` no longer reads a home folder name past the depth of a file directly in `HOME`.

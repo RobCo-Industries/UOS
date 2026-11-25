@@ -29,6 +29,7 @@ A pure file has no hardware access, no kernel calls and no allocation. Its state
 | `src/kernel/bootlines.c` | The first screen's text, `bootlines.h` |
 | `src/kernel/maintreg.c` | The maintenance command table and its word splitting, `uos_maint.h` |
 | `src/kernel/service.c` | The rules that run the service table, `uos_service.h` |
+| `src/kernel/u64dec.c` | Decimal text of a 64-bit value with no division, `uos_u64.h` |
 
 The hardware side is `main.c`, `loop.c`, `panic.c`, `maint.c`, `first.c`, `services.c` and `svc_uptime.c`. Their calls are in `uos.h`, `uos_maint.h` and `uos_service.h`.
 
@@ -275,7 +276,13 @@ Every call that touches the card runs from the loop only. The service reads `uos
 
 The decisions are pure, in `src/vfs/vfsrules.c`, with host tests.
 
-The `fs` maintenance command acts as a test user. `fs who <home|-> <privs>` and `fs default <spec>` set the user and the default and answer at once. The others post to the loop, answer `ok` and end with a marker `ev=fs op=<op> rc=<rc> err=<word>`:
+The `fs` maintenance command acts as a test user. `fs who <home|-> <privs>` and `fs default <spec>` set the user and the default and answer at once. The others post to the loop, answer `ok` and end with a marker `ev=fs op=<op> rc=<rc> err=<word>`. One request runs at a time; a second one answers `err busy`.
+
+A request copies the user, the privileges and the default when it is posted. Every step uses that copy until the request ends, so a multi-file `fs copy` resolves its target for every file as it did for the first. `fs who` and `fs default` answer `err busy` while a request runs. The copy alone keeps the request correct. The refusal keeps the answer true: the user and default an operator sees are the ones in use.
+
+`fs free` prints the full 64-bit byte counts. The library's `k_printf` has no 64-bit conversion, so the service formats them with `uos_u64_dec()`, `src/kernel/u64dec.c`, a pure function that subtracts powers of ten and needs no 64-bit division.
+
+The commands:
 
 | Command | Marker fields |
 |---|---|
@@ -324,7 +331,7 @@ Maintenance commands, for tests and operators:
 
 | Command | Answer |
 |---|---|
-| `readline <flags> <max> [prompt]` | `ok`, then `ev=line state=reading` and, when the read ends, `ev=line result=<ok\|cancel> len=<n> text=<"text"\|masked>`. Flags are `-`, or `m` for masked and `h` for no history. The text shows a blank, a quote and `%` as `%XX`, and stops at 160 characters with `cut=1`. `err busy` while a read runs. |
+| `readline <flags> <max> [prompt]` | `ok`, then `ev=line state=reading` and, when the read ends, `ev=line result=<ok\|cancel> len=<n> text=<"text"\|masked>`. Flags are `-`, or `m` for masked and `h` for no history. The text shows a blank, a quote and `%` as `%XX`, and stops at 160 characters with `cut=1`. `err busy` while a read runs, and the refused command leaves the running read's flags alone. |
 | `page <short\|long\|empty\|big>` | A built-in test text. `ev=page top=<n> shown=<n> lines=<n>` on show and on each move, `ev=page result=done` when left. `err busy` while a pager runs. |
 | `osk <open\|close\|state>` | `open` and `close` act on the active read, else `err no line`. `state` answers `osk open= layer= row= col= line= reading=`. The keyboard marks `ev=osk state=open` and `ev=osk state=closed`. |
 
