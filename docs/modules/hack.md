@@ -163,6 +163,7 @@ None names the password before the game ends.
 | `hack op=bracket result=<dud\|reset> attempts=` | A bracket pair was used |
 | `hack op=end result=<won\|lost\|left>` | The game ends |
 | `hack result=busy` | `hack start` while the game is open |
+| `hack result=gone` | A `hack move`, `select` or `back` reached the loop after the game it was meant for ended, or with no game open |
 
 ### The command
 
@@ -170,7 +171,7 @@ None names the password before the game ends.
 |---|---|
 | `hack start` | Posts the start, as F2 at the login does |
 | `hack move <left\|right\|up\|down> [n]` | Posts `n` moves, 1 to 64 |
-| `hack select`, `hack back` | Posts SELECT or BACK |
+| `hack select`, `hack back` | Posts SELECT or BACK. Each posted call carries its own arguments and the game it was meant for |
 | `hack state` | `hack state= cursor= hl= hlstart= hllen= attempts= result= len= words= pairs= pending=`, then `row r= text=` for the 16 board rows and `hist i= text=` per history line, with `%XX` for blanks, `%` and `"` |
 | `hack seed <n>` | Test builds only: the next games use seed `n`. `test_hack.py` checks with `nm` that the shipped image has none of it |
 

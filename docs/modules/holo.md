@@ -180,7 +180,7 @@ Reads use the session's file context and privileges, or no privilege when nobody
 | `holo op=load file= result=<ok\|nomem\|nocard\|gone\|damaged> why= bytes= us= ticks=` | A load ended; `result=refused` for a damaged tape |
 | `holo op=show tape= entry= bytes= rc=` | An entry opens in the pager |
 | `holo op=close file=` | The open tape's buffer is freed |
-| `holo result=<busy\|range\|screen>` | A `holo` command did nothing |
+| `holo result=<busy\|range\|screen\|gone>` | A `holo` command did nothing. `gone`: the reader the pick was meant for closed before the pick ran, or none is open |
 
 ### The command
 
@@ -188,7 +188,7 @@ Reads use the session's file context and privileges, or no privilege when nobody
 |---|---|
 | `holo open` | Posts `holo_screen_start()` |
 | `holo list` | One line per tape: `tape i= file= err= title=`, the title with `%XX` for blanks |
-| `holo pick <n>` | Moves the selection of the shown list to item `n`, then ENTER |
+| `holo pick <n>` | Moves the selection of the shown list to item `n`, then ENTER. The posted call carries `n` and the reader it was meant for, so two picks in one write each keep their own |
 | `holo state` | `holo state= scan= screen= tapes= total= sel= entry= open= msg= pending=`. `pending` counts input events, posted commands and a running scan or load |
 | `holo hog` | Test builds only: takes the heap until no tape fits, a second call gives it back |
 
