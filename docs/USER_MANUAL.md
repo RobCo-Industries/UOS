@@ -121,6 +121,8 @@ To the right, the terminal keeps notes of what you tried, the newest at the bott
 - SELECT tries the highlighted word.
 - BACK leaves the game. Nothing is counted and the login comes back.
 
+A won game clears the count of failed logins, as a right password does.
+
 A wrong word costs one attempt. The terminal shows `Entry denied.` and the likeness.
 
 ### Likeness

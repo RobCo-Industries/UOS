@@ -91,15 +91,39 @@ Estimate for an ARM1176 at 700 MHz, unverified. The cross GCC at `-O2` builds th
 - `uaf_add`, `uaf_remove`, `uaf_set_password`, `uaf_set_privs`, `uaf_set_flags`, `uaf_set_home`: edits for `AUTHORIZE`. The caller supplies each salt. At most 32 users.
 - `uaf_privs_format`, `uaf_privs_parse`, `uaf_priv_name`: privilege text.
 - `uaf_strerror`, `lk_strerror`: one line per error code.
-- `lk_init`, `lk_fail`, `lk_success`, `lk_locked`, `lk_remaining_s`, `lk_tries_left`: the lockout.
+- `lk_init`, `lk_fail`, `lk_session_start`, `lk_locked`, `lk_remaining_s`, `lk_tries_left`: the lockout.
 
 ## Lockout rule
 
-`lk_init` takes `retries`, 1 to 9, and `lockout_s`, 0 to 3600, from `UOS.CFG [login]`. Each failed login adds one to the count. When the count reaches `retries`, the login locks for `lockout_s` seconds and the count resets. A failure while locked is ignored. A success clears the count. With `lockout_s = 0` nothing locks. `lk_remaining_s` gives the whole seconds left, rounded up, for the screen.
+`lk_init` takes `retries`, 1 to 9, and `lockout_s`, 0 to 3600, from `UOS.CFG [login]`. Each failed login adds one to the count. When the count reaches `retries`, the login locks for `lockout_s` seconds and the count resets. A failure while locked is ignored. A session start clears the count. With `lockout_s = 0` nothing locks. `lk_remaining_s` gives the whole seconds left, rounded up, for the screen.
 
 Ticks are milliseconds in a `uint32_t`, which wraps every 2^32 ms, about 49.7 days. The code only uses `now - start` in 32 bits, so a lock that spans the wrap works. The caller must call an `lk_` function at least once per wrap period while locked. The session service does that on every tick.
 
 `lk_lock(lk, now, seconds)` locks for a given length, whatever the count: the password game's loss uses it, so the terminal has one lock state. While a lock runs, the one that ends later wins. The count starts again when the lock ends. `lk_t.lock_ms` holds the length of the running lock.
+
+### Lockout events
+
+The password login and the password game share one lockout state. This table is the whole state machine. The same table is in `lockout.h`, and `tests/host/test_session_lockout.c` has a test per row.
+
+| Event | Call | Failure count | Lock |
+|---|---|---|---|
+| Wrong password | `lk_fail` | Plus one. At `retries` it goes to 0 | Starts for `[login] lockout_s` at `retries` |
+| Unknown user | `lk_fail` | As a wrong password | As a wrong password |
+| Right password, account disabled | `lk_fail` | As a wrong password. The screen never tells the password was right | As a wrong password |
+| Right password | `lk_session_start` from `sess_begin()` | 0 | None can run |
+| Game started | none | Kept | None can run: a locked terminal refuses the game |
+| Game left with BACK | none | Kept, whatever the wrong guesses | Unchanged |
+| Game lost | `lk_lock` | 0 | Starts for `[hack] lockout_s`. With 0 s nothing changes |
+| Game won | `lk_session_start` from `sess_begin()` | 0 | None can run |
+| Game refused: off, disabled, `NOHACK`, covered, busy, locked | none | Kept | Unchanged |
+| Logout or idle timeout | none | Kept | None can run during a session |
+| Key while locked | `lk_fail` is ignored | 0 | Unchanged |
+| Lock runs out | `lk_locked` | 0: failures from before the lock do not carry over | Ends |
+| Reboot | `lk_init` | 0 | None: the state lives in RAM |
+
+`sess_begin()` is the one way into a session, so a right password, a won game and the test-only `sess login` all clear the count. Since the session starts before the login's result marker, `session state=start` comes before `login user= result=ok` on the serial line.
+
+A game cannot be won while locked: the game refuses to start with `locked`, and nothing locks while it plays, since no password can be typed then. Alternating password tries and game starts does not dodge the login lockout: a game start leaves the count as it was.
 
 The lockout lives in RAM. A reboot clears it. A later option can keep the lock across a reboot by storing `locked_at` and the count on the card.
 

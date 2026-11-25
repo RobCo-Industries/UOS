@@ -10,6 +10,8 @@ All notable changes to UOS are recorded here. The format follows [Keep a Changel
 
 ### Added
 
+- A won password game clears the count of failed logins, as a right password does. Before, failures from before the game carried over to the next login. `lk_success()` is now `lk_session_start()`, called by `sess_begin()`. `docs/modules/session.md` has the table of every lockout event.
+
 - The screen stack redraws what a closing screen uncovers. A pop, a replace or `uos_screen_expose()` draws every visible screen bottom-up from the highest full screen. BACK from the holotape reader or a pager over the login prompt now gives the whole login screen back.
 
 - The password game plays only from the login prompt. `hack start` over another screen refuses with `covered`, and BACK gives that screen back as it was.
