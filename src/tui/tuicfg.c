@@ -1,11 +1,11 @@
 /*
  * TERMINAL.CFG parser. Pure: text in, tui_menu_t out.
  *
- * PENDING LIBRARY FEATURE: ini_parse() reports keys only, so a section
- * with no keys is never seen, and a repeated section header is not
- * reported. RobCo-Core will add ini_parse_sections() in a later pin
- * bump. Then switch to it so an empty or repeated section is a counted
- * error. See docs/ARCHITECTURE.md, "Pending library features".
+ * ini_parse_sections() reports every section header. A [terminal] or
+ * [entry N] section with no keys is a counted TUI_E_EMPTY. A repeated
+ * [terminal] is TUI_E_DUP_SECTION and a repeated [entry N]
+ * TUI_E_DUP_ENTRY: the first one wins, also when the repeat follows it
+ * directly.
  */
 
 #include "tui.h"
@@ -32,6 +32,8 @@ static const char *const tui_err_text[TUI_E_COUNT + 1] = {
     "menus nested too deep",
     "not possible now",
     "buffer too small",
+    "section has no keys",
+    "section given twice",
 };
 
 const char *tui_strerror(int code)
@@ -132,10 +134,13 @@ typedef struct {
     unsigned keys;
     unsigned sec_line;
     unsigned valid;             /* valid entries, visible and hidden */
-    unsigned nseen;
-    unsigned tkeys;             /* keys seen in [terminal], across reopenings */
-    uint16_t seen[TUI_SEEN_MAX];
-    char prev[INI_MAX_SECTION + 2];
+    unsigned tkeys;             /* keys seen in [terminal] */
+    unsigned nkeys;             /* keys in the current section */
+    int in_section;             /* a section, or keys before any header, started */
+    int terminal_seen;          /* a [terminal] header came already */
+    /* Every [entry N] header, valid or not: bit N. A fixed list would
+     * miss repeats once full. */
+    uint8_t seen[(TUI_ENTRY_NUM_MAX + 8) / 8];
     tui_entry_t e;
 } cfg_ctx_t;
 
@@ -357,14 +362,18 @@ static void finish_entry(cfg_ctx_t *c)
 static void start_section(cfg_ctx_t *c, const char *section, unsigned line)
 {
     int n;
-    unsigned i;
 
-    k_strncpy(c->prev, section, sizeof(c->prev) - 1);
-    c->prev[sizeof(c->prev) - 1] = 0;
     c->keys = 0;
     c->bad = 0;
+    c->nkeys = 0;
     c->sec_line = line;
     if (k_strcmp(section, "terminal") == 0) {
+        if (c->terminal_seen) {
+            c->kind = SEC_SKIP;
+            add_err(c, TUI_E_DUP_SECTION, line, 0);
+            return;
+        }
+        c->terminal_seen = 1;
         c->kind = SEC_TERMINAL;
         return;
     }
@@ -379,16 +388,12 @@ static void start_section(cfg_ctx_t *c, const char *section, unsigned line)
         add_err(c, TUI_E_ENTRY_NUM, line, 0);
         return;
     }
-    for (i = 0; i < c->nseen; i++) {
-        if (c->seen[i] == n) {
-            c->kind = SEC_SKIP;
-            add_err(c, TUI_E_DUP_ENTRY, line, (unsigned)n);
-            return;
-        }
+    if (c->seen[n / 8] & (1u << (n % 8))) {
+        c->kind = SEC_SKIP;
+        add_err(c, TUI_E_DUP_ENTRY, line, (unsigned)n);
+        return;
     }
-    if (c->nseen < TUI_SEEN_MAX) {
-        c->seen[c->nseen++] = (uint16_t)n;
-    }
+    c->seen[n / 8] |= (uint8_t)(1u << (n % 8));
     c->kind = SEC_ENTRY;
     k_memset(&c->e, 0, sizeof(c->e));
     c->e.num = (uint16_t)n;
@@ -396,7 +401,9 @@ static void start_section(cfg_ctx_t *c, const char *section, unsigned line)
 
 static void finish_section(cfg_ctx_t *c)
 {
-    if (c->kind == SEC_ENTRY) {
+    if ((c->kind == SEC_ENTRY || c->kind == SEC_TERMINAL) && c->nkeys == 0) {
+        add_err(c, TUI_E_EMPTY, c->sec_line, c->kind == SEC_ENTRY ? c->e.num : 0);
+    } else if (c->kind == SEC_ENTRY) {
         finish_entry(c);
     }
     c->kind = SEC_NONE;
@@ -496,15 +503,28 @@ static int on_key(const char *section, const char *key, const char *value,
 {
     cfg_ctx_t *c = ctx;
 
-    if (c->kind == SEC_NONE || k_strcmp(section, c->prev) != 0) {
-        finish_section(c);
+    if (!c->in_section) {
+        /* A key before any section header. */
+        c->in_section = 1;
         start_section(c, section, line);
     }
+    c->nkeys++;
     if (c->kind == SEC_TERMINAL) {
         terminal_key(c, key, value, line);
     } else if (c->kind == SEC_ENTRY) {
         entry_key(c, key, value, line);
     }
+    return 0;
+}
+
+/* Each header closes the section before it and opens a new one. */
+static int on_section(const char *section, unsigned line, void *ctx)
+{
+    cfg_ctx_t *c = ctx;
+
+    finish_section(c);
+    c->in_section = 1;
+    start_section(c, section, line);
     return 0;
 }
 
@@ -526,7 +546,7 @@ int tui_cfg_parse(const char *text, size_t len, uint32_t user_privs,
     c.m = m;
     c.privs = user_privs;
     c.kind = SEC_NONE;
-    rc = ini_parse(text ? text : "", len, on_key, &c, &line);
+    rc = ini_parse_sections(text ? text : "", len, on_key, on_section, &c, &line);
     if (rc < 0) {
         k_memset(m, 0, sizeof(*m));
         if (err_line) {

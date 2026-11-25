@@ -29,7 +29,7 @@
 #define TUI_DEVWORD_MAX     15      /* characters in a device action word */
 #define TUI_TARGET_MAX      127     /* bytes in any stored target */
 #define TUI_CFG_ERR_LOG     8       /* errors kept with their line; all are counted */
-#define TUI_SEEN_MAX        32      /* entry numbers remembered for the duplicate check */
+#define TUI_ENTRY_NUM_MAX   999     /* highest N of [entry N]: 1 to 3 digits */
 #define TUI_DEPTH_MAX       8       /* menus nest up to 8 deep */
 #define TUI_HEADER_LINES    8       /* header text lines shown */
 #define TUI_SYSNAME_MAX     31      /* characters in the system name */
@@ -75,7 +75,9 @@ enum {
 #define TUI_E_DEPTH         (-15)   /* a menu would nest deeper than 8 */
 #define TUI_E_STATE         (-16)   /* call not valid in this state */
 #define TUI_E_SPACE         (-17)   /* caller buffer too small */
-#define TUI_E_COUNT         17
+#define TUI_E_EMPTY         (-18)   /* [terminal] or [entry N] with no keys */
+#define TUI_E_DUP_SECTION   (-19)   /* [terminal] given twice, the first wins */
+#define TUI_E_COUNT         19
 
 /* One line of text for an error code. Unknown codes give "unknown error". */
 const char *tui_strerror(int code);

@@ -11,7 +11,7 @@ UOS reads its files from the `/UOS` folder of the card. This page lists every fo
 | `/UOS/WORDS/Wnn.TXT` | text, one word per line | `src/hack/hack.c` | [hack](modules/hack.md#word-list-format) |
 | `/UOS/HOLO/*.HTP` | sealed rimg with an HTXT archive | `src/holo/holofmt.c` | [holo](modules/holo.md#file-layout) |
 
-The INI files use the RobCo-Core INI reader. Comments start with `;` or `#`. LF and CR LF line ends both work. The reader reports keys only, so a section with no keys is never seen. See [Pending library features](ARCHITECTURE.md#pending-library-features).
+The INI files use the RobCo-Core INI reader. Comments start with `;` or `#`. LF and CR LF line ends both work. `DEVICES.CFG` and `TERMINAL.CFG` go through `ini_parse_sections()`, which also reports each section header, so a section with no keys or a repeated section is a counted error.
 
 ## UOS.CFG
 
@@ -34,6 +34,10 @@ user = GUEST
 attempts = 4
 difficulty = advanced
 lockout_s = 60
+
+[watchdog]
+enabled = off
+timeout_ms = 8000
 ```
 
 | Section | Key | Value | Default |
@@ -49,6 +53,8 @@ lockout_s = 60
 | `hack` | `attempts` | 1 to 9 | 4 |
 | `hack` | `difficulty` | `novice`, `advanced`, `expert` or `master` | `advanced` |
 | `hack` | `lockout_s` | 0 to 3600 | 60 |
+| `watchdog` | `enabled` | as `hack` `enabled`. Turns the hardware watchdog on. Keep it off in QEMU, which resets at once when it starts | off |
+| `watchdog` | `timeout_ms` | 1000 to 15000: the time without a loop tick before the board resets | 8000 |
 
 Rules:
 
@@ -59,7 +65,7 @@ Rules:
 - When a key repeats, the last one wins.
 - A line that does not parse stops the reader. The keys before it apply.
 
-The kernel reads `UOS.CFG` at boot. The session service applies `[login]`, see [session](modules/session.md#the-session-service). No module reads the `[hack]` values yet: the minigame is not wired.
+The kernel reads `UOS.CFG` at boot. The session service applies `[login]`, see [session](modules/session.md#the-session-service). The device service reads `[watchdog]`, see [The watchdogs](ARCHITECTURE.md#the-watchdogs). No module reads the `[hack]` values yet: the minigame is not wired.
 
 ## SYSUAF.DAT
 
@@ -68,6 +74,9 @@ The user database: a 32-byte header, then one 96-byte record per user, at most 3
 ## DEVICES.CFG
 
 One `[device NAME]` section per device, up to 24, and one `[expander N]` section per I2C expander chip, up to 4. `gpio = <n>` names a Pi pin. `gpio = X<chip>.<pin>` names an expander pin. Layout and rules: [dev](modules/dev.md#file-format).
+
+- A repeated `[device NAME]` or `[expander N]` header is refused, even when the first section was empty or bad. The first one wins.
+- An expander output needs a relay named `ARM` on a Pi pin that is off at reset, such as `gpio = 25` with `active = high`. Without one, every expander output is refused with `NOARM` and never driven. Expander inputs still work.
 
 ## TERMINAL.CFG
 

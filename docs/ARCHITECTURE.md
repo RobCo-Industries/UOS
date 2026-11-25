@@ -141,13 +141,15 @@ The rule: from the moment a panic is possible, the maintenance port answers. The
 
 A panic before the `service` markers has no service to shut down, so it prints no `ev=shutdown` marker.
 
+When `UOS.CFG` turns the hardware watchdog on, the panic leaves it running with no kicks, so the board resets once its timeout ends, after the outputs went safe. See [The watchdogs](#the-watchdogs).
+
 When the MMU is on, it stays on in the panic path. The vectors, the stacks and the framebuffer stay mapped, so the screen and the port keep working.
 
 ## Reboot and halt
 
 `uos_reboot(source)` shuts the services down with `why=reboot`, prints `ev=reboot source=<source>`, turns the MMU and the data cache off with `mmu_disable()`, which cleans every dirty line to memory, and resets the board through the watchdog.
 
-`uos_halt()` masks IRQs, shuts the services down with `why=halt`, sets the phase to `halt`, prints `ev=halt`, then `ev=idle`, and polls the maintenance port for good, as the panic path does.
+`uos_halt()` masks IRQs, shuts the services down with `why=halt`, sets the phase to `halt`, prints `ev=halt`, then `ev=idle`, and polls the maintenance port for good, as the panic path does. The device service's shutdown stops a running hardware watchdog on halt, so the terminal stays halted.
 
 ## The maintenance port
 
@@ -240,8 +242,8 @@ Every command each service registers. The `fs`, `readline`, `page` and `osk` com
 
 1. Write the service in its own file, for example `src/mail/svc.c`, ending with `const uos_service_t uos_svc_mail = { "mail", mail_init, NULL, mail_shutdown };`.
 2. In `src/kernel/services.c`, add one line `extern const uos_service_t uos_svc_mail;` under the comment "One extern per service".
-3. In the same file, add one line `&uos_svc_mail,` in the `services[]` array between `/* BEGIN SERVICES */` and `/* END SERVICES */`. Put it after every service it uses: the order is the start order.
-4. Add the name to `SERVICES` in `tests/uos.py`, so the boot order tests expect its marker.
+3. In the same file, add one line `&uos_svc_mail,` in the `services[]` array between `/* BEGIN SERVICES */` and `/* END SERVICES */`. Put it after every service it uses: the order is the start order. Keep `&uos_svc_devices,` last, so the outputs go safe before any other service stops.
+4. Add the name to `SERVICES` in `tests/uos.py`, so the boot order tests expect its marker, and its commands to `SERVICE_COMMANDS`, so the `help` test expects them.
 
 ### How to add a maintenance command
 
@@ -384,26 +386,30 @@ The console's read, pager and pause screens have a `leave` callback: when anothe
 
 The `devices` service, in `src/dev/devglue.c`, applies `/UOS/DEVICES.CFG` to the GPIO pins. Its rules are pure, in `devcfg.c`, `devstate.c` and `devsplan.c`. Other services call `src/dev/devs.h`, prefix `devs_`. Nothing here is validated on real hardware.
 
-Init registers the `DEV:` hooks with the file system, then reads the file with `vfs_sys_read_all()`, at most 8 KiB. It parses it with `DV_REFUSED_UOS`. The library cannot say which pins its input layer claimed. When the input layer's GPIO backend runs, the service also refuses every button and dial pin; today that backend is off. Init then sets every pin and starts the watchdog. Its markers:
+Init registers the `DEV:` hooks with the file system, then reads the file with `vfs_sys_read_all()`, at most 8 KiB. It parses it with `DV_REFUSED_UOS`. The library cannot say which pins its input layer claimed. When the input layer's GPIO backend runs, the service also refuses every button and dial pin; today that backend is off. Init then attaches each declared expander chip, sets every pin and starts the software watchdog. Its markers:
 
 | Marker | Meaning |
 |---|---|
 | `devcfg result=<ok\|syntax\|missing\|bad\|skipped> loaded=...` | The file and the parse summary. `missing`, `bad` and `skipped` load no device and the system stays up. |
 | `deverr name= line= why=<IDENT>` | One per skipped device or bad expander, up to 8 |
 | `devwarn name= line= why=PULLUP` | One per warning, up to 8 |
+| `devexp chip= addr= result=<ok\|absent\|bus\|addr\|error> rc=` | One per declared expander chip: `gpiox_attach()` answered |
 | `devboot count= arm=<name\|none>` | The boot operations ran |
-| `devfail name= op=<config\|write\|read\|pulse> rc= why=` | An operation failed, such as `NOEXPDRV` on an expander pin |
+| `devfail name= op=<config\|write\|read\|pulse> rc= why=` | An operation failed, such as `EXPABSENT` on a pin of a chip that did not answer |
 | `devfault name= result=failing op=<config\|write\|pulse> owed= rc= why=` | A write to the safe level failed: a fault starts |
 | `devfault name= result=cleared fails= state=` | The owed write succeeded after `fails` failed tries |
 | `devarm name= result=held why=unreachable count=` | Boot: `ARM` stays off because `count` other outputs did not reach their initial level |
 | `devarm name= result=on why=unreachable count=` | An operator switched `ARM` on while `count` other outputs are unreachable |
-| `wdog result=<on\|off\|expired> timeout_ms=15000` | The watchdog |
+| `wdog result=<on\|off\|expired> timeout_ms=15000` | The software watchdog |
 | `dev name= state= by=<source>` | A state change: `maint`, `dev`, a caller's word, `pulse` or `sensor` |
-| `devsafe name= pin= level= rc= tries=`, `devdown why= count=` | The safe state at shutdown, one `devsafe` per write |
+| `devsafe name= pin= level= rc= tries=`, `devdown why= count=` | The safe state at shutdown, one `devsafe` per write. `pin` is `12` or `X0.3`. A skipped expander write has `rc=-44 tries=0` |
+| `hwdog result=off why=setting` | Init: the hardware watchdog stays off |
+| `hwdog result=start timeout_ms=`, `hwdog result=<on\|err> timeout_ms= rc=` | The hardware watchdog starts |
+| `hwdog result=<left\|stopped> why= remaining_ms=` | Shutdown: what happened to a running hardware watchdog |
 
 The init markers come after `ev=service name=console` and before `ev=service name=devices`.
 
-The `dev` maintenance command: `dev list` gives `dev count=N`, the header and one status line per device. `dev set <name> <action> [privs]` runs a command with the privilege bits given, `SYSTEM` by default, and answers `dev name= state=` or `err <message>`. `dev rec` gives `rec count= total=`, then the pin record, oldest first. Test builds add `dev sense <name> <0|1>`, which replaces a sensor's pin read, `dev fail <name> <writes>`, which makes the next writes to a Pi pin fail, `dev hang`, which stops the watchdog kicks, and `dev stall <ticks>`, which keeps the loop busy. QEMU cannot drive a Pi GPIO input from outside, and the library's harness has no way to inject a GPIO level, so the sensor tests use `dev sense`.
+The `dev` maintenance command: `dev list` gives `dev count=N`, the header and one status line per device. `dev set <name> <action> [privs]` runs a command with the privilege bits given, `SYSTEM` by default, and answers `dev name= state=` or `err <message>`. `dev rec` gives `rec count= total=`, then the pin record, oldest first. `dev hwdog` gives `hwdog running= timeout_ms= remaining_ms= held=` from the library's `wdog.h`. Test builds add `dev sense <name> <0|1>`, which replaces a sensor's pin read, `dev fail <name> <writes>`, which makes the next writes to a Pi pin fail, `dev hang`, which stops the kicks of both watchdogs, and `dev stall <ticks>`, which keeps the loop busy. QEMU cannot drive a Pi GPIO input from outside, and the library's harness has no way to inject a GPIO level, so the sensor tests use `dev sense`.
 
 #### Ticks, pulses and sensors
 
@@ -417,9 +423,12 @@ Sensors are read every 50 ms. A change counts after 3 equal reads in a row, so i
 - At boot every output is set to its initial level, in file order, with `gpio_config_output()`, which sets the level before the pin becomes an output.
 - A relay named `ARM` switches the supply of every load. It is set last at boot. It goes off first at shutdown.
 - `ARM` is switched on at boot only if every other output was written to its initial level. No other name or type gets special treatment.
-- Shutdown on reboot, halt and panic, and the watchdog, drive `ARM` off, then every other output to its initial level in reverse file order. They use direct GPIO writes only: no timers, no allocation, safe with IRQs off.
+- The `ARM` rule: an expander output is usable only when the file has a relay named `ARM` on a Pi pin that is off at reset. Off at reset means the pin's reset pull is not its active level: GPIO 0 to 8 pull up, 9 to 27 pull down, so `ARM` on GPIO 25 must be `active = high`. The parser checks it after the whole file. When it fails, every expander output, `ARM` too when it sits on an expander, is refused with `%DEVICE-E-NOARM, expander output needs an ARM relay on a Pi pin off at reset`. The error is counted and named in a `deverr why=NOARM` marker. A refused output stays in the table but is never configured or written, its status line ends with ` REFUSED=NOARM`, and every command to it fails with that message. Expander inputs, Pi pins and the rest of the system keep working. A refused output counts as unreachable, so a Pi `ARM` stays off at boot while one exists. The reason: on a panic and from the software watchdog nothing but `ARM` can cut an expander output, see the next rules.
+- Shutdown on reboot, halt and panic, and the software watchdog, drive `ARM` off, then every other output to its initial level in reverse file order. No timers, no allocation, safe with IRQs off. Pi pins get direct GPIO writes. Expander pins: see the next rule.
+- On reboot and halt, expander outputs go safe through the driver, polled, each I2C transfer bounded by a deadline on the system timer. On panic and from the software watchdog, no I2C transfer starts: each expander write is skipped with `DEVS_ERR_SKIP`, `%DEVICE-W-NOTWRITTEN`, and the pin keeps its level. The reason: a panic can come from inside the I2C driver or the controller, or from damaged memory that holds the driver's shadow registers, and the software watchdog runs in IRQ context, which `i2c.h` does not allow, while the hung loop may sit inside a transfer. `ARM`, on a Pi pin by the `ARM` rule, still goes off first and cuts the supply of every load.
+- What a user gets on panic and on software-watchdog expiry: `ARM` reads off on its Pi pin. Each expander output keeps the value in its chip's output register but has no load supply. The `devsafe` line of each has `rc=-44 tries=0`. The software watchdog then reboots. After a panic the terminal stays in the panic screen, unless the hardware watchdog is on: then its reset follows. A PCA9554 keeps its output register across a Pi reset, since only its own power-on resets it. So at the next boot the old level is still there, with `ARM` off. Boot writes every output to its `initial` level first and switches `ARM` on last, only when all of them got there. A chip that does not answer keeps `ARM` off. No order lets `ARM` come back on while an expander output holds a level the system did not choose at this boot. Between the Pi reset and boot, `ARM` rests at its pin's reset pull, which the `ARM` rule makes its off level.
 - A failed pin write never leaves the model saying a state the pin does not have. See "Pin faults".
-- An expander device loads and is listed. Every operation on it fails with `%DEVICE-E-NOEXPDRV, expander not available in this build`. The library has no expander driver yet. `exp_write`, `exp_config` and `exp_read` in `devglue.c` are the three functions a driver replaces.
+- Expander pins go through the library's PCA9554 driver, `gpiox.h`. Init attaches each declared chip once. A chip that does not answer never blocks the boot: the probe is one bounded transfer. Its devices load and are listed, every operation on them fails with `%DEVICE-E-EXPABSENT, expander chip did not answer at boot`, their outputs show ` UNREACHABLE`, and `ARM` stays off. The chip is not tried again until the next boot.
 
 #### Pin faults
 
@@ -432,8 +441,8 @@ A GPIO or expander write can fail. The rule: after a failed write, the model nev
 - `SHOW DEVICES`, `dev list` and `DEV:` reads show ` FAULT=<count>` after the pin while the fault lasts.
 - A device in fault refuses every command with `%DEVICE-E-PINFAULT, a pin write failed and is retried; command refused`. A queued command could fire long after the operator gave it, so none is kept.
 - A failed write away from the safe level starts no fault. The command fails with its code, `%DEVICE-E-IOERR` for a Pi pin, and the state stays as it was.
-- `NOEXPDRV` starts no fault: without an expander driver, the pin was never driven. At boot the output is off and marked unreached. Its line shows ` UNREACHABLE` until a write to it succeeds.
-- An output is unreachable while it is in fault or unreached. `ARM`'s line shows ` UNREACH=<count>` while any other output is unreachable.
+- `EXPABSENT` starts no fault: a chip that did not answer at boot was never driven. At boot the output is off and marked unreached. Its line shows ` UNREACHABLE` until a write to it succeeds. A bus error on an attached chip is `IOERR` and follows the rules above, so a failed write to the safe level is owed and retried every tick.
+- An output is unreachable while it is in fault, unreached, or refused by the `ARM` rule. `ARM`'s line shows ` UNREACH=<count>` while any other output is unreachable.
 
 Each write site:
 
@@ -443,16 +452,27 @@ Each write site:
 | Command to the safe level, such as `LOCK` | Fault, `PINFAULT` to the caller. A pending pulse end is cancelled: the fault owes the same write. |
 | Command away from the safe level, such as `UNLOCK` | `IOERR` to the caller, state unchanged, nothing owed. |
 | Pulse start | As the command away from the safe level. No pulse end is set. |
-| Boot, `DEVICES.CFG` loaded | `devfail op=config`. The output is off. A Pi GPIO error, a refused pin or an expander driver error starts a fault with its `CONFIG_OUTPUT` owed. `NOEXPDRV` marks the output unreached. |
+| Boot, `DEVICES.CFG` loaded | `devfail op=config`. The output is off. A Pi GPIO error, a refused pin or an expander driver error starts a fault with its `CONFIG_OUTPUT` owed. `EXPABSENT` marks the output unreached. |
 | Boot, `ARM` | Any failed output counts, with a fault or not. `ARM` is then written off instead of its initial level, with a `devarm result=held` marker. |
 | Command, `ARM` on | Allowed while outputs are unreachable: the operator decides, as on a real panel. The answer reads `ON, <n> outputs unreachable` and a `devarm result=on` marker follows. |
-| Shutdown on reboot, halt and panic | Each write is tried 3 times, then the next device comes. Each write gives one `devsafe` marker with its `rc` and `tries`. |
+| Shutdown on reboot, halt and panic | Each write is tried 3 times, then the next device comes. Each write gives one `devsafe` marker with its `rc` and `tries`. On panic an expander write is skipped, not tried: `tries=0`, no fault, the state stays. |
 | Shutdown, `ARM` off fails | The other outputs still go to their initial level. That level is safe with or without the supply. |
-| The watchdog | It runs the shutdown sequence, so the same bound applies. |
+| The software watchdog | It runs the shutdown sequence, so the same bound applies. Expander writes are skipped as on panic. |
 
-#### The watchdog
+#### The watchdogs
 
-The library has no watchdog start or kick call: `power.h` only resets. QEMU resets at once on a write of the watchdog's reset register, so a hardware watchdog could not be tested there either. The service runs a software watchdog instead. When at least one output is configured, init adds a tick callback. The loop kicks it from the service's `tick`. When no kick comes for 15 s, the callback, in IRQ context, drives the outputs safe and calls `power_reboot()`. The callback needs IRQs, so it does not reset the system after a panic or a halt, which run with IRQs off. Shutdown stops the kicks after it drives the outputs safe. A hardware watchdog that also covers those cases waits on a library feature.
+The software watchdog stays the tested path. When at least one output is configured, init adds a tick callback. The loop kicks it from the service's `tick`. When no kick comes for 15 s, the callback, in IRQ context, drives the outputs safe and calls `power_reboot()`. The callback needs IRQs, so it does not reset the system after a panic or a halt, which run with IRQs off. Shutdown stops the kicks after it drives the outputs safe.
+
+The hardware watchdog is the library's `wdog.h`, the BCM2835 PM watchdog. QEMU 10.1 does not count it: `wdog_start()` resets the board at once on all four boards. So it is a `UOS.CFG` setting, `[watchdog] enabled`, off by default and off on every test card, with `timeout_ms` 1000 to 15000, 8000 by default. The rules are pure, in `src/kernel/hwdog.c`, `uos_hwdog.h`, with host tests. When it is on:
+
+- It starts on the device service's first tick in the ready phase, after every service is up. Every service's `init`, the session's read of `SYSUAF.DAT` included, runs before the ready phase, so no start-up work delays a kick. The shortest timeout, 1000 ms, is 100 ticks, and a kick comes every 25 ticks, 250 ms.
+- The service's `tick` kicks it, the place that already proves the loop alive for the software watchdog, every quarter of the timeout. No IRQ kicks it, so a hung loop is never kept alive. `dev hang` stops these kicks too.
+- Panic: the outputs go safe, then the kicks stop and the watchdog keeps running. The board resets when the timeout ends, and the boot sets every output to its initial level.
+- Halt: the outputs go safe, then `wdog_stop()`. A halt is a deliberate stop, so the terminal stays halted until someone resets it.
+- Reboot: the kicks stop. `power_reboot()` resets the board through the same block anyway.
+- It covers what the software watchdog cannot: a hang with IRQs off, and a panic, which then reboots on its own.
+
+The one QEMU test of it, `test_hwdog_on_resets_at_start`, proves only that the setting on resets the board at start. The reset repeats for good, so the test stops at the second start and the harness kills QEMU.
 
 QEMU's reset says nothing about the level of a real Pi's pins during and after a reset. Keeping loads off then is the board's job: pull-downs on the outputs and a load supply switched by the `ARM` relay, off while its pin is low or floating.
 
@@ -473,9 +493,6 @@ The pure files allocate nothing. The kernel base does not allocate yet; the heap
 
 ## Pending library features
 
-These wait on RobCo-Core changes and a pin bump.
+These wait on RobCo-Core changes and a pin bump. The pin `4249632` still lacks them.
 
-- `ini_parse_sections()`. `ini_parse()` reports keys only. A section with no keys is never seen, and a repeated section header is not reported. `src/dev/devcfg.c` and `src/tui/tuicfg.c` will switch to `ini_parse_sections()` so an empty or repeated section is a counted error. Both files carry a note marked `PENDING LIBRARY FEATURE`. Nothing works around it now.
 - Data tapes in `rimg`. `rimg_validate()` cannot accept a data tape, subtype 2, because it looks up a slot first and subtype 2 has none. `tools/rimg.py seal` and `pack` refuse subtype 2 for the same reason. The holo module works around both: `holofmt.c` checks the slot rules itself, and `tools/mkholo.py` writes the header itself. See [holo](modules/holo.md).
-- The I2C expander driver. `DEVICES.CFG` already names expander pins, see [dev](modules/dev.md#expander-pins). The device service fails every expander operation until the library has the driver.
-- A watchdog start and kick call, such as `wdog_start(ms)`, `wdog_kick()` and `wdog_stop()` on the BCM2835 PM watchdog. The device service runs a software watchdog on the tick until then, see [The watchdog](#the-watchdog). That one needs IRQs, so it cannot reset the board after a panic or a halt. Safety there holds by rule: the shutdown drives every output safe and nothing writes a pin afterwards. `test_link.py` checks that the pin record is unchanged for 4 s after a panic and after a halt, with a pulse running. A hardware watchdog would add a reset when the panic path or the halt itself hangs before the outputs are safe, and a reset some time after a panic, so the terminal comes back on its own. A reset then sets every output to its `initial` level again at boot.

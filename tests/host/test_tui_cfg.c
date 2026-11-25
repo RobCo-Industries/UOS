@@ -160,7 +160,7 @@ TEST(cfg_label_and_title)
     CHECK_EQ(m.err[0].code, TUI_E_LABEL);
     CHECK_EQ(parse("[entry 1]\ntype=logout\n", 0), TUI_OK);
     CHECK_EQ(m.err[0].code, TUI_E_LABEL);
-    CHECK_EQ(m.err[0].line, 2);
+    CHECK_EQ(m.err[0].line, 1);
     CHECK_EQ(m.count, 0);
 }
 
@@ -238,7 +238,7 @@ TEST(cfg_order_gaps_duplicates)
     CHECK_EQ(m.errors, 1);
     CHECK_EQ(m.err[0].code, TUI_E_DUP_ENTRY);
     CHECK_EQ(m.err[0].entry, 2);
-    CHECK_EQ(m.err[0].line, 11);
+    CHECK_EQ(m.err[0].line, 10);
 }
 
 TEST(cfg_entry_numbers)
@@ -296,8 +296,8 @@ TEST(cfg_sections_and_keys)
         "title = A\n"
         "title = B\n"                       /* 4: dup key, first wins */
         "colour = green\n"                  /* 5: unknown key */
-        "[other]\n"
-        "x = 1\n"                           /* 7: unknown section */
+        "[other]\n"                         /* 6: unknown section */
+        "x = 1\n"
         "[entry 1]\n"
         "label = One\n"
         "label = Uno\n"                     /* 10: dup key, kept */
@@ -318,13 +318,98 @@ TEST(cfg_sections_and_keys)
     CHECK_EQ(m.err[1].line, 4);
     CHECK_EQ(m.err[2].code, TUI_E_KEY);
     CHECK_EQ(m.err[3].code, TUI_E_SECTION);
-    CHECK_EQ(m.err[3].line, 7);
+    CHECK_EQ(m.err[3].line, 6);
     CHECK_EQ(m.err[4].code, TUI_E_DUP_KEY);
     CHECK_EQ(m.err[4].line, 10);
     CHECK_EQ(m.err[4].entry, 1);
     CHECK_EQ(m.err[5].code, TUI_E_KEY);
     CHECK_EQ(m.err[5].line, 15);
     CHECK_EQ(m.err[5].entry, 2);
+}
+
+/* ini_parse_sections() shows headers: empty and repeated sections count. */
+TEST(cfg_empty_sections)
+{
+    const char *s =
+        "[terminal]\n"                      /* 1: empty */
+        "[entry 1]\n"                       /* 2: empty */
+        "; only a comment\n"
+        "[entry 2]\n"
+        "label = Two\n"
+        "type = logout\n"
+        "[entry 3]\n";                      /* 7: empty, last in the file */
+
+    CHECK_EQ(parse(s, 0), TUI_OK);
+    CHECK_EQ(m.count, 1);
+    CHECK_STR(m.entry[0].label, "Two");
+    CHECK_EQ(m.errors, 3);
+    CHECK_EQ(m.err[0].code, TUI_E_EMPTY);
+    CHECK_EQ(m.err[0].line, 1);
+    CHECK_EQ(m.err[0].entry, 0);
+    CHECK_EQ(m.err[1].code, TUI_E_EMPTY);
+    CHECK_EQ(m.err[1].line, 2);
+    CHECK_EQ(m.err[1].entry, 1);
+    CHECK_EQ(m.err[2].code, TUI_E_EMPTY);
+    CHECK_EQ(m.err[2].line, 7);
+    CHECK_EQ(m.err[2].entry, 3);
+    CHECK_STR(tui_strerror(TUI_E_EMPTY), "section has no keys");
+    /* An unknown empty section is one TUI_E_SECTION, not two errors. */
+    CHECK_EQ(parse("[other]\n[entry 1]\nlabel = A\ntype = logout\n", 0), TUI_OK);
+    CHECK_EQ(m.errors, 1);
+    CHECK_EQ(m.err[0].code, TUI_E_SECTION);
+}
+
+TEST(cfg_repeated_sections)
+{
+    const char *s =
+        "[terminal]\n"
+        "title = First\n"
+        "[terminal]\n"                      /* 3: repeated, skipped */
+        "title = Second\n"
+        "[entry 1]\n"
+        "label = One\n"
+        "type = logout\n"
+        "[entry 1]\n"                       /* 8: repeated right after itself */
+        "label = Again\n"
+        "type = logout\n";
+
+    CHECK_EQ(parse(s, 0), TUI_OK);
+    CHECK_STR(m.title, "First");
+    CHECK_EQ(m.count, 1);
+    CHECK_STR(m.entry[0].label, "One");
+    CHECK_EQ(m.errors, 2);
+    CHECK_EQ(m.err[0].code, TUI_E_DUP_SECTION);
+    CHECK_EQ(m.err[0].line, 3);
+    CHECK_EQ(m.err[1].code, TUI_E_DUP_ENTRY);
+    CHECK_EQ(m.err[1].line, 8);
+    CHECK_EQ(m.err[1].entry, 1);
+    CHECK_STR(tui_strerror(TUI_E_DUP_SECTION), "section given twice");
+}
+
+/* Every header counts, valid or not, however many came before: an empty
+ * [entry 40] after 40 other headers still takes its number. */
+TEST(cfg_repeat_after_empty_entry_many_headers)
+{
+    static char buf[2048];
+    size_t n = 0;
+    int i;
+
+    for (i = 1; i <= 40; i++) {
+        n += (size_t)snprintf(buf + n, sizeof(buf) - n, "[entry %d]\n", i + 100);
+    }
+    n += (size_t)snprintf(buf + n, sizeof(buf) - n,
+                          "[entry 40]\n[entry 40]\nlabel = Late\ntype = logout\n");
+    CHECK_EQ(parse(buf, 0), TUI_OK);
+    CHECK_EQ(m.count, 0);
+    CHECK_EQ(m.errors, 42);
+    /* An invalid first section, then the same number with good keys. */
+    CHECK_EQ(parse("[entry 2]\nlabel = A\ntype = bad\n[entry 2]\nlabel = B\ntype = logout\n", 0),
+             TUI_OK);
+    CHECK_EQ(m.count, 0);
+    CHECK_EQ(m.errors, 2);
+    CHECK_EQ(m.err[1].code, TUI_E_DUP_ENTRY);
+    CHECK_EQ(parse("[entry 999]\n[entry 999]\nlabel = B\ntype = logout\n", 0), TUI_OK);
+    CHECK_EQ(m.count, 0);
 }
 
 TEST(cfg_error_log_overflow)
