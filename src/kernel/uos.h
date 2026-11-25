@@ -149,6 +149,8 @@ int uos_screen_replace(uos_screen_t *s);
 uos_screen_t *uos_screen_top(void);
 /* Asks for a redraw of the top screen after the current event. */
 void uos_screen_invalidate(void);
+/* Asks for a redraw of every visible screen, bottom-up, as after a pop. */
+void uos_screen_expose(void);
 
 /* Empties the queue, the timers and the screen stack. Once, before the first screen. */
 void uos_loop_init(void);

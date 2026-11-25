@@ -337,6 +337,7 @@ uos_screen_t sess_login_screen = {
     .enter = login_enter,
     .event = login_event,
     .draw = login_draw,
+    .full = 1,
 };
 
 /* ---- The lockout screen ---- */
@@ -436,6 +437,7 @@ static uos_screen_t lock_screen = {
     .leave = lock_leave,
     .event = lock_event,
     .draw = lock_draw,
+    .full = 1,
 };
 
 /* ---- The placeholder after a login ---- */
@@ -479,6 +481,7 @@ static uos_screen_t nosh_screen = {
     .enter = nosh_enter,
     .event = nosh_event,
     .draw = nosh_draw,
+    .full = 1,
 };
 
 /* ---- The welcome ---- */
@@ -559,6 +562,7 @@ static uos_screen_t welcome_screen = {
     .leave = welcome_leave,
     .event = welcome_event,
     .draw = welcome_draw,
+    .full = 1,
 };
 
 /* ---- Moving between them ---- */

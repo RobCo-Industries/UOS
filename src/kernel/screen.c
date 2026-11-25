@@ -52,6 +52,7 @@ int uos_ss_pop(uos_sstack_t *ss)
     s = ss->stack[--ss->depth];
     ss->stack[ss->depth] = NULL;
     ss->dirty = 1;
+    ss->exposed = 1;
     if (s->leave != NULL) {
         s->leave(s);
     }
@@ -77,6 +78,7 @@ int uos_ss_replace(uos_sstack_t *ss, uos_screen_t *s)
     }
     ss->stack[ss->depth - 1] = s;
     ss->dirty = 1;
+    ss->exposed = 1;
     if (old->leave != NULL) {
         old->leave(old);
     }
@@ -120,16 +122,46 @@ void uos_ss_invalidate(uos_sstack_t *ss)
     }
 }
 
+void uos_ss_expose(uos_sstack_t *ss)
+{
+    if (ss != NULL) {
+        ss->dirty = 1;
+        ss->exposed = 1;
+    }
+}
+
+/* The lowest screen that shows: the highest full one, or the bottom. */
+static unsigned visible_base(const uos_sstack_t *ss)
+{
+    unsigned i;
+
+    for (i = ss->depth; i > 0; i--) {
+        if (ss->stack[i - 1]->full) {
+            return i - 1;
+        }
+    }
+    return 0;
+}
+
 int uos_ss_draw(uos_sstack_t *ss)
 {
-    uos_screen_t *s = uos_ss_top(ss);
+    unsigned i, depth;
+    int n = 0;
 
-    if (s == NULL || !ss->dirty) {
+    if (ss == NULL || ss->depth == 0 || !ss->dirty) {
         return 0;
     }
     ss->dirty = 0;
-    if (s->draw != NULL) {
-        s->draw(s);
+    depth = ss->depth;
+    i = ss->exposed ? visible_base(ss) : depth - 1u;
+    ss->exposed = 0;
+    for (; i < depth && depth == ss->depth; i++) {
+        uos_screen_t *s = ss->stack[i];
+
+        if (s->draw != NULL) {
+            s->draw(s);
+        }
+        n++;
     }
-    return 1;
+    return n;
 }

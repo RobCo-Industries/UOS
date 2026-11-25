@@ -440,6 +440,7 @@ static uos_screen_t holo_screen = {
     .leave = holo_leave,
     .event = holo_event,
     .draw = holo_draw,
+    .full = 1,
 };
 
 int holo_screen_start(holo_done_fn done, void *ctx)

@@ -16,8 +16,15 @@
  *   replace  the top's leave(), then the new screen's enter(). Dirty.
  *            On an empty stack it is a push.
  *   draw     when dirty, the top's draw() runs once and the flag clears.
- *            draw() paints its whole screen, since an overlay may have
- *            covered any part of it.
+ *            A full screen's draw() clears the display and paints all of
+ *            it. A partial screen, such as the read line or the pause
+ *            line, paints only its own rows.
+ *   expose   a pop, a replace or uos_ss_expose() also marks the stack
+ *            exposed: rows of the screens below may show stale cells.
+ *            The next draw then runs every visible screen's draw(),
+ *            bottom-up, from the highest screen with `full` set, or from
+ *            the bottom when none has it. No screen draws what is under
+ *            it. A push or an invalidate alone draws the top only.
  * A screen may push, pop or replace from inside its own callbacks.
  */
 #ifndef UOS_SCREEN_H
@@ -34,6 +41,7 @@ struct uos_screen {
     int (*event)(uos_screen_t *s, const uos_event_t *ev);   /* 1: used, 0: pass down */
     void (*draw)(uos_screen_t *s);
     void *ctx;                                              /* the screen's own data */
+    int full;               /* 1: draw() clears and paints the whole display */
 };
 
 #define UOS_SCREEN_DEPTH        8
@@ -46,6 +54,7 @@ typedef struct {
     uos_screen_t *stack[UOS_SCREEN_DEPTH];
     unsigned depth;
     int dirty;
+    int exposed;            /* redraw from the highest full screen up */
 } uos_sstack_t;
 
 void uos_ss_init(uos_sstack_t *ss);
@@ -58,7 +67,12 @@ uos_screen_t *uos_ss_top(const uos_sstack_t *ss);
 int uos_ss_event(uos_sstack_t *ss, const uos_event_t *ev);
 /* Marks the stack dirty. */
 void uos_ss_invalidate(uos_sstack_t *ss);
-/* Draws the top when dirty. Returns 1 when it drew. */
+/* Marks the stack dirty and exposed: the next draw repaints every
+ * visible screen, as after a pop. For a partial screen that shrinks,
+ * such as the read line when its keyboard closes. */
+void uos_ss_expose(uos_sstack_t *ss);
+/* Draws when dirty: the top, or every visible screen when exposed.
+ * Returns the number of draw() calls made, 0 when not dirty. */
 int uos_ss_draw(uos_sstack_t *ss);
 
 #endif

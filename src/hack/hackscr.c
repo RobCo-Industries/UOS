@@ -389,6 +389,7 @@ static uos_screen_t hack_screen = {
     .leave = hack_leave,
     .event = hack_event,
     .draw = hack_draw,
+    .full = 1,
 };
 
 int hack_screen_start(hack_done_fn done, void *ctx)

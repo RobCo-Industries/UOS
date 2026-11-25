@@ -307,4 +307,5 @@ uos_screen_t uos_first_screen = {
     .leave = leave,
     .event = event,
     .draw = draw,
+    .full = 1,
 };
