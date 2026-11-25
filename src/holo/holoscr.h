@@ -23,6 +23,14 @@ typedef void (*holo_done_fn)(void *ctx);
  */
 int holo_screen_start(holo_done_fn done, void *ctx);
 
+/*
+ * As holo_screen_start(), then opens tape `tape` once the scan ends, as
+ * ENTER on it would: its entry list shows. `tape` is an 8.3 name, any
+ * case; with no type it names a .HTP file. NULL or "" is the list. A tape
+ * the list does not hold leaves the list shown with "No holotape NAME".
+ */
+int holo_screen_start_tape(const char *tape, holo_done_fn done, void *ctx);
+
 /* Non-zero while the reader is on the stack. Any context. */
 int holo_screen_active(void);
 

@@ -71,6 +71,7 @@ static struct {
     void *ctx;
     unsigned posted;            /* maintenance calls not yet run */
     uint16_t closes;            /* times the screen closed: tags posted calls */
+    char want[HF_FILE_MAX + 1]; /* holo_screen_start_tape(): the tape to open, "" for none */
 } hs;
 
 static uos_screen_t holo_screen;
@@ -184,6 +185,53 @@ static void later(uos_call_fn fn)
     }
 }
 
+static void model_event(hf_event_t ev);
+
+/* 1 when list file `file` is tape `want`: the same name, or `want` with no
+ * type names a .HTP file. Both are upper case. */
+static int tape_is(const char *file, const char *want)
+{
+    char full[HF_FILE_MAX + 1];
+    const char *p;
+
+    if (k_strcmp(file, want) == 0) {
+        return 1;
+    }
+    for (p = want; *p != '\0' && *p != '.'; p++) {
+    }
+    if (*p == '.') {
+        return 0;
+    }
+    k_snprintf(full, sizeof(full), "%s.HTP", want);
+    return k_strcmp(file, full) == 0;
+}
+
+/* holo_screen_start_tape(): selects the wanted tape and opens it, as
+ * ENTER would. A tape the list does not hold leaves the list shown. */
+static void open_wanted(void)
+{
+    uint32_t i;
+    char line[HF_LINE_SIZE];
+
+    if (hs.want[0] == '\0') {
+        return;
+    }
+    for (i = 0; i < hs.kept && !tape_is(hs.tapes[i].file, hs.want); i++) {
+    }
+    UOS_MARK("holo op=want tape=%s result=%s", hs.want, i < hs.kept ? "found" : "missing");
+    if (i >= hs.kept) {
+        k_snprintf(line, sizeof(line), "No holotape %s", hs.want);
+        hs.want[0] = '\0';
+        say(line);
+        return;
+    }
+    hs.want[0] = '\0';
+    while (hs.r.sel_tape != i) {
+        model_event(hs.r.sel_tape < i ? HF_EV_DOWN : HF_EV_UP);
+    }
+    model_event(HF_EV_ENTER);
+}
+
 static void scan_done(void)
 {
     uint32_t i, damaged = 0, unchecked = 0;
@@ -198,6 +246,7 @@ static void scan_done(void)
              hs_scan_name(hs.scan), (unsigned)hs.total, (unsigned)hs.kept, (unsigned)damaged,
              (unsigned)unchecked, hs.scan_rc);
     uos_screen_dirty(&holo_screen);
+    open_wanted();
 }
 
 static void scan_step(void *arg)
@@ -402,6 +451,7 @@ static void holo_leave(uos_screen_t *s)
     hs.closes++;
     hs.done = NULL;
     hs.msg[0] = '\0';
+    hs.want[0] = '\0';
     UOS_MARK("holo op=exit");
     if (done != NULL) {
         done(ctx);
@@ -430,13 +480,25 @@ static uos_screen_t holo_screen = {
 
 int holo_screen_start(holo_done_fn done, void *ctx)
 {
+    return holo_screen_start_tape(NULL, done, ctx);
+}
+
+int holo_screen_start_tape(const char *tape, holo_done_fn done, void *ctx)
+{
+    unsigned i;
+
     if (hs.st != ST_CLOSED) {
         return HOLO_ERR_BUSY;
     }
+    for (i = 0; tape != NULL && tape[i] != '\0' && i < HF_FILE_MAX; i++) {
+        hs.want[i] = tape[i] >= 'a' && tape[i] <= 'z' ? (char)(tape[i] - 'a' + 'A') : tape[i];
+    }
+    hs.want[i] = '\0';
     hs.done = done;
     hs.ctx = ctx;
     hs.msg[0] = '\0';
     if (uos_screen_push(&holo_screen) != 0) {
+        hs.want[0] = '\0';
         hs.done = NULL;
         return HOLO_ERR_SCREEN;
     }
