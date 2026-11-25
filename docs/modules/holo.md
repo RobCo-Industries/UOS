@@ -169,7 +169,7 @@ The screen follows the model's actions:
 - `HF_ACT_CLOSE`: `vfs_free()` of the tape.
 - `HF_ACT_EXIT`: the screen pops.
 
-UP and DOWN move, SELECT or RIGHT is ENTER, BACK or LEFT is BACK. Rows starting with `>` show in inverse. The screen adds its own lines to the model's layout with `hs_apply()`:
+UP and DOWN move, SELECT or RIGHT is ENTER, BACK or LEFT is BACK. `hs_key()` maps the keys: a held UP or DOWN repeats, ENTER and BACK take only the press, so a held key does one step. Rows starting with `>` show in inverse. The screen adds its own lines to the model's layout with `hs_apply()`:
 
 | Case | Line |
 |---|---|

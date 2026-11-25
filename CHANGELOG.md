@@ -10,6 +10,7 @@ All notable changes to UOS are recorded here. The format follows [Keep a Changel
 
 ### Added
 
+- Held keys follow one rule on every screen: movement and typed characters repeat, an action that confirms, cancels, loads or leaves takes only the press. `uos_ev_fresh_key()` holds the rule, and the screen stack drops the repeats of a key whose press changed the stack. Before, a held BACK in the holotape reader left it, a held SELECT could start a second action, and a held BACK on the session placeholder, the pager, the welcome or a pause ran on into the next screen. The test-only `hold` command sends a press, repeats and a release.
 - A won password game clears the count of failed logins, as a right password does. Before, failures from before the game carried over to the next login. `lk_success()` is now `lk_session_start()`, called by `sess_begin()`. `docs/modules/session.md` has the table of every lockout event.
 
 - The screen stack redraws what a closing screen uncovers. A pop, a replace or `uos_screen_expose()` draws every visible screen bottom-up from the highest full screen. BACK from the holotape reader or a pager over the login prompt now gives the whole login screen back.

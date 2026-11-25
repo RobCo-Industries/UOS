@@ -158,13 +158,16 @@ The redraw rule: no screen draws what is under it. The stack does it.
 
 So BACK from the holotape reader over the login's user name prompt draws the login screen, then the read line. The table in [TESTING.md](TESTING.md#screen-redraws) lists every pair of screens checked.
 
+A held key sends one press, then repeats. Movement and typed characters may repeat. An action that confirms, cancels, changes screen, starts a load or leaves takes only the press: test it with `uos_ev_fresh_key()` from `uos_event.h`, and consume the repeats. The stack adds one rule of its own: a key press that pushes, pops or replaces a screen spends that key, and `uos_ss_event()` drops its repeats until the next press. So a held BACK that closes a screen never reaches the screen below.
+
 #### How to add a screen
 
 1. Fill a `uos_screen_t` with a short `name`, the callbacks you need and `ctx`.
 2. When `draw()` clears the console and paints everything, set `.full = 1` and call `con_status_redraw()` last. Otherwise leave `full` at 0 and paint only your rows.
 3. Never call another screen's `draw()`. When a partial screen shrinks, call `uos_screen_expose()`.
 4. Close with `uos_screen_pop()`. The screens below come back on their own.
-5. Add a `@RC` marker and a maintenance command, and a test in `tests/test_screens.py` that compares the grid before the screen opens and after it closes.
+5. Apply the held-key rule above to each action.
+6. Add a `@RC` marker and a maintenance command, and a test in `tests/test_screens.py` that compares the grid before the screen opens and after it closes.
 
 ## The first screen
 

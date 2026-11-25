@@ -86,6 +86,8 @@ The holotape reader lists the tapes by file name and title. Use UP and DOWN to m
 
 An open tape lists its entries by number and name. SELECT shows an entry. In the entry, UP and DOWN move one line, LEFT and RIGHT one page. Press BACK to go back to the list of entries, BACK again to close the tape, and BACK on the list of tapes to leave the reader.
 
+A held UP or DOWN keeps moving, and a held arrow keeps paging an entry. A held SELECT or BACK acts once: press it again for the next step.
+
 What the reader can tell you:
 
 | The screen says | Meaning |
@@ -120,6 +122,8 @@ To the right, the terminal keeps notes of what you tried, the newest at the bott
 - The arrow keys move the highlight. A word lights up whole.
 - SELECT tries the highlighted word.
 - BACK leaves the game. Nothing is counted and the login comes back.
+
+A held arrow key keeps moving. A held SELECT or BACK acts once.
 
 A won game clears the count of failed logins, as a right password does.
 

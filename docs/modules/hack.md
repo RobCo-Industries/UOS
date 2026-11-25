@@ -147,7 +147,7 @@ Layout, 80 columns:
 
 `hg_cell_pos(i)` gives cell `i`'s row and column with the rule `col*192 + row*12 + x`, so a highlight that wraps to the next row of its column draws on both rows. The highlight shows in inverse. History lines sit at the bottom of the board rows, the newest on row 20.
 
-Keys: the four directions move, press or repeat; SELECT guesses, press only; BACK leaves, press only. Serial arrow keys and GPIO buttons give the same keys. There is no on-screen keyboard here.
+Keys: the four directions move, press or repeat; SELECT guesses, press only; BACK leaves, press only. A held SELECT or BACK acts once. Serial arrow keys and GPIO buttons give the same keys. There is no on-screen keyboard here.
 
 After a win or a loss the result shows for 1 s and keys do nothing. Then a win calls `sess_hack_begin()` and a loss `sess_hack_lock()`: see [session](session.md#the-password-game). A win clears the login's failure count, as a right password does. BACK leaves the count as it was. Each start deals a new board with the full `attempts`: see [lockout events](session.md#lockout-events).
 
