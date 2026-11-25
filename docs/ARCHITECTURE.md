@@ -144,7 +144,9 @@ An expiry is never lost. `uos_tq_deliver()` in `timerq.c` queues one `TIMER` eve
 A screen is a struct of `enter`, `leave`, `event` and `draw` callbacks and a `ctx` pointer. The kernel keeps a stack of up to 8:
 
 - `uos_screen_push()` puts a screen on top, such as a pager or the on-screen keyboard. The screen below gets no `leave`.
-- `uos_screen_pop()` removes the top. The last screen cannot be popped.
+- `uos_screen_pop(s)` removes `s` when it is the top. The last screen cannot be popped.
+- `uos_screen_unwind()` pops every screen above the bottom one. Only a reset of the whole stack uses it, such as a logout or a lockout.
+- `uos_screen_on_top(s)` tells whether `s` is the top.
 - `uos_screen_replace()` swaps the top.
 - Events go to the top first. When its `event()` returns 0, the next screen down gets the event.
 - `uos_screen_invalidate()` asks for a redraw of the top screen.
@@ -161,14 +163,27 @@ So BACK from the holotape reader over the login's user name prompt draws the log
 
 A held key sends one press, then repeats. Movement and typed characters may repeat. An action that confirms, cancels, changes screen, starts a load or leaves takes only the press: test it with `uos_ev_fresh_key()` from `uos_event.h`, and consume the repeats. The stack adds one rule of its own: a key press that pushes, pops or replaces a screen spends that key, and `uos_ss_event()` drops its repeats until the next press. So a held BACK that closes a screen never reaches the screen below.
 
+#### Covered screens
+
+A screen that is not the top is covered. A covered screen takes no posted action: only the top acts. The rule covers every road that reaches a screen without a key, such as a maintenance command, a posted call, a timer or a `done` callback.
+
+- A pop names its own screen. `uos_screen_pop(s)` refuses when `s` is not the top: it returns `UOS_SCREEN_ERR_TOP` and marks `ev=screen pop=refused want= top=`. A test build panics there, so a wrong pop fails loudly.
+- A maintenance command meant for a covered screen does nothing and marks `result=covered`, or `why=covered` for `sh run`. `hack move`, `hack select`, `hack back`, `holo pick`, `osk open`, `osk close` and `sh run` follow it.
+- A timer that would end a covered screen waits until the screen is the top again. The password game's 1 s result pause is the one such timer: it looks again every 100 ms and marks `ev=hack op=wait why=covered` once.
+- A session reset ends every screen at once with `uos_screen_unwind()`: a logout, a lockout, the welcome's end and a won game's session. It pops from the top down, so no screen pops another.
+- Background work on a covered screen, such as the holotape scan and load steps, may change that screen's own state. It never pushes or pops.
+
+`sess_prompt_on_top()`, `con_line_on_top()` and every check above use `uos_screen_on_top()`.
+
 #### How to add a screen
 
 1. Fill a `uos_screen_t` with a short `name`, the callbacks you need and `ctx`.
 2. When `draw()` clears the console and paints everything, set `.full = 1` and call `con_status_redraw()` last. Otherwise leave `full` at 0 and paint only your rows.
 3. Never call another screen's `draw()`. When a partial screen shrinks, call `uos_screen_expose()`.
-4. Close with `uos_screen_pop()`. The screens below come back on their own.
-5. Apply the held-key rule above to each action.
-6. Add a `@RC` marker and a maintenance command, and a test in `tests/test_screens.py` that compares the grid before the screen opens and after it closes.
+4. Close with `uos_screen_pop(&your_screen)`. The screens below come back on their own.
+5. A maintenance command or a timer that acts on your screen checks `uos_screen_on_top()` first, as in [Covered screens](#covered-screens).
+6. Apply the held-key rule above to each action.
+7. Add a `@RC` marker and a maintenance command, and a test in `tests/test_screens.py` that compares the grid before the screen opens and after it closes.
 
 ## The first screen
 
@@ -417,7 +432,7 @@ Maintenance commands, for tests and operators:
 |---|---|
 | `readline <flags> <max> [prompt]` | `ok`, then `ev=line state=reading` and, when the read ends, `ev=line result=<ok\|cancel> len=<n> text=<"text"\|masked>`. Flags are `-`, or `m` for masked and `h` for no history. The text shows a blank, a quote and `%` as `%XX`, and stops at 160 characters with `cut=1`. `err busy` while a read runs, and the refused command leaves the running read's flags alone. |
 | `page <short\|long\|empty\|big>` | A built-in test text. `ev=page top=<n> shown=<n> lines=<n>` on show and on each move, `ev=page result=done` when left, `ev=page result=cancel` when left with Ctrl-C. `err busy` while a pager runs. |
-| `osk <open\|close\|state>` | `open` and `close` act on the active read, else `err no line`. `state` answers `osk open= layer= row= col= line= reading=`. The keyboard marks `ev=osk state=open` and `ev=osk state=closed`. |
+| `osk <open\|close\|state>` | `open` and `close` act on the active read, else `err no line`. A read under another screen marks `ev=osk result=covered` and nothing changes. `state` answers `osk open= layer= row= col= line= reading=`. The keyboard marks `ev=osk state=open` and `ev=osk state=closed`. |
 
 ### Session
 
@@ -576,7 +591,7 @@ stateDiagram-v2
 | `sh held=1 id=`, `sh prog=<reg\|start\|done>` | Test builds: `sh hold` and the test program |
 | `term scheme=<name>` | `SET TERMINAL /SCHEME` |
 | `uaf result=written users=` | `SYSUAF.DAT` was written |
-| `sh run=done status= result=<quoted>`, `sh run=refused rc=` | The end of `sh run` |
+| `sh run=done status= result=<quoted>`, `sh run=refused rc=`, `sh run=refused why=covered` | The end of `sh run`. `covered`: another screen covers the shell |
 
 No marker holds a password or a command line.
 
@@ -587,7 +602,7 @@ No marker holds a password or a command line.
 | `sh hold <1\|0>` | Test builds. 1: the next step of a command waits and prints `sh held=1`; Ctrl-C still cancels it. 0: it runs on. |
 | `sh prog reg <NAME>` | Test builds. Registers a test program for `RUN <NAME>`. It pushes no screen and prints `sh prog=start n=` per run. |
 | `sh prog done <n> <status>` | Test builds. Ends the n-th run of the test program, with the tag that run got, even after its job ended. |
-| `sh run <line>` | Runs the line as the session. The line is quoted as the console's markers quote text: a blank is `%20`. A read at the prompt gives way and comes back after. |
+| `sh run <line>` | Runs the line as the session. The line is quoted as the console's markers quote text: a blank is `%20`. A read at the prompt gives way and comes back after. A shell under another screen, such as the holotape reader, refuses with `sh run=refused why=covered`. |
 
 ### Holotape reader
 

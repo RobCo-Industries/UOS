@@ -149,7 +149,7 @@ Layout, 80 columns:
 
 Keys: the four directions move, press or repeat; SELECT guesses, press only; BACK leaves, press only. A held SELECT or BACK acts once. Serial arrow keys and GPIO buttons give the same keys. There is no on-screen keyboard here.
 
-After a win or a loss the result shows for 1 s and keys do nothing. Then a win calls `sess_hack_begin()` and a loss `sess_hack_lock()`: see [session](session.md#the-password-game). A win clears the login's failure count, as a right password does. BACK leaves the count as it was. Each start deals a new board with the full `attempts`: see [lockout events](session.md#lockout-events).
+After a win or a loss the result shows for 1 s and keys do nothing. When another screen covers the game at the end of that second, the game waits until it is the top again. Then a win calls `sess_hack_begin()` and a loss `sess_hack_lock()`: see [session](session.md#the-password-game). A win clears the login's failure count, as a right password does. BACK leaves the count as it was. Each start deals a new board with the full `attempts`: see [lockout events](session.md#lockout-events).
 
 The board is drawn on the screen only. The PL011 gets the markers, the refusal and result lines, never the board: the only words it shows are the guessed ones. Each refusal or start error goes out once: `start_game()` only fills the message, and the screen's enter prints it.
 
@@ -175,6 +175,8 @@ None names the password before the game ends.
 | `hack op=end result=<won\|lost\|left>` | The game ends |
 | `hack result=busy` | `hack start` while the game is open |
 | `hack result=gone` | A `hack move`, `select` or `back` reached the loop after the game it was meant for ended, or with no game open |
+| `hack result=covered` | A `hack move`, `select` or `back` found another screen over the game, such as the holotape reader. Nothing changes |
+| `hack op=wait why=covered` | The result pause ended with another screen over the game. The win or loss applies once the game is the top again |
 
 ### The command
 
@@ -182,7 +184,7 @@ None names the password before the game ends.
 |---|---|
 | `hack start` | Posts the start. Over the login prompt it acts as F2. Over any other screen it acts as `hack_screen_start(NULL, NULL)`: the refusal shows, `covered` or `busy`, and BACK gives that screen back |
 | `hack move <left\|right\|up\|down> [n]` | Posts `n` moves, 1 to 64 |
-| `hack select`, `hack back` | Posts SELECT or BACK. Each posted call carries its own arguments and the game it was meant for |
+| `hack select`, `hack back` | Posts SELECT or BACK. Each posted call carries its own arguments and the game it was meant for. A covered game refuses with `hack result=covered` |
 | `hack state` | `hack state= cursor= hl= hlstart= hllen= attempts= result= len= words= pairs= pending=`, where `pending` is `uos_input_pending()` plus posted commands, then `row r= text=` for the 16 board rows and `hist i= text=` per history line, with `%XX` for blanks, `%` and `"` |
 | `hack seed <n>` | Test builds only: the next games use seed `n`. `test_hack.py` checks with `nm` that the shipped image has none of it |
 
