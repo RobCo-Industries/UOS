@@ -407,3 +407,26 @@ def test_held_down_moves_rows(board, hooks_image, need_mtools, tmp_path):
         assert holo_state(vm)["sel"] == "2"
         hold(vm, "up", 1)
         assert holo_state(vm)["sel"] == "0"
+
+
+def test_pick_under_another_screen_is_refused(board, uos_image, need_mtools, tmp_path):
+    """The finding: a reader covered by another screen takes no pick. `holo pick`
+    says "covered", loads nothing and pushes nothing over the screen on top."""
+    from uos import state as sys_state
+    with alone(uos_image, board, card(tmp_path, card_tree())) as vm:
+        wait_ready(vm)
+        open_reader(vm)
+        before = holo_state(vm)
+        answer(vm, "page short")
+        wait_marker(vm, "page top=0", 1)
+        assert sys_state(vm)["screen"] == "pager"
+        answer(vm, "holo pick 1")
+        assert holo_state(vm) == before
+        assert sys_state(vm)["screen"] == "pager"
+        assert not [m for m in events(vm, "holo") if m.get("op") == "load"]
+        wait_marker(vm, "holo result=covered", 1)
+        key(vm, "back")
+        wait_marker(vm, "page result=done", 1)
+        assert sys_state(vm)["screen"] == "holo"
+        answer(vm, "holo pick 1")
+        assert wait_marker(vm, "holo op=load", 1)["result"] == "ok"

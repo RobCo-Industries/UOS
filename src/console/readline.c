@@ -131,6 +131,8 @@ static int feed(const input_event_t *ev)
     return r;
 }
 
+static uos_screen_t rl_screen;
+
 /* LE_ACCEPT, LE_CANCEL, or RL_ALT for the alt key. */
 #define RL_ALT  100
 
@@ -150,7 +152,7 @@ static void finish(int r)
     /* The serial line ends with the read. */
     uos_serial_break();
     rl.active = 0;
-    (void)uos_screen_pop();
+    (void)uos_screen_pop(&rl_screen);
     if (cb != NULL) {
         cb(result, rl.buf, (unsigned)k_strlen(rl.buf), ctx);
     }
@@ -242,10 +244,31 @@ int con_line_active(void)
     return rl.active;
 }
 
+int con_line_on_top(void)
+{
+    return rl.active && uos_screen_on_top(&rl_screen);
+}
+
+int con_line_abort(void)
+{
+    if (!rl.active) {
+        return CON_ERR_BUSY;
+    }
+    if (!uos_screen_on_top(&rl_screen)) {
+        return CON_ERR_COVERED;
+    }
+    /* rl_leave() ends the read with no callback. */
+    (void)uos_screen_pop(&rl_screen);
+    return 0;
+}
+
 int con_osk_open(void)
 {
     if (!rl.active) {
         return CON_ERR_BUSY;
+    }
+    if (!uos_screen_on_top(&rl_screen)) {
+        return CON_ERR_COVERED;
     }
     if (!osk_is_open(&rl.osk)) {
         osk_open(&rl.osk, (rl.flags & CON_RL_MASK) != 0);
@@ -260,6 +283,9 @@ int con_osk_close(void)
 {
     if (!rl.active) {
         return CON_ERR_BUSY;
+    }
+    if (!uos_screen_on_top(&rl_screen)) {
+        return CON_ERR_COVERED;
     }
     if (osk_is_open(&rl.osk)) {
         osk_close(&rl.osk);

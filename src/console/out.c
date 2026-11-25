@@ -181,6 +181,8 @@ static void pause_draw(uos_screen_t *s)
             CONSOLE_ATTR_INVERSE, 1);
 }
 
+static uos_screen_t pause_screen;
+
 static int pause_event(uos_screen_t *s, const uos_event_t *ev)
 {
     con_done_fn cb;
@@ -196,7 +198,7 @@ static int pause_event(uos_screen_t *s, const uos_event_t *ev)
     cb = pause_st.cb;
     ctx = pause_st.ctx;
     pause_st.active = 0;
-    (void)uos_screen_pop();
+    (void)uos_screen_pop(&pause_screen);
     con_status_set(pause_st.saved);
     UOS_MARK("pause done=1");
     if (cb != NULL) {

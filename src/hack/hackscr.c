@@ -52,6 +52,7 @@ _Static_assert(UOS_DIFF_NOVICE == HK_NOVICE && UOS_DIFF_ADVANCED == HK_ADVANCED 
 /* A list holds at most 512 words of 12 letters and a CR LF each. */
 #define WORDS_FILE_MAX      (HK_LIST_MAX * (HK_WORD_MAX + 2) + 64)
 #define PAUSE_TICKS         UOS_TICK_HZ     /* the result shows 1 s */
+#define COVERED_TICKS       (UOS_TICK_HZ / 10)  /* a covered game looks again */
 #define MOVES_MAX           64u
 
 static hk_list_t list;
@@ -68,6 +69,7 @@ static struct {
     int how;
     int on_top;                 /* the login prompt was the top at the start */
     uos_timer_id_t pause;
+    int waited;                 /* the end waited once for the game to be the top */
     uint16_t closes;            /* times the screen closed: tags posted calls */
     unsigned posted;
 #if defined(UOS_TEST_HOOKS) && UOS_TEST_HOOKS
@@ -244,19 +246,37 @@ static void pause_end(void *arg)
 
     (void)arg;
     hg.pause = UOS_TIMER_NONE;
+    /* A covered game ends once it is the top again: the screen over it, a
+     * holotape reader for one, stays as the person left it. */
+    if (!uos_screen_on_top(&hack_screen)) {
+        if (!hg.waited) {
+            hg.waited = 1;
+            UOS_MARK("hack op=wait why=covered");
+        }
+        if (uos_timer_start(COVERED_TICKS, 0, pause_end, NULL, &hg.pause) == 0) {
+            return;
+        }
+        hg.pause = UOS_TIMER_NONE;
+        uos_set_error("hack");
+    }
+    hg.waited = 0;
     hg.st = hg_next(hg.st, HG_E_PAUSE_END);
     if (was == HG_S_WON) {
         hg.how = HACK_DONE_WON;
         /* Replaces the stack: this screen leaves on the way. */
         if (sess_hack_begin() != LG_HACK_OK) {
             hg.how = HACK_DONE_LEFT;
-            (void)uos_screen_pop();
+            if (uos_screen_on_top(&hack_screen)) {
+                (void)uos_screen_pop(&hack_screen);
+            }
         }
     } else if (was == HG_S_LOST) {
         hg.how = HACK_DONE_LOST;
         if (!sess_hack_lock()) {
             hg.how = HACK_DONE_LEFT;
-            (void)uos_screen_pop();
+            if (uos_screen_on_top(&hack_screen)) {
+                (void)uos_screen_pop(&hack_screen);
+            }
         }
     }
 }
@@ -319,7 +339,7 @@ static void do_key(hg_key_t k, hk_dir_t dir)
             hk_cancel(&game);
         }
         hg.how = HACK_DONE_LEFT;
-        (void)uos_screen_pop();
+        (void)uos_screen_pop(&hack_screen);
         return;
     }
     if (hg.st != HG_S_PLAYING) {
@@ -362,6 +382,7 @@ static void hack_leave(uos_screen_t *s)
         UOS_MARK("hack op=end result=left");
     }
     hg.st = HG_S_OFF;
+    hg.waited = 0;
     hg.closes++;
     hg.done = NULL;
     /* Nothing of the board stays in memory once the game is over. */
@@ -394,7 +415,7 @@ static uos_screen_t hack_screen = {
 
 int hack_screen_start(hack_done_fn done, void *ctx)
 {
-    if (hg.st != HG_S_OFF || uos_screen_top() == &hack_screen) {
+    if (hg.st != HG_S_OFF || uos_screen_on_top(&hack_screen)) {
         return HACK_ERR_BUSY;
     }
     hg.done = done;
@@ -451,6 +472,11 @@ static int stale(uintptr_t v)
     hg.posted--;
     if ((uint16_t)(v >> 16) != hg.closes || hg.st == HG_S_OFF) {
         UOS_MARK("hack result=gone");
+        return 1;
+    }
+    /* A covered game takes no posted key: BACK would pop the screen on top. */
+    if (!uos_screen_on_top(&hack_screen)) {
+        UOS_MARK("hack result=covered");
         return 1;
     }
     return 0;

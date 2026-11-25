@@ -561,3 +561,73 @@ def test_logout_with_the_reader_and_the_refusal_open(board, hooks_image, need_mt
             wait_marker(vm, "login state=user", n + 1)
             assert state(vm).f["state"] == "off"
             assert holo_now(vm)["state"] == "closed"
+
+
+def top(vm):
+    from uos import state as sys_state
+    return sys_state(vm)["screen"]
+
+
+def test_keys_under_the_reader_are_refused(board, hooks_image, need_mtools, tmp_path):
+    """The finding: a game covered by the reader takes no posted key. `hack back`
+    says "covered" and pops nothing: the reader stays on top and the game plays on
+    under it. Once the reader closes, the game takes keys again."""
+    with alone(hooks_image, board, hack_card(tmp_path, cfg())) as vm:
+        wait_ready(vm)
+        at_login(vm)
+        answer(vm, f"hack seed {SEED}")
+        assert start_from_login(vm)["result"] == "ok"
+        before = state(vm)
+        answer(vm, "holo open")
+        wait_marker(vm, "holo op=scan", 1)
+        holo_now(vm)
+        assert top(vm) == "holo"
+        for n, cmd in enumerate(("hack back", "hack move down 1", "hack select"), 1):
+            answer(vm, cmd)
+            after = state(vm)
+            assert top(vm) == "holo", cmd
+            assert after.f == before.f and after.rows == before.rows, (cmd, before.f, after.f)
+            wait_marker(vm, "hack result=covered", n)
+        assert holo_now(vm)["state"] == "list"
+        assert not [m for m in events(vm, "hack") if m.get("op") == "end"]
+        key(vm, "back")
+        wait_marker(vm, "holo op=exit", 1)
+        assert top(vm) == "hack"
+        answer(vm, "hack back")
+        assert wait_marker(vm, "hack op=end", 1)["result"] == "left"
+        wait_marker(vm, "login state=user", 2)
+
+
+def test_lost_game_waits_under_the_reader(board, hooks_image, need_mtools, tmp_path):
+    """A game lost just before the reader opens over it locks the terminal only once
+    it is the top again: the reader stays as the person left it."""
+    with alone(hooks_image, board, hack_card(tmp_path, cfg(attempts=2, lockout_s=3))) as vm:
+        wait_ready(vm)
+        at_login(vm)
+        answer(vm, f"hack seed {SEED}")
+        assert start_from_login(vm)["result"] == "ok"
+        g = state(vm)
+        order = sorted(g.words)
+        first = guess(vm, order[0], 1)
+        assert first["result"] == "denied", first
+        lk = int(first["likeness"])
+        second = next(s for s in order[1:] if likeness(g.words[s], first["word"]) != lk)
+        move_to(vm, second)
+        # One write: the game ends, then the reader opens before its pause is over.
+        out = batch(vm, ["hack select", "holo open"])
+        assert [r[0] for r in out] == ["ok", "ok"], out
+        assert wait_marker(vm, "hack op=end", 1)["result"] == "lost"
+        deadline = time.monotonic() + TIMEOUT
+        while not events(vm, "lockout") and not \
+                [m for m in events(vm, "hack") if m.get("op") == "wait"]:
+            assert time.monotonic() < deadline
+            time.sleep(0.05)
+        assert not events(vm, "lockout"), "the lockout tore the reader down"
+        wait_marker(vm, "hack op=wait", 1)
+        holo_now(vm)
+        assert top(vm) == "holo"
+        assert state(vm).f["state"] == "lost"
+        assert not events(vm, "lockout")
+        key(vm, "back")
+        wait_marker(vm, "holo op=exit", 1)
+        assert wait_marker(vm, "lockout state=start", 1)["why"] == "hack"

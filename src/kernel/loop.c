@@ -101,9 +101,30 @@ int uos_screen_push(uos_screen_t *s)
     return uos_ss_push(&ss, s);
 }
 
-int uos_screen_pop(void)
+int uos_screen_pop(uos_screen_t *s)
 {
-    return uos_ss_pop(&ss);
+    int rc = uos_ss_pop(&ss, s);
+
+    if (rc == UOS_SCREEN_ERR_TOP) {
+        uos_screen_t *top = uos_ss_top(&ss);
+
+        UOS_MARK("screen pop=refused want=%s top=%s", s->name, top != NULL ? top->name : "none");
+#if defined(UOS_TEST_HOOKS) && UOS_TEST_HOOKS
+        /* A test build stops here: a caller popped a screen it does not own. */
+        uos_panic("screen pop %s under %s", s->name, top != NULL ? top->name : "none");
+#endif
+    }
+    return rc;
+}
+
+int uos_screen_unwind(void)
+{
+    return uos_ss_unwind(&ss);
+}
+
+int uos_screen_on_top(const uos_screen_t *s)
+{
+    return uos_ss_on_top(&ss, s);
 }
 
 int uos_screen_replace(uos_screen_t *s)

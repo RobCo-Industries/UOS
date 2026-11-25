@@ -359,7 +359,7 @@ static void act(const hf_action_t *a)
         close_tape();
         break;
     case HF_ACT_EXIT:
-        (void)uos_screen_pop();
+        (void)uos_screen_pop(&holo_screen);
         break;
     default:
         break;
@@ -477,6 +477,12 @@ static void post_pick(void *arg)
     }
     if (hs.st != ST_LIST) {
         UOS_MARK("holo result=busy");
+        return;
+    }
+    /* A covered reader takes no pick: its pager would open over the
+     * screen on top. */
+    if (!uos_screen_on_top(&holo_screen)) {
+        UOS_MARK("holo result=covered");
         return;
     }
     sel = hs.r.screen == HF_SCR_TAPES ? &hs.r.sel_tape : &hs.r.sel_entry;

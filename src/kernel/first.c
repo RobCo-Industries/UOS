@@ -153,7 +153,7 @@ static void show(void *arg)
     if (next_screen != NULL) {
         /* The login takes over: its enter() draws it. A screen that took
          * over during the banner stays. */
-        if (uos_screen_top() == &uos_first_screen) {
+        if (uos_screen_on_top(&uos_first_screen)) {
             (void)uos_screen_replace(next_screen);
         }
         UOS_MARK("ready screen=%s card=%s rtc=%d banner=%u", next_screen->name,

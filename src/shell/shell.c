@@ -207,7 +207,7 @@ static void shell_idle(void *arg)
 {
     (void)arg;
     if (!shp.on || shp.reading || sh_job.active || !sess_logged_in() ||
-        uos_screen_top() != &shell_screen || con_line_active()) {
+        !uos_screen_on_top(&shell_screen) || con_line_active()) {
         return;
     }
     dcl_line_reset(&shp.ln);
@@ -791,12 +791,19 @@ static void port_run(void *arg)
     (void)arg;
     port_pending = 0;
     /* The prompt gives way: its read ends quietly, the command runs, and
-     * the prompt comes back after it. */
-    if (shp.reading && uos_screen_top() != &shell_screen && con_line_active() &&
+     * the prompt comes back after it. A shell under another screen, a
+     * holotape reader for one, takes no command. */
+    if (shp.reading && !uos_screen_on_top(&shell_screen) && con_line_active() &&
         ask_kind == NULL) {
-        (void)uos_screen_pop();
+        if (con_line_abort() != 0) {
+            UOS_MARK("sh run=refused why=covered");
+            return;
+        }
         shp.reading = 0;
         dcl_line_reset(&shp.ln);
+    } else if (!shp.reading && !sh_job.active && shp.on && !uos_screen_on_top(&shell_screen)) {
+        UOS_MARK("sh run=refused why=covered");
+        return;
     }
     rc = launch(port_line, 0, "port", port_done, NULL, NULL, 0);
     if (rc != 0) {

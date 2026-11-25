@@ -11,8 +11,12 @@
  * Rules:
  *   push     the new screen's enter() runs; the screen below stays, with
  *            no leave(). The stack is marked dirty.
- *   pop      the top's leave() runs; the screen below becomes the top.
+ *   pop      takes the screen the caller expects on top. Any other top
+ *            refuses the pop: a screen never pops someone else's. The
+ *            top's leave() runs; the screen below becomes the top.
  *            Dirty. The last screen cannot be popped: replace it.
+ *   unwind   pops every screen above the bottom one, top first. Only a
+ *            reset of the whole stack uses it, such as a logout.
  *   replace  the top's leave(), then the new screen's enter(). Dirty.
  *            On an empty stack it is a push.
  *   draw     when dirty, the top's draw() runs once and the flag clears.
@@ -49,6 +53,7 @@ struct uos_screen {
 #define UOS_SCREEN_ERR_ARG      (-1)    /* NULL, or the screen is already on the stack */
 #define UOS_SCREEN_ERR_FULL     (-2)    /* UOS_SCREEN_DEPTH screens already */
 #define UOS_SCREEN_ERR_LAST     (-3)    /* pop of the only screen, or of an empty stack */
+#define UOS_SCREEN_ERR_TOP      (-4)    /* pop of a screen that is not the top */
 
 typedef struct {
     uos_screen_t *stack[UOS_SCREEN_DEPTH];
@@ -61,7 +66,13 @@ typedef struct {
 
 void uos_ss_init(uos_sstack_t *ss);
 int uos_ss_push(uos_sstack_t *ss, uos_screen_t *s);
-int uos_ss_pop(uos_sstack_t *ss);
+/* Pops `s`, which must be the top: UOS_SCREEN_ERR_TOP otherwise. */
+int uos_ss_pop(uos_sstack_t *ss, uos_screen_t *s);
+/* Pops every screen above the bottom one. Returns how many. */
+int uos_ss_unwind(uos_sstack_t *ss);
+/* 1 when `s` is the top screen. A screen that is not the top takes no
+ * posted action: see docs/ARCHITECTURE.md, the screen stack. */
+int uos_ss_on_top(const uos_sstack_t *ss, const uos_screen_t *s);
 int uos_ss_replace(uos_sstack_t *ss, uos_screen_t *s);
 /* The top screen, or NULL. */
 uos_screen_t *uos_ss_top(const uos_sstack_t *ss);

@@ -77,6 +77,8 @@ static void report(void)
              (unsigned)pg_lines(&pv.pg));
 }
 
+static uos_screen_t pv_screen;
+
 static int pv_event(uos_screen_t *s, const uos_event_t *ev)
 {
     con_done_fn cb;
@@ -104,7 +106,7 @@ static int pv_event(uos_screen_t *s, const uos_event_t *ev)
         cb = pv.cb;
         ctx = pv.ctx;
         release();
-        (void)uos_screen_pop();
+        (void)uos_screen_pop(&pv_screen);
         if (cb != NULL) {
             cb(cancel ? CON_CANCEL : CON_OK, ctx);
         }

@@ -5,7 +5,8 @@ posted call handled."""
 
 import time
 
-from uos import TIMEOUT, alone, answer, batch, card, card_tree, dump, wait_marker, wait_ready
+from uos import (TIMEOUT, alone, answer, batch, card, card_tree, dump, events, state, wait_marker,
+                 wait_ready)
 
 CFG = b"[system]\nname = TEST TERMINAL\n"
 # The lockout's countdown row, ROW_USER in src/session/sesscreen.c.
@@ -187,3 +188,44 @@ def test_pager_and_keyboard_over_the_shell(board, hooks_image, need_mtools, tmp_
         wait_marker(vm, "sh run=done", 1)
         wait_marker(vm, "sh state=prompt kind=cmd", 2)
         same(before, settled_rows(vm))
+
+
+def test_run_under_the_reader_is_refused(board, hooks_image, need_mtools, tmp_path):
+    """A shell covered by the reader takes no `sh run`: the reply is "covered", the
+    reader stays on top and the shell's prompt stays under it."""
+    with alone(hooks_image, board, card(tmp_path, card_tree())) as vm:
+        at_prompt(vm)
+        answer(vm, "sess login GUEST")
+        at_shell_prompt(vm)
+        answer(vm, "holo open")
+        wait_marker(vm, "holo op=scan", 1)
+        settled_rows(vm)
+        answer(vm, "sh run \"SHOW%20TIME\"")
+        settled_rows(vm)
+        assert state(vm)["screen"] == "holo"
+        assert not [m for m in events(vm, "holo") if m.get("op") == "exit"]
+        wait_marker(vm, "sh run=refused why=covered", 1)
+        assert not [m for m in events(vm, "sh") if m.get("run") == "done"]
+        answer(vm, "key back")
+        wait_marker(vm, "holo op=exit", 1)
+        assert state(vm)["screen"] == "readline"
+        answer(vm, "sh run \"SHOW%20TIME\"")
+        wait_marker(vm, "sh run=done", 1)
+
+
+def test_keyboard_under_the_reader_is_refused(board, uos_image, need_mtools, tmp_path):
+    """The user name read under the reader: `osk open` says "covered" and paints
+    nothing over the reader."""
+    with alone(uos_image, board, card(tmp_path, card_tree())) as vm:
+        at_prompt(vm)
+        answer(vm, "holo open")
+        wait_marker(vm, "holo op=scan", 1)
+        before = settled_rows(vm)
+        answer(vm, "osk open")
+        same(before, settled_rows(vm))
+        assert not [m for m in events(vm, "osk") if m.get("state") == "open"]
+        wait_marker(vm, "osk result=covered", 1)
+        answer(vm, "key back")
+        wait_marker(vm, "holo op=exit", 1)
+        answer(vm, "osk open")
+        wait_marker(vm, "osk state=open", 1)

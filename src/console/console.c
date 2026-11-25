@@ -238,17 +238,21 @@ static int cmd_page(int argc, char **argv)
 
 static void post_osk_open(void *arg)
 {
+    int rc = con_osk_open();
+
     (void)arg;
-    if (con_osk_open() != 0) {
-        UOS_MARK("osk result=err");
+    if (rc != 0) {
+        UOS_MARK("osk result=%s", rc == CON_ERR_COVERED ? "covered" : "err");
     }
 }
 
 static void post_osk_close(void *arg)
 {
+    int rc = con_osk_close();
+
     (void)arg;
-    if (con_osk_close() != 0) {
-        UOS_MARK("osk result=err");
+    if (rc != 0) {
+        UOS_MARK("osk result=%s", rc == CON_ERR_COVERED ? "covered" : "err");
     }
 }
 

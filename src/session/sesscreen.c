@@ -131,13 +131,10 @@ static int reading_user;
 
 int sess_prompt_on_top(void)
 {
-    const uos_screen_t *top = uos_screen_top();
-
-    if (sess.in || sess.st != LG_S_USER || top == NULL) {
+    if (sess.in || sess.st != LG_S_USER) {
         return 0;
     }
-    return top == &sess_login_screen ||
-           (reading_user && k_strcmp(top->name, "readline") == 0);
+    return uos_screen_on_top(&sess_login_screen) || (reading_user && con_line_on_top());
 }
 
 static void start_user(void *arg)
@@ -145,7 +142,7 @@ static void start_user(void *arg)
     int rc;
 
     (void)arg;
-    if (sess.st != LG_S_USER || uos_screen_top() != &sess_login_screen) {
+    if (sess.st != LG_S_USER || !uos_screen_on_top(&sess_login_screen)) {
         return;
     }
     set_cursor(ROW_USER);
@@ -528,10 +525,9 @@ void sess_show_only(uos_screen_t *s)
 {
     /* Every screen above the bottom one leaves first: a read or a pager
      * ends without calling back. */
-    while (uos_screen_pop() == 0) {
-    }
+    (void)uos_screen_unwind();
     reading_user = 0;
-    if (uos_screen_top() != s) {
+    if (!uos_screen_on_top(s)) {
         (void)uos_screen_replace(s);
     } else {
         uos_screen_invalidate();
@@ -553,7 +549,7 @@ void sess_go(lg_event_t e)
     switch (sess.st) {
     case LG_S_USER:
         sess.typed[0] = '\0';
-        if (uos_screen_top() == &sess_login_screen) {
+        if (uos_screen_on_top(&sess_login_screen)) {
             /* The first start: the login screen is already shown. */
             uos_screen_invalidate();
             later(start_user);

@@ -58,11 +58,74 @@ TEST(pop_leaves_and_redraws_the_screen_below)
     uos_ss_push(&ss, &b);
     uos_ss_draw(&ss);
     log_buf[0] = '\0';
-    CHECK_EQ(uos_ss_pop(&ss), 0);
+    CHECK_EQ(uos_ss_pop(&ss, &b), 0);
     CHECK_EQ(uos_ss_draw(&ss), 1);
     CHECK_STR(log_buf, "leave:b draw:a ");
-    CHECK_EQ(uos_ss_pop(&ss), UOS_SCREEN_ERR_LAST);
+    CHECK_EQ(uos_ss_pop(&ss, &a), UOS_SCREEN_ERR_LAST);
     CHECK(uos_ss_top(&ss) == &a);
+}
+
+TEST(pop_of_a_screen_not_on_top_is_refused)
+{
+    uos_sstack_t ss;
+    SCREEN(login, "login", 1);
+    SCREEN(game, "game", 1);
+    SCREEN(reader, "reader", 1);
+
+    uos_ss_init(&ss);
+    uos_ss_push(&ss, &login);
+    uos_ss_push(&ss, &game);
+    uos_ss_push(&ss, &reader);
+    uos_ss_draw(&ss);
+    log_buf[0] = '\0';
+    /* The game is covered: its pop takes nothing, the reader stays. */
+    CHECK_EQ(uos_ss_pop(&ss, &game), UOS_SCREEN_ERR_TOP);
+    CHECK_EQ(uos_ss_pop(&ss, &login), UOS_SCREEN_ERR_TOP);
+    CHECK_EQ(ss.depth, 3u);
+    CHECK(uos_ss_top(&ss) == &reader);
+    CHECK_EQ(uos_ss_draw(&ss), 0);
+    CHECK_STR(log_buf, "");
+    /* Once the reader leaves, the game is the top and its pop works. */
+    CHECK_EQ(uos_ss_pop(&ss, &reader), 0);
+    CHECK_EQ(uos_ss_pop(&ss, &game), 0);
+    CHECK_STR(log_buf, "leave:reader leave:game ");
+    CHECK(uos_ss_top(&ss) == &login);
+}
+
+TEST(on_top_names_the_top_screen_only)
+{
+    uos_sstack_t ss;
+    SCREEN(a, "a", 1);
+    SCREEN(b, "b", 1);
+
+    uos_ss_init(&ss);
+    CHECK_EQ(uos_ss_on_top(&ss, &a), 0);
+    CHECK_EQ(uos_ss_on_top(NULL, &a), 0);
+    uos_ss_push(&ss, &a);
+    CHECK_EQ(uos_ss_on_top(&ss, &a), 1);
+    CHECK_EQ(uos_ss_on_top(&ss, NULL), 0);
+    uos_ss_push(&ss, &b);
+    CHECK_EQ(uos_ss_on_top(&ss, &a), 0);
+    CHECK_EQ(uos_ss_on_top(&ss, &b), 1);
+}
+
+TEST(unwind_pops_down_to_the_bottom_screen)
+{
+    uos_sstack_t ss;
+    SCREEN(a, "a", 1);
+    SCREEN(b, "b", 1);
+    SCREEN(c, "c", 1);
+
+    uos_ss_init(&ss);
+    CHECK_EQ(uos_ss_unwind(&ss), 0);
+    uos_ss_push(&ss, &a);
+    uos_ss_push(&ss, &b);
+    uos_ss_push(&ss, &c);
+    log_buf[0] = '\0';
+    CHECK_EQ(uos_ss_unwind(&ss), 2);
+    CHECK_STR(log_buf, "leave:c leave:b ");
+    CHECK(uos_ss_top(&ss) == &a);
+    CHECK_EQ(uos_ss_unwind(&ss), 0);
 }
 
 TEST(replace_leaves_then_enters)
@@ -107,7 +170,7 @@ static int pop_self(uos_screen_t *s, const uos_event_t *ev)
 {
     (void)ev;
     note("event", s);
-    uos_ss_pop(popper_ss);
+    uos_ss_pop(popper_ss, s);
     return 0;
 }
 
@@ -190,7 +253,8 @@ TEST(depth_limit_and_bad_arguments)
     CHECK_EQ(uos_ss_push(&ss, NULL), UOS_SCREEN_ERR_ARG);
     CHECK_EQ(uos_ss_push(NULL, &s[0]), UOS_SCREEN_ERR_ARG);
     CHECK_EQ(uos_ss_replace(&ss, &s[0]), UOS_SCREEN_ERR_ARG);
-    CHECK_EQ(uos_ss_pop(NULL), UOS_SCREEN_ERR_ARG);
+    CHECK_EQ(uos_ss_pop(NULL, &s[0]), UOS_SCREEN_ERR_ARG);
+    CHECK_EQ(uos_ss_pop(&ss, NULL), UOS_SCREEN_ERR_ARG);
     /* NULL callbacks are allowed. */
     CHECK_EQ(uos_ss_draw(&ss), 1);
     CHECK_EQ(uos_ss_event(&ss, &(uos_event_t){ .type = UOS_EV_KEY }), 0);
@@ -202,7 +266,7 @@ TEST(empty_stack)
 
     uos_ss_init(&ss);
     CHECK(uos_ss_top(&ss) == NULL);
-    CHECK_EQ(uos_ss_pop(&ss), UOS_SCREEN_ERR_LAST);
+    CHECK_EQ(uos_ss_pop(&ss, &(uos_screen_t){ .name = "x" }), UOS_SCREEN_ERR_LAST);
     CHECK_EQ(uos_ss_draw(&ss), 0);
     uos_ss_invalidate(&ss);
     CHECK_EQ(uos_ss_draw(&ss), 0);
@@ -245,14 +309,14 @@ TEST(pop_redraws_from_the_highest_full_screen_up)
     uos_ss_draw(&ss);
     log_buf[0] = '\0';
     /* The pause line closes: the game it sat on repaints, the game only. */
-    uos_ss_pop(&ss);
+    uos_ss_pop(&ss, &pause);
     CHECK_EQ(uos_ss_draw(&ss), 1);
-    uos_ss_pop(&ss);
+    uos_ss_pop(&ss, &game);
     CHECK_EQ(uos_ss_draw(&ss), 1);
     CHECK_STR(log_buf, "leave:pause draw:game leave:game draw:reader ");
     log_buf[0] = '\0';
     /* The reader closes over the read line: the login first, then the line. */
-    uos_ss_pop(&ss);
+    uos_ss_pop(&ss, &reader);
     CHECK_EQ(uos_ss_draw(&ss), 2);
     CHECK_STR(log_buf, "leave:reader draw:login draw:line ");
 }
@@ -286,7 +350,7 @@ TEST(no_full_screen_redraws_from_the_bottom)
     uos_ss_push(&ss, &c);
     uos_ss_draw(&ss);
     log_buf[0] = '\0';
-    uos_ss_pop(&ss);
+    uos_ss_pop(&ss, &c);
     CHECK_EQ(uos_ss_draw(&ss), 2);
     CHECK_STR(log_buf, "leave:c draw:a draw:b ");
 }

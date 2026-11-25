@@ -144,7 +144,13 @@ const uos_timerq_t *uos_timer_table(void);
 
 /* The screen stack. See uos_screen.h for the rules. */
 int uos_screen_push(uos_screen_t *s);
-int uos_screen_pop(void);
+/* Pops `s` only when it is the top. Otherwise a "screen pop=refused"
+ * marker and UOS_SCREEN_ERR_TOP; a test build panics. */
+int uos_screen_pop(uos_screen_t *s);
+/* Pops every screen above the bottom one: a reset of the whole stack. */
+int uos_screen_unwind(void);
+/* 1 when `s` is the top screen: the one test for "this screen may act". */
+int uos_screen_on_top(const uos_screen_t *s);
 int uos_screen_replace(uos_screen_t *s);
 uos_screen_t *uos_screen_top(void);
 /* Asks for a redraw of the top screen after the current event. */

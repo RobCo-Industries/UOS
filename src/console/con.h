@@ -31,6 +31,7 @@
 #define CON_ERR_DOWN    (-3)    /* the service did not start */
 #define CON_ERR_SCREEN  (-4)    /* the screen stack is full */
 #define CON_ERR_MEM     (-5)    /* the kernel heap refused a buffer */
+#define CON_ERR_COVERED (-6)    /* the read is not the top screen */
 
 /* Results given to the callbacks. */
 #define CON_OK          0       /* the person accepted the line, or left the pager */
@@ -68,8 +69,17 @@ int con_read_line(const char *prompt, unsigned flags, unsigned max, con_line_fn 
 /* Non-zero while a line is being read. */
 int con_line_active(void);
 
-/* Opens or closes the on-screen keyboard of the active read. 0, or
- * CON_ERR_BUSY when no line is being read. */
+/* Non-zero while a line is being read and its screen is the top. */
+int con_line_on_top(void);
+
+/* Ends the active read with no callback, as a pop by another caller does.
+ * 0, CON_ERR_BUSY when no line is being read, or CON_ERR_COVERED when
+ * another screen covers the read: then nothing changes. */
+int con_line_abort(void);
+
+/* Opens or closes the on-screen keyboard of the active read. 0,
+ * CON_ERR_BUSY when no line is being read, or CON_ERR_COVERED when
+ * another screen covers the read. */
 int con_osk_open(void);
 int con_osk_close(void);
 

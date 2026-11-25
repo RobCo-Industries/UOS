@@ -40,24 +40,42 @@ int uos_ss_push(uos_sstack_t *ss, uos_screen_t *s)
     return 0;
 }
 
-int uos_ss_pop(uos_sstack_t *ss)
+int uos_ss_pop(uos_sstack_t *ss, uos_screen_t *s)
 {
-    uos_screen_t *s;
-
-    if (ss == NULL) {
+    if (ss == NULL || s == NULL) {
         return UOS_SCREEN_ERR_ARG;
+    }
+    if (ss->depth == 0) {
+        return UOS_SCREEN_ERR_LAST;
+    }
+    if (ss->stack[ss->depth - 1] != s) {
+        return UOS_SCREEN_ERR_TOP;
     }
     if (ss->depth <= 1) {
         return UOS_SCREEN_ERR_LAST;
     }
-    s = ss->stack[--ss->depth];
-    ss->stack[ss->depth] = NULL;
+    ss->stack[--ss->depth] = NULL;
     ss->dirty = 1;
     ss->exposed = 1;
     if (s->leave != NULL) {
         s->leave(s);
     }
     return 0;
+}
+
+int uos_ss_unwind(uos_sstack_t *ss)
+{
+    int n = 0;
+
+    while (ss != NULL && ss->depth > 1 && uos_ss_pop(ss, ss->stack[ss->depth - 1]) == 0) {
+        n++;
+    }
+    return n;
+}
+
+int uos_ss_on_top(const uos_sstack_t *ss, const uos_screen_t *s)
+{
+    return s != NULL && uos_ss_top(ss) == s;
 }
 
 int uos_ss_replace(uos_sstack_t *ss, uos_screen_t *s)
