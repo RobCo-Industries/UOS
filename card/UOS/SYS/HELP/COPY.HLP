@@ -1,0 +1,13 @@
+COPY from-spec to-spec
+
+Copies files. The target must not exist yet. With wildcards, to-spec
+may name a folder, such as [.BACKUP], or use * for the name or the type.
+
+Qualifiers:
+  /LOG      names each file copied
+  /CONFIRM  asks before each file: Y yes, N no, A all, Q quit
+
+Ctrl-C stops the copy. A file cut short is not left behind.
+
+Example:
+  COPY *.TXT [.BACKUP] /LOG

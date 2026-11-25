@@ -1,0 +1,15 @@
+DIRECTORY [file-spec]
+
+Lists the files of a folder. With no file-spec, lists the current
+folder. Wildcards: * stands for any characters, % for one.
+
+Qualifiers:
+  /SIZE         shows each file's size in bytes
+  /DATE         shows each file's date
+  /FULL         shows the size and the date
+  /OUTPUT=file  writes the listing to a file instead of the screen
+
+Examples:
+  DIRECTORY
+  DIRECTORY *.TXT /SIZE
+  DIRECTORY [.LOGS] /FULL

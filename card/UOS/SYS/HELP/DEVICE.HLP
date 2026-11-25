@@ -1,0 +1,9 @@
+DEVICE name [action]
+
+Shows a device's state, or runs an action on it. Actions depend on the
+device: ON, OFF, TOGGLE, PULSE, OPEN, CLOSE, LOCK, UNLOCK. Each device
+has its own rights. SHOW DEVICES lists the devices.
+
+Examples:
+  DEVICE DOOR1
+  DEVICE DOOR1 UNLOCK

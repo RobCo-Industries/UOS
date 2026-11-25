@@ -1,0 +1,7 @@
+RUN program
+
+Starts a program: HACK, TERMINAL or HOLOTAPE. A program that is not part
+of this build says so.
+
+Example:
+  RUN TERMINAL
