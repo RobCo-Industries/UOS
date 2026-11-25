@@ -483,7 +483,9 @@ Its init calls `sess_set_next()`, so the welcome screen hands over to the `shell
 - A complete line goes to `dcl_parse()` with `dcl_uos_table`. `DCL_INSFPRM` asks `_<prompt>: `, such as `_File: `, appends the answer and parses again. An empty answer asks again. Ctrl-C at any prompt drops the line.
 - `dcl_check_privs()` checks the parsed command against the session's mask before anything runs.
 
-Output goes through `con_print()`, so it scrolls in the console's text rows and also reaches the PL011. The shell keeps the last 40 rows it printed and repaints them when it becomes the top screen again, after the pager or the on-screen keyboard. `TYPE /PAGE` uses `con_page_text()`.
+Output goes through `con_print()`, so it scrolls in the console's text rows and also reaches the PL011. The shell keeps the last 40 rows it printed. Its screen is full: `draw()` clears the console and repaints those rows, so a pop or `uos_screen_expose()` over it redraws from the shell up, after the pager, the holotape reader or the on-screen keyboard.
+
+The shell follows the held-key rule of [Screens](#screens). Its own screen acts on Ctrl-C only, a character from the serial line with no repeat: each Ctrl-C is a new press. While a command runs, the shell screen takes every other key and drops it. Typed characters and moves repeat in the `$` read, a `/CONFIRM` question and the on-screen keyboard. SELECT accepts a read on its press only. The pager pages on held arrows and leaves on a fresh BACK; Ctrl-C leaves it with `CON_CANCEL`. The stack drops the repeats of the key that closed a read or the pager, so a held SELECT answers one question and a held BACK leaves one pager. `TYPE /PAGE` uses `con_page_text()`.
 
 #### The executor
 

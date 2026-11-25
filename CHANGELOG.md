@@ -8,7 +8,8 @@ All notable changes to UOS are recorded here. The format follows [Keep a Changel
 
 - Rebuilt UOS on RobCo-Core. The prototype is gone.
 - `AUTHORIZE`'s `/PASSWORD` takes no value: the command asks for the password, masked.
-- The shell replaces the placeholder screen after login.
+- The shell replaces the placeholder screen after login. The placeholder is gone: with no screen registered, the session ends with `session screen=none`.
+- The shell screen sets `full`, so the stack redraws it from the shell up when a screen over it closes.
 - `/OUTPUT` replaces its file only when the command succeeds. A failure, a warning or Ctrl-C leaves the old file as it was.
 - A wildcard whose matches the access table all refused gives `%UOS-E-NOPRIV`, not `%UOS-W-NOFILES`. Some refused give `%UOS-I-SKIPPED` and `skipped=` in the end marker. `vfs_list_keep()` returns `VFS_KEEP_REFUSED` for them.
 - `sh_program_register()`: `start(args, done, tag)` and `done(tag, status, text)`. A late `done()` from a cancelled run is ignored.

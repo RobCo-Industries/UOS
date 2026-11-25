@@ -144,6 +144,8 @@ Type `SET PASSWORD`. The terminal asks for your old password, the new one, and t
 
 A holotape is a file on the terminal's card, in the folder `SYS$HOLO`. Each tape has a title and a few entries of text: logs, procedures, letters.
 
+This build has no way to open the reader from the shell or the menu yet: `HOLOTAPE` says it is not installed. The text below describes the reader for when it is.
+
 The holotape reader lists the tapes by file name and title. Use UP and DOWN to move the `>` mark, and SELECT to open a tape. The terminal shows `LOADING` with the tape's name while it reads. A large tape can take a few seconds.
 
 An open tape lists its entries by number and name. SELECT shows an entry. In the entry, UP and DOWN move one line, LEFT and RIGHT one page. Press BACK to go back to the list of entries, BACK again to close the tape, and BACK on the list of tapes to leave the reader.
