@@ -129,7 +129,7 @@ static void pv_leave(uos_screen_t *s)
     }
 }
 
-static uos_screen_t pv_screen = { "pager", NULL, pv_leave, pv_event, pv_draw, NULL, 1 };
+static uos_screen_t pv_screen = { "pager", NULL, pv_leave, pv_event, pv_draw, NULL, 1, NULL };
 
 int con_page_active(void)
 {

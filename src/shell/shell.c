@@ -202,7 +202,9 @@ static void prompt_start(int kind)
 }
 
 /* The next loop pass after a command: the prompt again, when the shell is
- * the screen on top and nothing else reads or runs. */
+ * the screen on top and nothing else reads or runs. A covered shell owes
+ * the prompt: shell_uncover() calls this again once it is the top. The
+ * guards make a second call do nothing while a read or a command runs. */
 static void shell_idle(void *arg)
 {
     (void)arg;
@@ -361,8 +363,16 @@ static int shell_event(uos_screen_t *s, const uos_event_t *ev)
     return ev->type == UOS_EV_KEY || ev->type == UOS_EV_CHAR;
 }
 
+/* On top again: the `$` read a covered shell_idle() could not start. */
+static void shell_uncover(uos_screen_t *s)
+{
+    (void)s;
+    shell_idle(NULL);
+}
+
 static uos_screen_t shell_screen = {
     .name = "shell",
+    .uncover = shell_uncover,
     .enter = shell_enter,
     .leave = shell_leave,
     .event = shell_event,

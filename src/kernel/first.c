@@ -144,6 +144,9 @@ void uos_first_set_notice(const char *row0, const char *row1, int reboot)
     }
 }
 
+/* 1: show() found the banner covered and owes the login. */
+static int owe_next;
+
 static void show(void *arg)
 {
     char line[UOS_LINE_MAX + 1];
@@ -152,9 +155,12 @@ static void show(void *arg)
     (void)arg;
     if (next_screen != NULL) {
         /* The login takes over: its enter() draws it. A screen that took
-         * over during the banner stays. */
+         * over during the banner stays; one pushed over the banner stays
+         * too, and the login takes over in uncover() once it pops. */
         if (uos_screen_on_top(&uos_first_screen)) {
             (void)uos_screen_replace(next_screen);
+        } else {
+            owe_next = 1;
         }
         UOS_MARK("ready screen=%s card=%s rtc=%d banner=%u", next_screen->name,
                  uos_card_name(uos.card), uos.rtc, (unsigned)(uos_ticks() - banner_t0));
@@ -197,6 +203,7 @@ static void enter(uos_screen_t *s)
 static void leave(uos_screen_t *s)
 {
     (void)s;
+    owe_next = 0;
     (void)uos_timer_cancel(clock_id);
     clock_id = UOS_TIMER_NONE;
 }
@@ -301,8 +308,19 @@ static int event(uos_screen_t *s, const uos_event_t *ev)
     return 1;
 }
 
+/* On top again: the login a covered banner could not hand over to. The
+ * replace runs leave(), which clears the debt, so it runs once. */
+static void uncover(uos_screen_t *s)
+{
+    (void)s;
+    if (owe_next && next_screen != NULL) {
+        (void)uos_screen_replace(next_screen);
+    }
+}
+
 uos_screen_t uos_first_screen = {
     .name = "first",
+    .uncover = uncover,
     .enter = enter,
     .leave = leave,
     .event = event,

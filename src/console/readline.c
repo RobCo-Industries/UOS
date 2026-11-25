@@ -237,7 +237,7 @@ static void rl_leave(uos_screen_t *s)
     UOS_MARK("line result=abort");
 }
 
-static uos_screen_t rl_screen = { "readline", NULL, rl_leave, rl_event, rl_draw, NULL, 0 };
+static uos_screen_t rl_screen = { "readline", NULL, rl_leave, rl_event, rl_draw, NULL, 0, NULL };
 
 int con_line_active(void)
 {

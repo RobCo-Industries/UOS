@@ -29,6 +29,12 @@
  *            bottom-up, from the highest screen with `full` set, or from
  *            the bottom when none has it. No screen draws what is under
  *            it. A push or an invalidate alone draws the top only.
+ *   uncover  a pop or an unwind that leaves `s` on top marks it
+ *            uncovered. The next draw, after it paints, calls the top's
+ *            uncover() once, when that top is still `s`. A push or a
+ *            replace before then clears the mark: the screen is covered
+ *            again or gone. A screen does here what it owes, such as the
+ *            read a posted call could not start while it was covered.
  * A screen may push, pop or replace from inside its own callbacks.
  */
 #ifndef UOS_SCREEN_H
@@ -46,6 +52,7 @@ struct uos_screen {
     void (*draw)(uos_screen_t *s);
     void *ctx;                                              /* the screen's own data */
     int full;               /* 1: draw() clears and paints the whole display */
+    void (*uncover)(uos_screen_t *s);                       /* on top again, after the draw */
 };
 
 #define UOS_SCREEN_DEPTH        8
@@ -60,6 +67,7 @@ typedef struct {
     unsigned depth;
     int dirty;
     int exposed;            /* redraw from the highest full screen up */
+    uos_screen_t *uncovered;    /* the top a pop left: its uncover() runs after the draw */
     int spent;              /* 1: repeats of spent_code are dropped */
     uint16_t spent_code;    /* the key whose press changed the stack */
 } uos_sstack_t;
@@ -88,6 +96,7 @@ void uos_ss_invalidate(uos_sstack_t *ss);
  * such as the read line when its keyboard closes. */
 void uos_ss_expose(uos_sstack_t *ss);
 /* Draws when dirty: the top, or every visible screen when exposed.
+ * Then, when a pop left the top uncovered, calls its uncover() once.
  * Returns the number of draw() calls made, 0 when not dirty. */
 int uos_ss_draw(uos_sstack_t *ss);
 

@@ -34,6 +34,7 @@ int uos_ss_push(uos_sstack_t *ss, uos_screen_t *s)
     }
     ss->stack[ss->depth++] = s;
     ss->dirty = 1;
+    ss->uncovered = NULL;
     if (s->enter != NULL) {
         s->enter(s);
     }
@@ -57,6 +58,7 @@ int uos_ss_pop(uos_sstack_t *ss, uos_screen_t *s)
     ss->stack[--ss->depth] = NULL;
     ss->dirty = 1;
     ss->exposed = 1;
+    ss->uncovered = ss->stack[ss->depth - 1];
     if (s->leave != NULL) {
         s->leave(s);
     }
@@ -98,6 +100,7 @@ int uos_ss_replace(uos_sstack_t *ss, uos_screen_t *s)
     ss->stack[ss->depth - 1] = s;
     ss->dirty = 1;
     ss->exposed = 1;
+    ss->uncovered = NULL;
     if (old->leave != NULL) {
         old->leave(old);
     }
@@ -209,6 +212,16 @@ int uos_ss_draw(uos_sstack_t *ss)
             s->draw(s);
         }
         n++;
+    }
+    /* The mark clears before the call: uncover() may push, pop or draw,
+     * and it runs once per uncovering. */
+    if (ss->uncovered != NULL) {
+        uos_screen_t *s = ss->uncovered;
+
+        ss->uncovered = NULL;
+        if (s == uos_ss_top(ss) && s->uncover != NULL) {
+            s->uncover(s);
+        }
     }
     return n;
 }

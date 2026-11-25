@@ -137,12 +137,17 @@ int sess_prompt_on_top(void)
     return uos_screen_on_top(&sess_login_screen) || (reading_user && con_line_on_top());
 }
 
+/* Starts the user name read. A posted call and login_uncover() both come
+ * here: the first one that finds the login on top with no read starts it,
+ * and the other finds the read running and does nothing. A covered login
+ * starts nothing; it owes the read, and login_uncover() starts it. */
 static void start_user(void *arg)
 {
     int rc;
 
     (void)arg;
-    if (sess.st != LG_S_USER || !uos_screen_on_top(&sess_login_screen)) {
+    if (sess.st != LG_S_USER || reading_user || con_line_active() ||
+        !uos_screen_on_top(&sess_login_screen)) {
         return;
     }
     set_cursor(ROW_USER);
@@ -328,8 +333,19 @@ static int login_event(uos_screen_t *s, const uos_event_t *ev)
     return ev->type == UOS_EV_KEY || ev->type == UOS_EV_CHAR;
 }
 
+/* On top again, after the screen over it closed. At the user name prompt
+ * the login owes a read: start it, so keys reach a prompt. In the other
+ * states a read runs, the check steps on its own, or the state machine
+ * moves to another screen. */
+static void login_uncover(uos_screen_t *s)
+{
+    (void)s;
+    start_user(NULL);
+}
+
 uos_screen_t sess_login_screen = {
     .name = "login",
+    .uncover = login_uncover,
     .enter = login_enter,
     .event = login_event,
     .draw = login_draw,

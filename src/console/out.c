@@ -218,7 +218,7 @@ static void pause_leave(uos_screen_t *s)
     }
 }
 
-static uos_screen_t pause_screen = { "pause", NULL, pause_leave, pause_event, pause_draw, NULL, 0 };
+static uos_screen_t pause_screen = { "pause", NULL, pause_leave, pause_event, pause_draw, NULL, 0, NULL };
 
 int con_pause(const char *text, con_done_fn cb, void *ctx)
 {

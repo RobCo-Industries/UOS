@@ -229,3 +229,94 @@ def test_keyboard_under_the_reader_is_refused(board, uos_image, need_mtools, tmp
         wait_marker(vm, "holo op=exit", 1)
         answer(vm, "osk open")
         wait_marker(vm, "osk state=open", 1)
+
+
+def close_reader(vm, n=1):
+    settled_rows(vm)
+    assert state(vm)["screen"] == "holo"
+    answer(vm, "key back")
+    wait_marker(vm, "holo op=exit", n)
+
+
+def test_empty_name_and_the_reader_in_one_write(board, uos_image, need_mtools, tmp_path):
+    """The finding: an empty user name and `holo open` in one write. The reader
+    opens before the login starts its next read. Once the reader closes, the
+    login owes that read and starts it: typed keys reach a prompt again."""
+    with alone(uos_image, board, card(tmp_path, card_tree())) as vm:
+        at_prompt(vm)
+        out = batch(vm, ["key select", "holo open"])
+        assert [r[0] for r in out] == ["ok", "ok"], out
+        wait_marker(vm, "holo op=scan", 1)
+        close_reader(vm)
+        wait_marker(vm, "login state=user", 2)
+        answer(vm, "type GUEST")
+        wait_marker(vm, "login state=pass", 1)
+        answer(vm, "type GUEST")
+        assert wait_marker(vm, "login user=GUEST", 1)["result"] == "ok"
+
+
+def test_empty_line_and_the_reader_in_one_write(board, hooks_image, need_mtools, tmp_path):
+    """The same race at the shell: an empty command line and `holo open` in one
+    write. Once the reader closes, the shell starts the `$` read it owes."""
+    with alone(hooks_image, board, card(tmp_path, card_tree())) as vm:
+        at_prompt(vm)
+        answer(vm, "sess login GUEST")
+        at_shell_prompt(vm)
+        out = batch(vm, ["key select", "holo open"])
+        assert [r[0] for r in out] == ["ok", "ok"], out
+        wait_marker(vm, "holo op=scan", 1)
+        close_reader(vm)
+        wait_marker(vm, "sh state=prompt kind=cmd", 2)
+        answer(vm, "type SHOW TIME")
+        wait_marker(vm, "sh state=prompt kind=cmd", 3)
+        assert state(vm)["screen"] == "readline"
+
+
+# The invariant: a screen on top with no command running has a read or takes
+# keys itself. Each test below covers one state with the reader at the moment
+# its next step is due, closes the reader and types on.
+
+def test_reader_over_each_login_state(board, uos_image, need_mtools, tmp_path):
+    """The password read, the check with a wrong password, then the welcome."""
+    with alone(uos_image, board, card(tmp_path, card_tree())) as vm:
+        at_prompt(vm)
+        answer(vm, "type GUEST")
+        wait_marker(vm, "login state=pass", 1)
+        # The password read runs under the reader and takes keys once it closes.
+        answer(vm, "holo open")
+        close_reader(vm)
+        assert state(vm)["screen"] == "readline"
+        # A wrong password: the check and the next user name read are due
+        # while the reader is open.
+        out = batch(vm, ["type nope", "holo open"])
+        assert [r[0] for r in out] == ["ok", "ok"], out
+        assert wait_marker(vm, "login user=GUEST", 1)["result"] == "bad"
+        close_reader(vm)
+        wait_marker(vm, "login state=user", 2)
+        answer(vm, "type GUEST")
+        wait_marker(vm, "login state=pass", 2)
+        # The welcome ends the session's reset: the reader goes with it.
+        out = batch(vm, ["type GUEST", "holo open"])
+        assert [r[0] for r in out] == ["ok", "ok"], out
+        assert wait_marker(vm, "login user=GUEST", 2)["result"] == "ok"
+        at_shell_prompt(vm)
+        assert state(vm)["screen"] == "readline"
+
+
+def test_reader_over_each_shell_read(board, hooks_image, need_mtools, tmp_path):
+    """The continuation line and the missing parameter: the next read starts
+    under the reader and takes keys once it closes."""
+    with alone(hooks_image, board, card(tmp_path, card_tree())) as vm:
+        at_prompt(vm)
+        answer(vm, "sess login GUEST")
+        at_shell_prompt(vm)
+        for first, kind, rest in (("SHOW -", "contin", "TIME"), ("SHOW", "param", "TIME")):
+            n = len([m for m in events(vm, "cmd") if m.get("state") == "end"])
+            out = batch(vm, [f"type {first}", "holo open"])
+            assert [r[0] for r in out] == ["ok", "ok"], out
+            wait_marker(vm, f"sh state=prompt kind={kind}", 1)
+            wait_marker(vm, "holo op=scan", 1 if kind == "contin" else 2)
+            close_reader(vm, 1 if kind == "contin" else 2)
+            assert state(vm)["screen"] == "readline"
+            answer(vm, f"type {rest}")
+            wait_marker(vm, "cmd state=end", n + 1)

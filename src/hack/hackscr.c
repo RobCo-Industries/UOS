@@ -52,7 +52,6 @@ _Static_assert(UOS_DIFF_NOVICE == HK_NOVICE && UOS_DIFF_ADVANCED == HK_ADVANCED 
 /* A list holds at most 512 words of 12 letters and a CR LF each. */
 #define WORDS_FILE_MAX      (HK_LIST_MAX * (HK_WORD_MAX + 2) + 64)
 #define PAUSE_TICKS         UOS_TICK_HZ     /* the result shows 1 s */
-#define COVERED_TICKS       (UOS_TICK_HZ / 10)  /* a covered game looks again */
 #define MOVES_MAX           64u
 
 static hk_list_t list;
@@ -69,7 +68,7 @@ static struct {
     int how;
     int on_top;                 /* the login prompt was the top at the start */
     uos_timer_id_t pause;
-    int waited;                 /* the end waited once for the game to be the top */
+    int waited;                 /* a covered game owes its end: see hack_uncover() */
     uint16_t closes;            /* times the screen closed: tags posted calls */
     unsigned posted;
 #if defined(UOS_TEST_HOOKS) && UOS_TEST_HOOKS
@@ -247,17 +246,14 @@ static void pause_end(void *arg)
     (void)arg;
     hg.pause = UOS_TIMER_NONE;
     /* A covered game ends once it is the top again: the screen over it, a
-     * holotape reader for one, stays as the person left it. */
+     * holotape reader for one, stays as the person left it. The game owes
+     * the end, and hack_uncover() runs it when the game is uncovered. */
     if (!uos_screen_on_top(&hack_screen)) {
         if (!hg.waited) {
             hg.waited = 1;
             UOS_MARK("hack op=wait why=covered");
         }
-        if (uos_timer_start(COVERED_TICKS, 0, pause_end, NULL, &hg.pause) == 0) {
-            return;
-        }
-        hg.pause = UOS_TIMER_NONE;
-        uos_set_error("hack");
+        return;
     }
     hg.waited = 0;
     hg.st = hg_next(hg.st, HG_E_PAUSE_END);
@@ -404,8 +400,19 @@ static int hack_event(uos_screen_t *s, const uos_event_t *ev)
     return ev->type == UOS_EV_KEY || ev->type == UOS_EV_CHAR;
 }
 
+/* On top again: the end that waited while the game was covered runs now.
+ * pause_end() clears `waited` before it ends the game, so it runs once. */
+static void hack_uncover(uos_screen_t *s)
+{
+    (void)s;
+    if (hg.waited && hg.pause == UOS_TIMER_NONE) {
+        pause_end(NULL);
+    }
+}
+
 static uos_screen_t hack_screen = {
     .name = "hack",
+    .uncover = hack_uncover,
     .enter = hack_enter,
     .leave = hack_leave,
     .event = hack_event,
