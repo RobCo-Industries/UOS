@@ -151,6 +151,7 @@ A screen is a struct of `enter`, `leave`, `event`, `draw` and `uncover` callback
 - `uos_screen_replace()` swaps the top.
 - Events go to the top first. When its `event()` returns 0, the next screen down gets the event.
 - `uos_screen_invalidate()` asks for a redraw of the top screen.
+- `uos_screen_dirty(s)` says that `s` changed. On top, the stack redraws it. Covered by partial screens only, the stack redraws from the highest full screen up, so `s` and the screens over it repaint in order. Under a full screen, nothing draws until a pop shows `s` again.
 
 A screen is full or partial. A full screen sets `.full = 1`: its `draw()` clears the console, paints every row and calls `con_status_redraw()` last. A partial screen paints only its own rows: the read line, the on-screen keyboard and the pause line are partial.
 
@@ -205,6 +206,22 @@ Other rules:
 - A pop names its own screen. `uos_screen_pop(s)` refuses when `s` is not the top: it returns `UOS_SCREEN_ERR_TOP` and marks `ev=screen pop=refused want= top=`. A test build panics there, so a wrong pop fails loudly.
 - A session reset ends every screen at once with `uos_screen_unwind()`: a logout, a lockout, the welcome's end and a won game's session. It pops from the top down, so no screen pops another.
 - Background work on a covered screen, such as the holotape scan and load steps, may change that screen's own state. It never pushes or pops.
+- Only the draw pass paints. A timer, a tick or a posted call changes its screen's state and calls `uos_screen_dirty()` with that screen. It never calls `draw()` or writes cells itself. So the state moves on while the screen is covered, and the stack shows the real state once the screen shows again.
+- A session reset ends a covered screen too. A lockout's start or end, the welcome's end, an idle logout and `sess logout` unwind the whole stack, the reader included, and show the next screen with its read.
+- A job whose shell a reset took away is an orphan. It takes no step and prints nothing, and the shell's next tick ends it with `CANCEL`.
+
+Each site that changes a screen from outside a key to that screen:
+
+| Site | Screen | How it paints | Covered |
+|---|---|---|---|
+| `on_clock`, the 1 s clock | `first` | `uos_screen_dirty()` | The clock reads the time; the stack shows it once uncovered |
+| `show`, the banner's end with no database | `first` | `uos_screen_dirty()` | Nothing paints; the screen shows when the cover pops |
+| `lock_second`, the countdown | `lockout` | `uos_screen_dirty()` | The draw computes the time left from the clock, so it is right once uncovered. The end resets the stack |
+| `welcome_done`, 1.5 s | `welcome` | A reset | The reset ends the cover |
+| `pause_end`, the result pause | `hack` | Owed to `uncover()` | Waits, marks `hack op=wait` |
+| `scan_step`, `load_step` | `holo` | `uos_screen_dirty()` | The scan and the load go on; the list shows once uncovered |
+| `drive`, a job's step | `shell` | `con_print()` | Owed to `uncover()`; an orphan takes no step |
+| The read line and the keyboard | `readline` | Their `event()` | Keys reach them only on top. There is no blinking cursor |
 
 #### Owners and children
 
