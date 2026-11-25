@@ -36,7 +36,7 @@ Keys are lower-case. Rules:
 - Two devices may not share a name or a pin. The later one is skipped.
 - A sensor with `pulse_ms` other than 0 is skipped.
 - A `[device NAME]` or `[expander N]` section with no keys is skipped with `DV_ERR_EMPTY`, `%DEVICE-E-EMPTY`. The reader is `ini_parse_sections()`, which reports every header.
-- A repeated header opens a new section, also right after itself: a repeated device is `DV_ERR_DUPNAME`, a repeated expander `DV_ERR_EXPANDER`. The first one wins.
+- A repeated header opens a new section, also right after itself: a repeated device is `DV_ERR_DUPNAME`, a repeated expander `DV_ERR_EXPANDER`. The first one wins. The parser remembers every header, good or not, so a repeat after an empty or bad first section is refused too, and that name or chip loads nothing.
 - An error about the whole section, such as a bad name, a missing key or a duplicate, carries the line of the section header. An error about one key carries that key's line.
 - If the INI reader stops on a bad line, devices finished before that line stay loaded. The device in progress is dropped.
 
@@ -64,6 +64,10 @@ label = Store room lamp
 type = door
 gpio = X1.0
 pulse_ms = 500
+
+[device ARM]
+type = relay
+gpio = 25
 ```
 
 Rules:
@@ -75,6 +79,8 @@ Rules:
 - Expander errors are counted in `err_count` with the name `X` and N, for example `X1`. They do not count as skipped devices.
 - Two devices may not share one expander pin. The same pin number on another chip, or on the Pi, is fine.
 - Refused pins and the pull-up warning apply to Pi pins only.
+- The `ARM` rule. An expander output is usable only when the file has a relay named `ARM` on a Pi pin that is off at reset: its reset pull, GPIO 0 to 8 up and 9 to 27 down, is not its active level. `dv_arm_ok()` says whether the table passes and `dv_on_at_reset()` checks one pin. The parser checks it after the whole file. When it fails, each expander output, `ARM` too when it sits on an expander, gets `refused = DV_ERR_NOARM` and a counted error with its name and line, `%DEVICE-E-NOARM, expander output needs an ARM relay on a Pi pin off at reset`. It stays in the table and in `loaded`. Expander sensors and Pi pins are not touched.
+- A refused device gets no boot operation and stays off. `dv_command()` returns its `refused` code before any other check. Its status line ends with ` REFUSED=NOARM`. `devs_arm_index()` skips a refused `ARM`. `devs_down_plan()` leaves refused devices out. `devs_unreachable()` counts refused outputs, so a Pi `ARM` stays off at boot while one exists, since a chip keeps its output register across a Pi reset. `devs_vfs_code()` maps `DV_ERR_NOARM` to `VFS_E_WRITE`.
 
 Each device and each pin operation has a `chip` field: `DV_CHIP_PI` for a Pi pin, or 0 to 3. `dv_set_t.exp[chip]` holds the chip's address. The status line shows `X1.0` in place of `GPIO n`. The glue in `src/dev/devglue.c` routes expander operations to `exp_write()`, `exp_config()` and `exp_read()`, which call the library's `gpiox.h` driver with chip N as its table index. The pin record ring keeps the chip and the pin, and prints an expander write as `pin=X1.0`.
 
@@ -131,7 +137,7 @@ A device with `pulse_ms` above 0 pulses for every word that turns it on: `ON`, `
 
 ## Status lines
 
-`SHOW DEVICES` uses `dv_status_header()` and `dv_status_line()`. Columns: name 8, type 6, label 31, state 8, then `GPIO n`. The longest line is 64 characters. A device in fault adds ` FAULT=<count>`, at most 12 more characters. An output unreached at boot adds ` UNREACHABLE`. `devs_status()` adds ` UNREACH=<count>` on `ARM`'s line while other outputs are unreachable. `DV_STATUS_LINE_MAX` is 96 to hold them all.
+`SHOW DEVICES` uses `dv_status_header()` and `dv_status_line()`. Columns: name 8, type 6, label 31, state 8, then `GPIO n`. The longest line is 64 characters. A device in fault adds ` FAULT=<count>`, at most 12 more characters. A device the `ARM` rule refused adds ` REFUSED=NOARM`, 14 more. An output unreached at boot adds ` UNREACHABLE`. `devs_status()` adds ` UNREACH=<count>` on `ARM`'s line while other outputs are unreachable. `DV_STATUS_LINE_MAX` is 96 to hold them all.
 
 ```
 NAME     TYPE   LABEL                           STATE    PIN

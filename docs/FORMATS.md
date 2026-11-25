@@ -73,6 +73,9 @@ The user database: a 32-byte header, then one 96-byte record per user, at most 3
 
 One `[device NAME]` section per device, up to 24, and one `[expander N]` section per I2C expander chip, up to 4. `gpio = <n>` names a Pi pin. `gpio = X<chip>.<pin>` names an expander pin. Layout and rules: [dev](modules/dev.md#file-format).
 
+- A repeated `[device NAME]` or `[expander N]` header is refused, even when the first section was empty or bad. The first one wins.
+- An expander output needs a relay named `ARM` on a Pi pin that is off at reset, such as `gpio = 25` with `active = high`. Without one, every expander output is refused with `NOARM` and never driven. Expander inputs still work.
+
 ## TERMINAL.CFG
 
 A `[terminal]` section with the title and an optional header file, then `[entry N]` sections, at most 16 kept per file. Each entry has a label, a type and a target. Sub-menus are other `.CFG` files in the same home. Layout: [tui](modules/tui.md#terminalcfg).

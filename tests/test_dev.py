@@ -388,6 +388,8 @@ def test_expander_switches(board, uos_image, need_mtools, tmp_path):
         assert (att["chip"], att["addr"], att["result"], att["rc"]) == \
             ("0", "0x20", "ok", "0"), att
         assert not events(vm, "devfail") and not events(vm, "devarm"), vm.serial
+        # ARM on a Pi pin: the ARM rule holds, nothing is refused.
+        assert not events(vm, "deverr") and one(vm, "devcfg")["errors"] == "0", vm.serial
         # LAMP off at boot, HATCH an input, ARM on last.
         assert pins(record(vm)) == [("X0.3", 0), (12, 0), (13, 1)], vm.serial
         assert chip_pins(vm) & 0x28 == 0x20, hex(chip_pins(vm))
@@ -475,6 +477,79 @@ def test_expander_safe_on_reboot_skipped_on_panic(board, hooks_image, need_mtool
         # The lamp's pin is still high, and the status says so.
         assert chip_pins(vm) >> 3 & 1 == 1
         assert " ON " in dev_list(vm)["LAMP"]
+
+
+NOARM = "err %DEVICE-E-NOARM, expander output needs an ARM relay on a Pi pin off at reset"
+
+
+def test_expander_output_without_arm(board, uos_image, need_mtools, tmp_path):
+    """No ARM: the expander output is refused, never written, and says why.
+    The expander sensor and the Pi pin device still work."""
+    with alone(uos_image, board, boot_card(tmp_path, EXP_FILE), extra_args=pca9554(0x20),
+               qtest=True) as vm:
+        wait_ready(vm)
+        cfg = one(vm, "devcfg")
+        assert (cfg["loaded"], cfg["errors"]) == ("3", "1"), cfg
+        err = one(vm, "deverr")
+        assert (err["name"], err["line"], err["why"]) == ("LAMP", "4", "NOARM"), err
+        assert one(vm, "devboot")["arm"] == "none"
+        rows = dev_list(vm)
+        assert rows["LAMP"].endswith("X0.3 REFUSED=NOARM") and " OFF " in rows["LAMP"], rows
+        # Never configured: the chip's pin is still an input.
+        assert all(p != "X0.3" for p, _ in pins(record(vm))), vm.serial
+        assert chip_pins(vm) >> 3 & 1 == 1
+        for action in ("ON", "OFF"):
+            assert dev_set(vm, "LAMP", action).status == NOARM
+        assert chip_pins(vm) >> 3 & 1 == 1
+        assert answer(vm, "dev set DOOR1 OPEN") == ["dev name=DOOR1 state=OPEN"]
+        assert pins(record(vm))[-1] == (12, 1)
+        vm.qmp.set_irq_in("/machine/peripheral/gx0", 5, 0)
+        wait_mark(vm, "dev name=HATCH state=TRIPPED by=sensor")
+
+
+def test_expander_arm_on_expander(board, uos_image, need_mtools, tmp_path):
+    """ARM on an expander pin cannot be cut without I2C: it is refused too."""
+    cfg = EXP_FILE + b"[device ARM]\ntype = relay\ngpio = X0.1\n"
+    with alone(uos_image, board, boot_card(tmp_path, cfg), extra_args=pca9554(0x20),
+               qtest=True) as vm:
+        wait_ready(vm)
+        errs = [(m["name"], m["why"]) for m in events(vm, "deverr")]
+        assert errs == [("LAMP", "NOARM"), ("ARM", "NOARM")], errs
+        assert one(vm, "devboot")["arm"] == "none"
+        rows = dev_list(vm)
+        assert rows["ARM"].endswith("X0.1 REFUSED=NOARM"), rows
+        assert dev_set(vm, "ARM", "ON").status == NOARM
+        assert chip_pins(vm) & 0x0A == 0x0A
+        assert answer(vm, "dev set DOOR1 OPEN") == ["dev name=DOOR1 state=OPEN"]
+
+
+def test_expander_panic_then_reboot(board, hooks_image, need_mtools, tmp_path):
+    """Panic with an expander output on: ARM goes off first on its Pi pin,
+    the expander write is skipped. After a reboot the output is back at its
+    initial level before ARM goes on."""
+    with alone(hooks_image, board, boot_card(tmp_path, EXP_ARM), extra_args=pca9554(0x20),
+               qtest=True) as vm:
+        wait_ready(vm)
+        assert answer(vm, "dev set LAMP ON") == ["dev name=LAMP state=ON"]
+        assert chip_pins(vm) >> 3 & 1 == 1
+        answer(vm, "panic")
+        vm.wait_for(IDLE, timeout=TIMEOUT)
+        safe = safe_writes(vm)
+        assert [(p, lv, n, rc) for p, lv, n, rc in safe] == \
+            [(13, 0, "ARM", "0"), (12, 0, "DOOR1", "0"), ("X0.3", 0, "LAMP", "-44")], vm.serial
+        assert marks(vm, "devsafe", name="LAMP")[0]["tries"] == "0"
+        # ARM's Pi pin was written off; the lamp keeps its level.
+        assert pins(record(vm))[-2:] == [(13, 0), (12, 0)]
+        assert " OFF " in dev_list(vm)["ARM"]
+        assert chip_pins(vm) >> 3 & 1 == 1
+        vm.send("reboot\n", port=1)
+        vm.wait_for(READY_TWICE, timeout=TIMEOUT)
+        vm.wait_for(re.compile(r"(@RC stage=uos ev=wdog result=on[^\n]*\n[\s\S]*){2}"),
+                    timeout=TIMEOUT)
+        # The new boot: LAMP at its initial level first, ARM on last.
+        assert pins(record(vm)) == [("X0.3", 0), (12, 0), (13, 1)], vm.serial
+        assert chip_pins(vm) >> 3 & 1 == 0
+        assert len(events(vm, "devarm")) == 0
 
 
 def test_hwdog_off_by_default(board, uos_image, need_mtools, tmp_path):
