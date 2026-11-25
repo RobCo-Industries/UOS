@@ -12,6 +12,7 @@
 #include "uos.h"
 #include "uos_maint.h"
 #include "uos_service.h"
+#include "uos_text.h"
 #include "uos_u64.h"
 #include "vfs.h"
 #include "vfsrules.h"
@@ -63,26 +64,6 @@ static void done(int rc, const char *extra)
     UOS_MARK("fs op=%s rc=%d err=%s%s%s", op_names[req.op], rc, vfs_strerror(rc),
              extra[0] != '\0' ? " " : "", extra);
     req.busy = 0;
-}
-
-static int parse_u32(const char *s, uint32_t max, uint32_t *out)
-{
-    uint32_t n = 0;
-
-    if (s == NULL || *s == '\0') {
-        return -1;
-    }
-    for (; *s >= '0' && *s <= '9'; s++) {
-        if (n > (max - (uint32_t)(*s - '0')) / 10u) {
-            return -1;
-        }
-        n = n * 10u + (uint32_t)(*s - '0');
-    }
-    if (*s != '\0') {
-        return -1;
-    }
-    *out = n;
-    return 0;
 }
 
 /* ---- Posted work ------------------------------------------------------------- */
@@ -404,7 +385,7 @@ static int cmd_fs(int argc, char **argv)
 
     if (k_strcmp(sub, "ls") == 0 && (argc == 2 || argc == 3)) {
         n = FS_LS_DEFAULT;
-        if (argc == 3 && (parse_u32(argv[2], FS_LS_MAX, &n) != 0 || n == 0)) {
+        if (argc == 3 && (uos_dec_u32(argv[2], FS_LS_MAX, &n) != 0 || n == 0)) {
             return uos_maint_fail("max 1 to 128");
         }
         return post(OP_LS, argv[1], NULL, n);
@@ -414,7 +395,7 @@ static int cmd_fs(int argc, char **argv)
     }
     if (k_strcmp(sub, "cat") == 0 && (argc == 2 || argc == 3)) {
         n = FS_CAT_DEFAULT;
-        if (argc == 3 && parse_u32(argv[2], FS_READ_MAX, &n) != 0) {
+        if (argc == 3 && uos_dec_u32(argv[2], FS_READ_MAX, &n) != 0) {
             return uos_maint_fail("max 0 to 4194304");
         }
         return post(OP_CAT, argv[1], NULL, n);
@@ -457,7 +438,7 @@ static int cmd_fs(int argc, char **argv)
         return 0;
     }
     if (argc == 3 && k_strcmp(sub, "who") == 0) {
-        if (parse_u32(argv[2], 0xffffffffu, &n) != 0) {
+        if (uos_dec_u32(argv[2], 0xffffffffu, &n) != 0) {
             return uos_maint_fail("privs is a number");
         }
         vp_ctx_init(&ctx, k_strcmp(argv[1], "-") == 0 ? NULL : argv[1]);
@@ -469,7 +450,7 @@ static int cmd_fs(int argc, char **argv)
     }
 #if defined(UOS_TEST_HOOKS) && UOS_TEST_HOOKS
     if (argc == 3 && k_strcmp(sub, "pattern") == 0) {
-        if (parse_u32(argv[2], FS_READ_MAX, &n) != 0) {
+        if (uos_dec_u32(argv[2], FS_READ_MAX, &n) != 0) {
             return uos_maint_fail("bytes 0 to 4194304");
         }
         return post(OP_PATTERN, argv[1], NULL, n);

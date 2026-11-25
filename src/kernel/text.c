@@ -2,16 +2,18 @@
 
 int uos_dec_u32(const char *s, uint32_t max, uint32_t *out)
 {
-    uint32_t n = 0;
+    uint32_t n = 0, d;
 
     if (s == NULL || out == NULL || *s == '\0') {
         return -1;
     }
     for (; *s >= '0' && *s <= '9'; s++) {
-        if (n > (max - (uint32_t)(*s - '0')) / 10u) {
+        d = (uint32_t)(*s - '0');
+        /* d > max first: max - d must not wrap below zero. */
+        if (d > max || n > (max - d) / 10u) {
             return -1;
         }
-        n = n * 10u + (uint32_t)(*s - '0');
+        n = n * 10u + d;
     }
     if (*s != '\0') {
         return -1;
