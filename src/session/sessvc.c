@@ -129,6 +129,8 @@ void sess_begin(int idx, const char *how)
     sess.privs = r->privs;
     sess.flags = r->flags;
     sess.start_tick = uos_ticks();
+    /* Every way into a session clears the failure count: lockout.h. */
+    lk_session_start(&sess.lk);
     k_snprintf(uos.user, sizeof(uos.user), "%s", sess.user);
     UOS_MARK("session state=start user=%s privs=%u how=%s", sess.user, (unsigned)sess.privs, how);
 }
@@ -154,6 +156,72 @@ int sess_logout(int reason)
     return 0;
 }
 
+/* ---- The password game ---- */
+
+int sess_hack_check(void)
+{
+    const uos_settings_t *cfg = uos_settings();
+
+    return lg_hack_allowed(cfg->hack_enabled, sess.db == LG_DB_OK, sess_find(cfg->hack_user),
+                           sess.in ? LG_S_SESSION : sess.st,
+                           sess.lk.locked &&
+                               (uint32_t)(sess_now_ms() - sess.lk.locked_at) < sess.lk.lock_ms);
+}
+
+int sess_hack_begin(void)
+{
+    int rc = sess_hack_check();
+    int idx;
+
+    if (rc == LG_HACK_OK) {
+        idx = uaf_find(&sess.uaf, uos_settings()->hack_user);
+        sess_begin(idx, "hack");
+        sess_go(LG_E_DIRECT);
+        return LG_HACK_OK;
+    }
+    UOS_MARK("session result=refused why=%s how=hack", lg_hack_name((lg_hack_t)rc));
+    return rc;
+}
+
+int sess_hack_lock(void)
+{
+    unsigned secs = uos_settings()->hack_lockout_s;
+    uint32_t now;
+
+    if (sess.in || sess.st != LG_S_USER || secs == 0) {
+        return 0;
+    }
+    now = uos_ticks();
+    /* One reading for the lock and its start marker; a longer lock that
+     * already runs keeps its own start tick. */
+    if (lk_lock(&sess.lk, now * (1000u / UOS_TICK_HZ), secs) == LK_STARTED) {
+        sess.lock_tick = now;
+    }
+    sess.lock_hack = 1;
+    sess_go(LG_E_HACK_LOCKED);
+    return 1;
+}
+
+int sess_set_hack_entry(sess_hack_fn fn)
+{
+    if (fn == NULL) {
+        return SESS_ERR_ARG;
+    }
+    if (sess.hack != NULL) {
+        return SESS_ERR_SET;
+    }
+    sess.hack = fn;
+    return 0;
+}
+
+void sess_resume(void)
+{
+    if (!sess.in && sess.st == LG_S_USER) {
+        sess_show_only(&sess_login_screen);
+        sess_prompt_later();
+    }
+}
+
 /* ---- The maintenance command ---- */
 
 static void post_logout(void *arg)
@@ -166,14 +234,23 @@ static void post_logout(void *arg)
 
 #if defined(UOS_TEST_HOOKS) && UOS_TEST_HOOKS
 /* Test builds only: the nm test proves the shipped image has none of this. */
-static char uos_test_login_name[UAF_NAME_MAX + 1];
+/* Each posted `sess login` owns one slot until its call runs: two commands
+ * in one port write keep their own names and run in order. Maintenance
+ * commands and posted calls both run in the loop, so no lock is needed. */
+#define TEST_LOGIN_SLOTS    4u
+
+static char uos_test_login_name[TEST_LOGIN_SLOTS][UAF_NAME_MAX + 1];
+static uint8_t uos_test_login_used[TEST_LOGIN_SLOTS];
 
 static void uos_test_sess_login(void *arg)
 {
+    char name[UAF_NAME_MAX + 1];
+    uint32_t slot = (uint32_t)(uintptr_t)arg;
     int idx;
 
-    (void)arg;
-    idx = uaf_find(&sess.uaf, uos_test_login_name);
+    k_memcpy(name, uos_test_login_name[slot], sizeof(name));
+    uos_test_login_used[slot] = 0;
+    idx = uaf_find(&sess.uaf, name);
     if (sess.db != LG_DB_OK || idx < 0) {
         UOS_MARK("session result=nouser");
         return;
@@ -188,11 +265,22 @@ static void uos_test_sess_login(void *arg)
 
 static int cmd_login(int argc, char **argv)
 {
+    uint32_t slot;
+
     if (argc != 2 || k_strlen(argv[1]) > UAF_NAME_MAX) {
         return uos_maint_fail("usage sess login <user>");
     }
-    k_snprintf(uos_test_login_name, sizeof(uos_test_login_name), "%s", argv[1]);
-    return uos_post(uos_test_sess_login, NULL) == 0 ? 0 : uos_maint_fail("full");
+    for (slot = 0; slot < TEST_LOGIN_SLOTS && uos_test_login_used[slot]; slot++) {
+    }
+    if (slot == TEST_LOGIN_SLOTS) {
+        return uos_maint_fail("full");
+    }
+    k_snprintf(uos_test_login_name[slot], sizeof(uos_test_login_name[slot]), "%s", argv[1]);
+    if (uos_post(uos_test_sess_login, (void *)(uintptr_t)slot) != 0) {
+        return uos_maint_fail("full");
+    }
+    uos_test_login_used[slot] = 1;
+    return 0;
 }
 #endif
 
@@ -205,7 +293,7 @@ static int cmd_sess(int argc, char **argv)
                         sess.in ? sess.user : "none", (unsigned)sess_privs(),
                         (unsigned)sess_flags(), sess.in ? sess.home : "none",
                         lk_tries_left(&sess.lk), (unsigned)lk_remaining_s(&sess.lk, sess_now_ms()),
-                        sess.idle_s, input_pending());
+                        sess.idle_s, uos_input_pending());
         return 0;
     }
     if (uos.phase != UOS_PHASE_READY) {

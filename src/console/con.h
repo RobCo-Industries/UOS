@@ -25,25 +25,31 @@
 #include "dcl.h"
 #include "lineedit.h"
 
+struct uos_screen;
+
 /* Errors. */
 #define CON_ERR_ARG     (-1)    /* NULL, empty, or a number out of range */
 #define CON_ERR_BUSY    (-2)    /* a read while a read is active, or a pager while a pager is */
 #define CON_ERR_DOWN    (-3)    /* the service did not start */
 #define CON_ERR_SCREEN  (-4)    /* the screen stack is full */
 #define CON_ERR_MEM     (-5)    /* the kernel heap refused a buffer */
+#define CON_ERR_COVERED (-6)    /* the read is not the top screen */
 
 /* Results given to the callbacks. */
 #define CON_OK          0       /* the person accepted the line, or left the pager */
 #define CON_CANCEL      1       /* the person pressed Ctrl-C in a read or the pager */
+#define CON_ALT         2       /* CON_RL_ALTKEY: F2 on an empty line */
 
 /* ---- Read a line ---- */
 
 /* Flags of con_read_line(). */
 #define CON_RL_MASK     LE_F_MASK       /* a password: '*' shown, never stored */
 #define CON_RL_NOHIST   LE_F_NOHIST     /* neither stored in nor read from the history */
+#define CON_RL_ALTKEY   0x100u          /* F2 on an empty line ends the read with CON_ALT */
 
 /*
- * Called once when the read ends. `result` is CON_OK or CON_CANCEL.
+ * Called once when the read ends. `result` is CON_OK, CON_CANCEL, or
+ * CON_ALT for a read with CON_RL_ALTKEY.
  * `text` holds `len` characters and a NUL (empty on CON_CANCEL); the
  * console owns it and it stays valid only until the callback returns.
  * The read screen is already popped, so the callback may start another
@@ -59,14 +65,25 @@ typedef void (*con_line_fn)(int result, const char *text, unsigned len, void *ct
  * Keys are those of lineedit.h. F4, or any GPIO button, opens the
  * on-screen keyboard. Returns 0, CON_ERR_ARG, CON_ERR_BUSY (one read at a
  * time), CON_ERR_DOWN or CON_ERR_SCREEN. `prompt` is copied.
+ * `owner` is the screen the read belongs to, such as the shell for its
+ * `$` read, or NULL for none: see uos_screen_push_child().
  */
-int con_read_line(const char *prompt, unsigned flags, unsigned max, con_line_fn cb, void *ctx);
+int con_read_line(struct uos_screen *owner, const char *prompt, unsigned flags, unsigned max, con_line_fn cb, void *ctx);
 
 /* Non-zero while a line is being read. */
 int con_line_active(void);
 
-/* Opens or closes the on-screen keyboard of the active read. 0, or
- * CON_ERR_BUSY when no line is being read. */
+/* Non-zero while a line is being read and its screen is the top. */
+int con_line_on_top(void);
+
+/* Ends the active read with no callback, as a pop by another caller does.
+ * 0, CON_ERR_BUSY when no line is being read, or CON_ERR_COVERED when
+ * another screen covers the read: then nothing changes. */
+int con_line_abort(void);
+
+/* Opens or closes the on-screen keyboard of the active read. 0,
+ * CON_ERR_BUSY when no line is being read, or CON_ERR_COVERED when
+ * another screen covers the read. */
 int con_osk_open(void);
 int con_osk_close(void);
 
@@ -90,9 +107,9 @@ typedef void (*con_done_fn)(int result, void *ctx);
  * the text into the kernel heap, so the caller may free it once this
  * returns. An empty text shows "(no text)". Returns 0, CON_ERR_ARG,
  * CON_ERR_BUSY (one pager at a time), CON_ERR_DOWN, CON_ERR_MEM or
- * CON_ERR_SCREEN.
+ * CON_ERR_SCREEN. `owner` as for con_read_line().
  */
-int con_page_text(const char *title, const char *text, size_t len, con_done_fn cb, void *ctx);
+int con_page_text(struct uos_screen *owner, const char *title, const char *text, size_t len, con_done_fn cb, void *ctx);
 
 /* Non-zero while a pager is shown. */
 int con_page_active(void);
@@ -136,8 +153,9 @@ unsigned con_text_rows(void);
  * row and waits for any key or character, which it uses. Then it pops,
  * restores the status row and calls cb(CON_OK, ctx). Returns 0,
  * CON_ERR_BUSY while another pause waits, CON_ERR_DOWN or CON_ERR_SCREEN.
+ * `owner` as for con_read_line().
  */
-int con_pause(const char *text, con_done_fn cb, void *ctx);
+int con_pause(struct uos_screen *owner, const char *text, con_done_fn cb, void *ctx);
 
 /* ---- Service ---- */
 

@@ -75,18 +75,67 @@ const char *sess_end_name(int reason);
 /*
  * The screen that starts after a good login and its welcome. Called once
  * per login from the loop; it returns the screen to show, which replaces
- * the welcome at the bottom of the stack. NULL from the function shows the
- * placeholder.
+ * the welcome at the bottom of the stack. With no function, or NULL from
+ * it, the session ends with SESS_END_SHELL and the marker
+ * "session screen=none".
  */
 typedef uos_screen_t *(*sess_next_fn)(void);
 
 /*
  * loop: registers the next screen. Once per boot: a second call returns
- * SESS_ERR_SET and keeps the first. Until then the placeholder screen runs:
- * the user, "No shell is installed in this build." and logout on BACK.
- * Call it from a service init that starts after the session service.
+ * SESS_ERR_SET and keeps the first. The shell service calls it. Call it from a service init that starts after the session service.
  */
 int sess_set_next(sess_next_fn fn);
+
+/* ---- The password game ---- */
+
+/*
+ * any: may the password game run now for the [hack] user? An lg_hack_t
+ * of login.h: LG_HACK_OK, or why not (game off, no database, no such
+ * account, account disabled or UAF_FLAG_NOHACK, someone logged in or the
+ * login past the user name prompt, terminal locked).
+ */
+int sess_hack_check(void);
+
+/*
+ * loop: the game was won. Checks again with sess_hack_check(), then starts
+ * a session for the [hack] user with no password: marker "session
+ * state=start ... how=hack", the welcome, then the next screen. On a
+ * refusal prints "session result=refused why=<name> how=hack", changes
+ * nothing and returns the lg_hack_t code. Every screen above the bottom
+ * one is removed on success.
+ */
+int sess_hack_begin(void);
+
+/*
+ * loop: the game was lost. Locks the terminal for [hack] lockout_s with
+ * the login's own lock and lockout screen: one lock state for the
+ * terminal. Returns 1 when it locked; 0 when lockout_s is 0 or the login
+ * is not at the user name prompt, and then nothing changes.
+ */
+int sess_hack_lock(void);
+
+/*
+ * The login's entry to the password game: F2 on an empty user name line
+ * calls `fn`. `fn` returns 0 when its screen took over: it calls
+ * sess_resume() when it gives the login back without a session. Any other
+ * value brings the user name prompt back at once. Once per boot, as
+ * sess_set_next(). Loop.
+ */
+typedef int (*sess_hack_fn)(void);
+int sess_set_hack_entry(sess_hack_fn fn);
+
+/*
+ * any: non-zero when nobody is logged in, the login is at its user name
+ * prompt and that prompt is the top screen: the login screen itself, or the
+ * read line of its user name. Any other screen on top, a holotape reader
+ * for one, gives 0. The password game plays only when this holds at its
+ * start.
+ */
+int sess_prompt_on_top(void);
+
+/* loop: the login screen is the top again: its user name prompt starts. */
+void sess_resume(void);
 
 /*
  * any: the user database, read only. NULL when no database loaded. For

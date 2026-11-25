@@ -120,7 +120,7 @@ static void on_clock(void *arg)
     (void)arg;
     if (uos.rtc) {
         read_clock();
-        uos_screen_invalidate();
+        uos_screen_dirty(&uos_first_screen);
     }
 }
 
@@ -140,9 +140,12 @@ void uos_first_set_notice(const char *row0, const char *row1, int reboot)
     info.notice[0] = notice_set ? notice[0] : NULL;
     info.notice[1] = notice_set ? notice[1] : NULL;
     if (shown) {
-        uos_screen_invalidate();
+        uos_screen_dirty(&uos_first_screen);
     }
 }
+
+/* 1: show() found the banner covered and owes the login. */
+static int owe_next;
 
 static void show(void *arg)
 {
@@ -152,9 +155,12 @@ static void show(void *arg)
     (void)arg;
     if (next_screen != NULL) {
         /* The login takes over: its enter() draws it. A screen that took
-         * over during the banner stays. */
-        if (uos_screen_top() == &uos_first_screen) {
+         * over during the banner stays; one pushed over the banner stays
+         * too, and the login takes over in uncover() once it pops. */
+        if (uos_screen_on_top(&uos_first_screen)) {
             (void)uos_screen_replace(next_screen);
+        } else {
+            owe_next = 1;
         }
         UOS_MARK("ready screen=%s card=%s rtc=%d banner=%u", next_screen->name,
                  uos_card_name(uos.card), uos.rtc, (unsigned)(uos_ticks() - banner_t0));
@@ -162,8 +168,9 @@ static void show(void *arg)
     }
     shown = 1;
     read_clock();
-    /* Drawn now, so the screen is complete when "ready" goes out. */
-    draw(&uos_first_screen);
+    /* The stack draws it before the next port command, and only when it
+     * shows: a screen pushed over the banner stays as it is. */
+    uos_screen_dirty(&uos_first_screen);
     if (uos_timer_start(CLOCK_TICKS, CLOCK_TICKS, on_clock, NULL, &clock_id) != 0) {
         uos_set_error("timer");
     }
@@ -197,6 +204,7 @@ static void enter(uos_screen_t *s)
 static void leave(uos_screen_t *s)
 {
     (void)s;
+    owe_next = 0;
     (void)uos_timer_cancel(clock_id);
     clock_id = UOS_TIMER_NONE;
 }
@@ -296,15 +304,27 @@ static int event(uos_screen_t *s, const uos_event_t *ev)
     UOS_MARK("key screen=first type=%s code=%u name=%s keys=%u", uos_ev_name(ev->type),
              (unsigned)ev->code, key_name, info.keys);
     if (shown) {
-        uos_screen_invalidate();
+        uos_screen_dirty(&uos_first_screen);
     }
     return 1;
 }
 
+/* On top again: the login a covered banner could not hand over to. The
+ * replace runs leave(), which clears the debt, so it runs once. */
+static void uncover(uos_screen_t *s)
+{
+    (void)s;
+    if (owe_next && next_screen != NULL) {
+        (void)uos_screen_replace(next_screen);
+    }
+}
+
 uos_screen_t uos_first_screen = {
     .name = "first",
+    .uncover = uncover,
     .enter = enter,
     .leave = leave,
     .event = event,
     .draw = draw,
+    .full = 1,
 };

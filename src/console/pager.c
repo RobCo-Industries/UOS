@@ -77,6 +77,8 @@ static void report(void)
              (unsigned)pg_lines(&pv.pg));
 }
 
+static uos_screen_t pv_screen;
+
 static int pv_event(uos_screen_t *s, const uos_event_t *ev)
 {
     con_done_fn cb;
@@ -93,6 +95,10 @@ static int pv_event(uos_screen_t *s, const uos_event_t *ev)
     } else {
         return 0;
     }
+    /* Held keys page; leaving takes a fresh press. */
+    if (key == INPUT_KEY_BACK && !uos_ev_fresh_key(ev)) {
+        return 1;
+    }
     top = pv.pg.top;
     /* Ctrl-C leaves like Q, but the caller hears CON_CANCEL. */
     cancel = ev->type == UOS_EV_CHAR && ev->code == 3u;
@@ -100,7 +106,7 @@ static int pv_event(uos_screen_t *s, const uos_event_t *ev)
         cb = pv.cb;
         ctx = pv.ctx;
         release();
-        (void)uos_screen_pop();
+        (void)uos_screen_pop(&pv_screen);
         if (cb != NULL) {
             cb(cancel ? CON_CANCEL : CON_OK, ctx);
         }
@@ -123,14 +129,14 @@ static void pv_leave(uos_screen_t *s)
     }
 }
 
-static uos_screen_t pv_screen = { "pager", NULL, pv_leave, pv_event, pv_draw, NULL };
+static uos_screen_t pv_screen = { "pager", NULL, pv_leave, pv_event, pv_draw, NULL, 1, NULL, NULL };
 
 int con_page_active(void)
 {
     return pv.active;
 }
 
-int con_page_text(const char *title, const char *text, size_t len, con_done_fn cb, void *ctx)
+int con_page_text(struct uos_screen *owner, const char *title, const char *text, size_t len, con_done_fn cb, void *ctx)
 {
     uint32_t cap;
     size_t n;
@@ -167,7 +173,7 @@ int con_page_text(const char *title, const char *text, size_t len, con_done_fn c
     pv.title[n] = 0;
     pv.cb = cb;
     pv.ctx = ctx;
-    if (uos_screen_push(&pv_screen) != 0) {
+    if (uos_screen_push_child(&pv_screen, owner) != 0) {
         release();
         return CON_ERR_SCREEN;
     }

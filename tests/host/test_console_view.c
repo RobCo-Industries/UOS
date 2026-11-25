@@ -24,6 +24,30 @@ TEST(cv_input_row_moves_above_keyboard)
     CHECK_EQ(cv_input_row(29, 0, 0), 29u);
 }
 
+TEST(cv_alt_key_rules)
+{
+    input_event_t e;
+
+    e = mk(INPUT_EV_KEY, INPUT_SRC_SERIAL, CV_ALT_KEY, INPUT_PRESS);
+    CHECK(cv_alt_key(&e, 1, 0, 0));
+    CHECK(!cv_alt_key(&e, 0, 0, 0));        /* the read did not ask for it */
+    CHECK(!cv_alt_key(&e, 1, 1, 0));        /* text on the line: F2 is END */
+    CHECK(!cv_alt_key(&e, 1, 0, 1));        /* the keyboard is open */
+    e = mk(INPUT_EV_KEY, INPUT_SRC_SCRIPT, CV_ALT_KEY, INPUT_PRESS);
+    CHECK(cv_alt_key(&e, 1, 0, 0));
+    e = mk(INPUT_EV_KEY, INPUT_SRC_GPIO, CV_ALT_KEY, INPUT_PRESS);
+    CHECK(!cv_alt_key(&e, 1, 0, 0));
+    e = mk(INPUT_EV_KEY, INPUT_SRC_SERIAL, CV_ALT_KEY, INPUT_RELEASE);
+    CHECK(!cv_alt_key(&e, 1, 0, 0));
+    e = mk(INPUT_EV_KEY, INPUT_SRC_SERIAL, CV_ALT_KEY, INPUT_REPEAT);
+    CHECK(!cv_alt_key(&e, 1, 0, 0));
+    e = mk(INPUT_EV_KEY, INPUT_SRC_SERIAL, INPUT_KEY_F1, INPUT_PRESS);
+    CHECK(!cv_alt_key(&e, 1, 0, 0));
+    e = mk(INPUT_EV_CHAR, INPUT_SRC_SERIAL, CV_ALT_KEY, INPUT_PRESS);
+    CHECK(!cv_alt_key(&e, 1, 0, 0));
+    CHECK(!cv_alt_key(NULL, 1, 0, 0));
+}
+
 TEST(cv_opens_osk_rules)
 {
     input_event_t e;

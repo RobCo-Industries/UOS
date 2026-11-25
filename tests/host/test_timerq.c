@@ -1,5 +1,7 @@
 /* Host tests of src/kernel/timerq.c and src/kernel/event.c. */
 
+#include <robco/input.h>
+
 #include "rc_test.h"
 
 #include "uos_event.h"
@@ -327,6 +329,21 @@ TEST(event_names)
     CHECK_STR(uos_ev_name(UOS_EV_TIMER), "timer");
     CHECK_STR(uos_ev_name(UOS_EV_CALL), "call");
     CHECK_STR(uos_ev_name(99), "none");
+}
+
+TEST(fresh_key)
+{
+    uos_event_t e = { .type = UOS_EV_KEY, .code = INPUT_KEY_BACK, .value = INPUT_PRESS };
+
+    CHECK_EQ(uos_ev_fresh_key(&e), 1);
+    e.value = INPUT_REPEAT;
+    CHECK_EQ(uos_ev_fresh_key(&e), 0);
+    e.value = INPUT_RELEASE;
+    CHECK_EQ(uos_ev_fresh_key(&e), 0);
+    e.type = UOS_EV_CHAR;
+    e.value = INPUT_PRESS;
+    CHECK_EQ(uos_ev_fresh_key(&e), 0);
+    CHECK_EQ(uos_ev_fresh_key(NULL), 0);
 }
 
 /* ---- Delivery through a full event queue ---- */

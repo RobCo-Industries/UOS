@@ -1,5 +1,6 @@
 /* The kernel event queue. Pure. */
 
+#include <robco/input.h>
 #include <robco/klibc.h>
 
 #include "uos_event.h"
@@ -50,4 +51,9 @@ const char *uos_ev_name(unsigned type)
     case UOS_EV_CALL:  return "call";
     default:           return "none";
     }
+}
+
+int uos_ev_fresh_key(const uos_event_t *ev)
+{
+    return ev != NULL && ev->type == UOS_EV_KEY && ev->value == INPUT_PRESS;
 }

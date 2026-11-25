@@ -66,7 +66,13 @@ Rules:
 - When a key repeats, the last one wins.
 - A line that does not parse stops the reader. The keys before it apply.
 
-The kernel reads `UOS.CFG` at boot. The session service applies `[login]`, see [session](modules/session.md#the-session-service). The device service reads `[watchdog]`, see [The watchdogs](ARCHITECTURE.md#the-watchdogs). No module reads the `[hack]` values yet: the minigame is not wired.
+The kernel reads `UOS.CFG` at boot. The session service applies `[login]`, see [session](modules/session.md#the-session-service). The device service reads `[watchdog]`, see [The watchdogs](ARCHITECTURE.md#the-watchdogs). The password game reads `[hack]` each time it starts, see [hack](modules/hack.md#the-screen):
+
+- `enabled = no` refuses the game.
+- `user` is the account a won game logs in. The game refuses an account that does not exist, is disabled or has the `NOHACK` flag. The shipped default is `GUEST`, the account with no privilege. `ADMIN` and `OPER` carry `NOHACK` on the default card.
+- `attempts` is the number of wrong guesses before the lockout.
+- `difficulty` sets the word length and the number of words.
+- `lockout_s` is how long a lost game locks the terminal. 0 locks nothing.
 
 ## SYSUAF.DAT
 

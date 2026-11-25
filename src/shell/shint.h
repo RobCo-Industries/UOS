@@ -105,6 +105,10 @@ const sh_impl_t *sh_impl_find(const dcl_cmd_t *cmd);
 
 /* shell.c: one line of output. /OUTPUT text when a file collects it, else
  * the console, unless SH_RUN_QUIET. */
+/* The shell's screen: the owner of the reads and the pager a command
+ * opens, see uos_screen_push_child(). */
+struct uos_screen *sh_screen(void);
+
 void sh_out(sh_job_t *j, const char *text);
 
 /* shell.c: a message on the console, unless SH_RUN_QUIET. Never to /OUTPUT. */

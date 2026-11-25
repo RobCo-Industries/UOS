@@ -406,3 +406,61 @@ TEST(uaf_words)
     CHECK_STR(lg_uaf_word(UAF_E_SHORT), "SHORT");
     CHECK_STR(lg_uaf_word(UAF_OK), "UNKNOWN");
 }
+
+/* The lost password game locks from the user name prompt only. */
+TEST(hack_lock_event)
+{
+    int s;
+
+    CHECK_EQ(lg_next(LG_S_USER, LG_E_HACK_LOCKED).next, LG_S_LOCKED);
+    CHECK_EQ(lg_next(LG_S_USER, LG_E_HACK_LOCKED).msg, LG_M_NONE);
+    for (s = 0; s < LG_S_NUM; s++) {
+        if (s != LG_S_USER) {
+            CHECK_EQ(lg_next((lg_state_t)s, LG_E_HACK_LOCKED).changed, 0);
+        }
+    }
+}
+
+TEST(hack_allowed_rules)
+{
+    uaf_rec_t rec;
+
+    memset(&rec, 0, sizeof(rec));
+    CHECK_EQ(lg_hack_allowed(1, 1, &rec, LG_S_USER, 0), LG_HACK_OK);
+    CHECK_EQ(lg_hack_allowed(0, 1, &rec, LG_S_USER, 0), LG_HACK_OFF);
+    CHECK_EQ(lg_hack_allowed(1, 0, &rec, LG_S_USER, 0), LG_HACK_NODB);
+    CHECK_EQ(lg_hack_allowed(1, 1, NULL, LG_S_USER, 0), LG_HACK_NOUSER);
+    rec.flags = UAF_FLAG_DISABLED;
+    CHECK_EQ(lg_hack_allowed(1, 1, &rec, LG_S_USER, 0), LG_HACK_DISABLED);
+    rec.flags = UAF_FLAG_NOHACK;
+    CHECK_EQ(lg_hack_allowed(1, 1, &rec, LG_S_USER, 0), LG_HACK_NOHACK);
+    rec.flags = 0;
+    CHECK_EQ(lg_hack_allowed(1, 1, &rec, LG_S_USER, 1), LG_HACK_LOCKED);
+    CHECK_EQ(lg_hack_allowed(1, 1, &rec, LG_S_LOCKED, 0), LG_HACK_LOCKED);
+    CHECK_EQ(lg_hack_allowed(1, 1, &rec, LG_S_PASS, 0), LG_HACK_BUSY);
+    CHECK_EQ(lg_hack_allowed(1, 1, &rec, LG_S_CHECK, 0), LG_HACK_BUSY);
+    CHECK_EQ(lg_hack_allowed(1, 1, &rec, LG_S_SESSION, 0), LG_HACK_BUSY);
+    CHECK_EQ(lg_hack_allowed(1, 1, &rec, LG_S_OFF, 0), LG_HACK_BUSY);
+    /* The first failing rule wins: off before everything. */
+    rec.flags = UAF_FLAG_NOHACK;
+    CHECK_EQ(lg_hack_allowed(0, 0, NULL, LG_S_SESSION, 1), LG_HACK_OFF);
+    CHECK_EQ(lg_hack_allowed(1, 1, &rec, LG_S_SESSION, 1), LG_HACK_NOHACK);
+    CHECK_STR(lg_hack_name(LG_HACK_NOHACK), "nohack");
+    CHECK_STR(lg_hack_name(LG_HACK_NUM), "unknown");
+    CHECK_STR(lg_hack_text(LG_HACK_OK), "");
+    CHECK(strlen(lg_hack_text(LG_HACK_BUSY)) < 79);
+}
+
+/* The game plays only over the login prompt; a refusal from the rules wins,
+ * so a session gives "busy", not "covered". */
+TEST(hack_where_rules)
+{
+    CHECK_EQ(lg_hack_where(LG_HACK_OK, 1), LG_HACK_OK);
+    CHECK_EQ(lg_hack_where(LG_HACK_OK, 0), LG_HACK_COVERED);
+    CHECK_EQ(lg_hack_where(LG_HACK_BUSY, 0), LG_HACK_BUSY);
+    CHECK_EQ(lg_hack_where(LG_HACK_BUSY, 1), LG_HACK_BUSY);
+    CHECK_EQ(lg_hack_where(LG_HACK_LOCKED, 0), LG_HACK_LOCKED);
+    CHECK_STR(lg_hack_name(LG_HACK_COVERED), "covered");
+    CHECK(strlen(lg_hack_text(LG_HACK_COVERED)) > 0);
+    CHECK(strlen(lg_hack_text(LG_HACK_COVERED)) < 79);
+}

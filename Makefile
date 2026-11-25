@@ -24,6 +24,12 @@ IMAGE      := uos
 LINK_ADDR  := 0x00400000
 CONFIG_H   := src/kernel/robco_config.h
 BUILD      ?= build
+# One spelling per build folder. gcc -MMD names the object in each .d
+# file as the compile rule spelled it, and make matches that name as a
+# string. A test fixture passes an absolute BUILD while `make all` uses
+# build: the .d of one never matched the other's target, so a header
+# change did not rebuild the object. Strip this folder from the front.
+override BUILD := $(patsubst $(CURDIR)/%,%,$(BUILD))
 PYTHON     ?= python3
 
 # Every src/<dir>/*.c builds into the image.
@@ -36,8 +42,8 @@ PURE_NAMED := src/console/conview.c \
               src/console/lineedit.c \
               src/dcl/*.c \
               src/dev/devcfg.c src/dev/devsplan.c src/dev/devstate.c \
-              src/hack/hack.c \
-              src/holo/holofmt.c src/holo/holoread.c \
+              src/hack/hack.c src/hack/hackui.c \
+              src/holo/holofmt.c src/holo/holoread.c src/holo/holoscan.c \
               src/osk/osk.c \
               src/session/lockout.c src/session/login.c src/session/sha256.c \
               src/session/uaf.c \
@@ -50,9 +56,11 @@ PURE_KERNEL := \
               src/kernel/event.c \
               src/kernel/hwdog.c \
               src/kernel/maintreg.c \
+              src/kernel/portcall.c \
               src/kernel/screen.c \
               src/kernel/service.c \
               src/kernel/settings.c \
+              src/kernel/text.c \
               src/kernel/timerq.c \
               src/kernel/u64dec.c \
 

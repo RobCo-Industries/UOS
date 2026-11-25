@@ -181,6 +181,8 @@ static void pause_draw(uos_screen_t *s)
             CONSOLE_ATTR_INVERSE, 1);
 }
 
+static uos_screen_t pause_screen;
+
 static int pause_event(uos_screen_t *s, const uos_event_t *ev)
 {
     con_done_fn cb;
@@ -190,10 +192,13 @@ static int pause_event(uos_screen_t *s, const uos_event_t *ev)
     if (ev->type != UOS_EV_KEY && ev->type != UOS_EV_CHAR) {
         return 0;
     }
+    if (ev->type == UOS_EV_KEY && !uos_ev_fresh_key(ev)) {
+        return 1;   /* a held key does not run through the next pauses */
+    }
     cb = pause_st.cb;
     ctx = pause_st.ctx;
     pause_st.active = 0;
-    (void)uos_screen_pop();
+    (void)uos_screen_pop(&pause_screen);
     con_status_set(pause_st.saved);
     UOS_MARK("pause done=1");
     if (cb != NULL) {
@@ -213,9 +218,9 @@ static void pause_leave(uos_screen_t *s)
     }
 }
 
-static uos_screen_t pause_screen = { "pause", NULL, pause_leave, pause_event, pause_draw, NULL };
+static uos_screen_t pause_screen = { "pause", NULL, pause_leave, pause_event, pause_draw, NULL, 0, NULL, NULL };
 
-int con_pause(const char *text, con_done_fn cb, void *ctx)
+int con_pause(struct uos_screen *owner, const char *text, con_done_fn cb, void *ctx)
 {
     size_t n;
 
@@ -237,7 +242,7 @@ int con_pause(const char *text, con_done_fn cb, void *ctx)
     k_memcpy(pause_st.saved, status, sizeof(status));
     pause_st.cb = cb;
     pause_st.ctx = ctx;
-    if (uos_screen_push(&pause_screen) != 0) {
+    if (uos_screen_push_child(&pause_screen, owner) != 0) {
         return CON_ERR_SCREEN;
     }
     pause_st.active = 1;

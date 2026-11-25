@@ -25,6 +25,7 @@
 #define SH_ERR_DOWN     (-4)    /* the shell service has not started */
 #define SH_ERR_DUP      (-5)    /* the program name is registered already */
 #define SH_ERR_FULL     (-6)    /* SH_PROG_MAX programs already */
+#define SH_ERR_COVERED  (-7)    /* another screen covers the shell */
 
 /* Flags of sh_run_line(). */
 #define SH_RUN_QUIET    0x01u   /* print no output or message on the console: only the result
@@ -56,9 +57,13 @@ typedef void (*sh_done_fn)(int status, const char *result, void *ctx);
  * with SH_CANCELLED. A missing parameter or a bad line runs as a command
  * that fails: only the shell prompt asks for a parameter. `cb` may be
  * NULL. Returns 0 when the command started (cb follows, maybe before this
- * returns), or SH_ERR_DOWN, SH_ERR_ARG, SH_ERR_BUSY, SH_ERR_NOUSER, checked
- * in that order, with no callback. The prompt treats an empty or
- * comment-only line itself: it shows a new prompt.
+ * returns), or SH_ERR_DOWN, SH_ERR_ARG, SH_ERR_BUSY, SH_ERR_NOUSER,
+ * SH_ERR_COVERED, checked in that order, with no callback. SH_ERR_COVERED:
+ * the shell screen is not on the stack yet, such as during the welcome, or
+ * another screen covers the shell, so no command, question or program
+ * starts. A command that runs when a screen opens over the shell waits:
+ * its next step runs once the shell is on top again. The prompt treats an
+ * empty or comment-only line itself: it shows a new prompt.
  */
 int sh_run_line(const char *line, unsigned flags, sh_done_fn cb, void *ctx);
 

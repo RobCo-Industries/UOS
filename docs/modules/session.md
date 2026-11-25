@@ -91,15 +91,43 @@ Estimate for an ARM1176 at 700 MHz, unverified. The cross GCC at `-O2` builds th
 - `uaf_add`, `uaf_remove`, `uaf_set_password`, `uaf_set_privs`, `uaf_set_flags`, `uaf_set_home`: edits for `AUTHORIZE`. The caller supplies each salt. At most 32 users.
 - `uaf_privs_format`, `uaf_privs_parse`, `uaf_priv_name`: privilege text.
 - `uaf_strerror`, `lk_strerror`: one line per error code.
-- `lk_init`, `lk_fail`, `lk_success`, `lk_locked`, `lk_remaining_s`, `lk_tries_left`: the lockout.
+- `lk_init`, `lk_fail`, `lk_session_start`, `lk_locked`, `lk_remaining_s`, `lk_tries_left`: the lockout.
 
 ## Lockout rule
 
-`lk_init` takes `retries`, 1 to 9, and `lockout_s`, 0 to 3600, from `UOS.CFG [login]`. Each failed login adds one to the count. When the count reaches `retries`, the login locks for `lockout_s` seconds and the count resets. A failure while locked is ignored. A success clears the count. With `lockout_s = 0` nothing locks. `lk_remaining_s` gives the whole seconds left, rounded up, for the screen.
+`lk_init` takes `retries`, 1 to 9, and `lockout_s`, 0 to 3600, from `UOS.CFG [login]`. Each failed login adds one to the count. When the count reaches `retries`, the login locks for `lockout_s` seconds and the count resets. A failure while locked is ignored. A session start clears the count. With `lockout_s = 0` nothing locks. `lk_remaining_s` gives the whole seconds left, rounded up, for the screen.
 
 Ticks are milliseconds in a `uint32_t`, which wraps every 2^32 ms, about 49.7 days. The code only uses `now - start` in 32 bits, so a lock that spans the wrap works. The caller must call an `lk_` function at least once per wrap period while locked. The session service does that on every tick.
 
-The lockout lives in RAM. A reboot clears it. The minigame task can reuse `lk_t` for its own lockout. A later option can keep the lock across a reboot by storing `locked_at` and the count on the card.
+`lk_lock(lk, now, seconds)` locks for a given length, whatever the count: the password game's loss uses it, so the terminal has one lock state. While a lock runs, the one that ends later wins. The count starts again when the lock ends. `lk_t.lock_ms` holds the length of the running lock.
+
+`lk_fail` and `lk_lock` return `LK_STARTED` when the call starts a lock, and 1 when a lock that started earlier still runs. The session keeps the start tick in `sess.lock_tick` only on `LK_STARTED`. The lockout start marker prints that tick, so a failure during a running lock keeps the running lock's start.
+
+### Lockout events
+
+The password login and the password game share one lockout state. This table is the whole state machine. The same table is in `lockout.h`, and `tests/host/test_session_lockout.c` has a test per row.
+
+| Event | Call | Failure count | Lock |
+|---|---|---|---|
+| Wrong password | `lk_fail` | Plus one. At `retries` it goes to 0 | Starts for `[login] lockout_s` at `retries` |
+| Unknown user | `lk_fail` | As a wrong password | As a wrong password |
+| Right password, account disabled | `lk_fail` | As a wrong password. The screen never tells the password was right | As a wrong password |
+| Right password | `lk_session_start` from `sess_begin()` | 0 | None can run |
+| Game started | none | Kept | None can run: a locked terminal refuses the game |
+| Game left with BACK | none | Kept, whatever the wrong guesses | Unchanged |
+| Game lost | `lk_lock` | 0 | Starts for `[hack] lockout_s`. With 0 s nothing changes |
+| Game won | `lk_session_start` from `sess_begin()` | 0 | None can run |
+| Game refused: off, disabled, `NOHACK`, covered, busy, locked | none | Kept | Unchanged |
+| Logout or idle timeout | none | Kept | None can run during a session |
+| Key while locked | `lk_fail` is ignored | 0 | Unchanged |
+| Lock runs out | `lk_locked` | 0: failures from before the lock do not carry over | Ends |
+| Reboot | `lk_init` | 0 | None: the state lives in RAM |
+
+`sess_begin()` is the one way into a session, so a right password, a won game and the test-only `sess login` all clear the count. Since the session starts before the login's result marker, `session state=start` comes before `login user= result=ok` on the serial line.
+
+A game cannot be won while locked: the game refuses to start with `locked`, and nothing locks while it plays, since no password can be typed then. Alternating password tries and game starts does not dodge the login lockout: a game start leaves the count as it was.
+
+The lockout lives in RAM. A reboot clears it. A later option can keep the lock across a reboot by storing `locked_at` and the count on the card.
 
 ## mkuaf.py
 
@@ -156,6 +184,8 @@ stateDiagram-v2
     welcome --> session: WELCOME_DONE
     welcome --> user: LOGOUT
     session --> user: LOGOUT / SESSION CLOSED
+    user --> locked: HACK_LOCKED
+    user --> welcome: DIRECT
     off --> welcome: DIRECT
     user --> welcome: DIRECT
     pass --> welcome: DIRECT
@@ -210,11 +240,11 @@ In every state but `ok` the first screen stays, with a second row that says what
 
 `sess_logout()` clears every session field and `uos.user`, prints the end marker, removes every screen above the bottom one and shows the login. A read, a pager or a pause on the stack ends without calling back: the console screens have a `leave` that does this when another caller pops them. The read's text is wiped.
 
-`sess_set_next(fn)` takes a function that returns the screen to show after the welcome. The shell service registers it at its init, see [The shell](../ARCHITECTURE.md#the-shell). Without a registration the placeholder `noshell` runs: the user, its privileges, the line `No shell is installed in this build.`, and BACK logs out.
+`sess_set_next(fn)` takes a function that returns the screen to show after the welcome. The shell service registers it at its init, see [The shell](../ARCHITECTURE.md#the-shell). Without a registration, or when the function returns NULL, the session ends with `SESS_END_SHELL` and the marker `session screen=none`. The placeholder screen of earlier builds is gone.
 
 ### The login screen
 
-The screen shows a header, then `USERNAME:` and `PASSWORD:` read by `con_read_line()`. The user name is at most 16 characters with no history. The password is at most 32 characters, masked, with no history. Both work from the serial console and from the on-screen keyboard, which a GPIO button opens.
+The screen shows a header, then `USERNAME:` and `PASSWORD:` read by `con_read_line()`. The user name is at most 16 characters with no history. The password is at most 32 characters, masked, with no history. Both work from the serial console and from the on-screen keyboard, which a GPIO button opens. When the next user name read is due while another screen covers the login, such as the holotape reader, the login starts it in its `uncover()` callback once that screen closes. See [Covered screens](../ARCHITECTURE.md#covered-screens).
 
 - Ctrl-C or an empty line at `USERNAME:` brings the prompt back. BACK on an empty line does nothing. Nothing counts.
 - Ctrl-C at `PASSWORD:` shows `LOGIN CANCELLED.` and goes back to `USERNAME:`. Nothing counts.
@@ -244,8 +274,10 @@ The screen shows a header, then `USERNAME:` and `PASSWORD:` read by `con_read_li
 | `sesswarn why=lockout count=` | The `[login]` values were refused |
 | `login state=<user\|pass\|check>` | A prompt or the check starts. `rc=` is the result of `con_read_line()` |
 | `login user=<NAME> result=<ok\|bad> left= steps= ticks= us= maxstep_us=` | A check ended. `left` is the tries left. `us` is from the check's start to its end, `maxstep_us` the longest step |
-| `lockout state=start s= t=`, `lockout s=`, `lockout state=end t=` | The lock starts, each second of the countdown, the lock ends. `t` is the tick the lock itself used: the start tick of the lock, and the tick that saw it expire |
-| `session state=start user= privs= how=<login\|test>` | A session starts |
+| `lockout state=start s= t= why=<login\|hack>`, `lockout s=`, `lockout state=end t= why=` | The lock starts, each second of the countdown, the lock ends. `t` is the tick the lock itself used: the start tick of the lock, and the tick that saw it expire. `why` is what locked it |
+| `login state=hack` | F2 on an empty user name: the password game's entry |
+| `session state=start user= privs= how=<login\|test\|hack>` | A session starts. `hack` is a won password game |
+| `session result=refused why= how=hack` | `sess_hack_begin()` refused |
 | `session screen=<name>` | The screen after the welcome |
 | `session state=end user= reason=<user\|maint\|idle\|shell>` | A session ends |
 | `session result=<none\|busy\|nouser>` | `sess logout` or `sess login` did nothing |
@@ -254,9 +286,9 @@ The screen shows a header, then `USERNAME:` and `PASSWORD:` read by `con_read_li
 
 | Command | Answer |
 |---|---|
-| `sess state` | `sess state= db= user= privs= flags= home= tries= locked_s= idle_s= pending=`. `pending` counts input events the loop has not taken yet: a test waits for 0 before it reads the state. |
+| `sess state` | `sess state= db= user= privs= flags= home= tries= locked_s= idle_s= pending=`. `pending` counts input events not handled yet, `uos_input_pending()`: a test waits for 0 before it reads the state. |
 | `sess logout` | Posts `sess_logout(SESS_END_MAINT)`. A `session state=end` or `session result=none` marker follows. |
-| `sess login <user>` | Test builds only. Starts a session with no password, through the welcome, so later tasks test their screens without the hash cost. The shipped image does not contain it: `test_login.py` checks with `nm`. |
+| `sess login <user>` | Test builds only. Starts a session with no password, through the welcome, so later tasks test their screens without the hash cost. The posted call carries the name in one of 4 slots, so two commands in one port write keep their own names and run in order: the first opens its session, the second marks `session result=busy`. A fifth command while 4 wait answers `err full`. The shipped image does not contain it: `test_login.py` checks with `nm`. |
 
 ### QEMU numbers
 
@@ -274,3 +306,21 @@ The check takes 16 steps for `ADMIN` and `OPER` and 8 for `GUEST`, 0 to 2 ticks 
 ## Tests
 
 `make test-host` runs `test_session_sha256`, `test_session_uaf`, `test_session_lockout` and `test_session_login`. It first generates `build/host/gen/uaf_vectors.h` from `tests/vectors/uaf.json` with `tools/mkuaf.py vectors-h`. `make test-tools` runs `tests/tools/test_mkuaf.py`. `test_login.py` runs the service in QEMU. See [TESTING.md](../TESTING.md).
+
+## The password game
+
+The session service owns the rules of the password game's session. `lg_hack_allowed(enabled, db_ok, rec, state, locked)` is pure; the first failing rule wins:
+
+| Code | Name | Rule |
+|---|---|---|
+| `LG_HACK_OFF` | `off` | `[hack] enabled = no` |
+| `LG_HACK_NODB` | `nodb` | No user database |
+| `LG_HACK_NOUSER` | `nouser` | The `[hack] user` does not exist |
+| `LG_HACK_DISABLED` | `disabled` | The account has `UAF_FLAG_DISABLED` |
+| `LG_HACK_NOHACK` | `nohack` | The account has `UAF_FLAG_NOHACK` |
+| `LG_HACK_LOCKED` | `locked` | The lockout runs |
+| `LG_HACK_BUSY` | `busy` | Someone is logged in, or the login is not at the user name prompt |
+
+`sess_hack_check()` applies it to the live state. `sess_hack_begin()` checks again and starts the session with `how=hack`, through the welcome, as a login does. `sess_hack_lock()` locks with `lk_lock()` for `[hack] lockout_s` and shows the lockout screen, which then reads `TERMINAL LOCKED: PASSWORD RECOVERY FAILED.`. With `lockout_s = 0` nothing locks and the login prompt comes back.
+
+The login's user name read has `CON_RL_ALTKEY`: F2 on an empty line ends it with `CON_ALT`, and the login calls the function of `sess_set_hack_entry()`. A GPIO button opens the on-screen keyboard instead, so a terminal with buttons only cannot start the game from the login yet.

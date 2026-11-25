@@ -70,7 +70,7 @@ static void start_read(void *arg)
     int rc;
 
     (void)arg;
-    rc = con_read_line(rl_prompt, rl_flags, rl_max, on_line, NULL);
+    rc = con_read_line(NULL, rl_prompt, rl_flags, rl_max, on_line, NULL);
     rl_pending = 0;
     if (rc != 0) {
         UOS_MARK("line result=err rc=%d", rc);
@@ -170,13 +170,14 @@ static void start_page(void *arg)
     pg_pending = 0;
     switch (pg_which) {
     case PAGE_SHORT:
-        rc = con_page_text("Short test text", SHORT_TEXT, sizeof(SHORT_TEXT) - 1u, on_page, NULL);
+        rc = con_page_text(NULL, "Short test text", SHORT_TEXT, sizeof(SHORT_TEXT) - 1u,
+                           on_page, NULL);
         break;
     case PAGE_LONG:
-        rc = con_page_text("Long test text", long_text, long_len, on_page, NULL);
+        rc = con_page_text(NULL, "Long test text", long_text, long_len, on_page, NULL);
         break;
     case PAGE_EMPTY:
-        rc = con_page_text("Empty test text", "", 0, on_page, NULL);
+        rc = con_page_text(NULL, "Empty test text", "", 0, on_page, NULL);
         break;
     default:
         big = k_malloc(BIG_LEN);
@@ -192,7 +193,7 @@ static void start_page(void *arg)
                 big[i] = (i % 1024u) == 1023u ? '\n' : (char)('a' + (i % 26u));
             }
         }
-        rc = con_page_text("Generated 64 KiB text", big, BIG_LEN, on_page, NULL);
+        rc = con_page_text(NULL, "Generated 64 KiB text", big, BIG_LEN, on_page, NULL);
         k_free(big);
         break;
     }
@@ -238,17 +239,21 @@ static int cmd_page(int argc, char **argv)
 
 static void post_osk_open(void *arg)
 {
+    int rc = con_osk_open();
+
     (void)arg;
-    if (con_osk_open() != 0) {
-        UOS_MARK("osk result=err");
+    if (rc != 0) {
+        UOS_MARK("osk result=%s", rc == CON_ERR_COVERED ? "covered" : "err");
     }
 }
 
 static void post_osk_close(void *arg)
 {
+    int rc = con_osk_close();
+
     (void)arg;
-    if (con_osk_close() != 0) {
-        UOS_MARK("osk result=err");
+    if (rc != 0) {
+        UOS_MARK("osk result=%s", rc == CON_ERR_COVERED ? "covered" : "err");
     }
 }
 

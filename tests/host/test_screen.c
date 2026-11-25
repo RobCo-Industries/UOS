@@ -1,5 +1,7 @@
 /* Host tests of src/kernel/screen.c: the screen stack rules. */
 
+#include <robco/input.h>
+
 #include "rc_test.h"
 
 #include "uos_screen.h"
@@ -26,7 +28,7 @@ static int event(uos_screen_t *s, const uos_event_t *ev)
 }
 
 #define SCREEN(var, nm, uses) \
-    uos_screen_t var = { nm, enter, leave, event, draw, (void *)(uses) }
+    uos_screen_t var = { nm, enter, leave, event, draw, (void *)(uses), 0, NULL, NULL }
 
 TEST(push_enters_and_draws_the_top)
 {
@@ -56,11 +58,74 @@ TEST(pop_leaves_and_redraws_the_screen_below)
     uos_ss_push(&ss, &b);
     uos_ss_draw(&ss);
     log_buf[0] = '\0';
-    CHECK_EQ(uos_ss_pop(&ss), 0);
+    CHECK_EQ(uos_ss_pop(&ss, &b), 0);
     CHECK_EQ(uos_ss_draw(&ss), 1);
     CHECK_STR(log_buf, "leave:b draw:a ");
-    CHECK_EQ(uos_ss_pop(&ss), UOS_SCREEN_ERR_LAST);
+    CHECK_EQ(uos_ss_pop(&ss, &a), UOS_SCREEN_ERR_LAST);
     CHECK(uos_ss_top(&ss) == &a);
+}
+
+TEST(pop_of_a_screen_not_on_top_is_refused)
+{
+    uos_sstack_t ss;
+    SCREEN(login, "login", 1);
+    SCREEN(game, "game", 1);
+    SCREEN(reader, "reader", 1);
+
+    uos_ss_init(&ss);
+    uos_ss_push(&ss, &login);
+    uos_ss_push(&ss, &game);
+    uos_ss_push(&ss, &reader);
+    uos_ss_draw(&ss);
+    log_buf[0] = '\0';
+    /* The game is covered: its pop takes nothing, the reader stays. */
+    CHECK_EQ(uos_ss_pop(&ss, &game), UOS_SCREEN_ERR_TOP);
+    CHECK_EQ(uos_ss_pop(&ss, &login), UOS_SCREEN_ERR_TOP);
+    CHECK_EQ(ss.depth, 3u);
+    CHECK(uos_ss_top(&ss) == &reader);
+    CHECK_EQ(uos_ss_draw(&ss), 0);
+    CHECK_STR(log_buf, "");
+    /* Once the reader leaves, the game is the top and its pop works. */
+    CHECK_EQ(uos_ss_pop(&ss, &reader), 0);
+    CHECK_EQ(uos_ss_pop(&ss, &game), 0);
+    CHECK_STR(log_buf, "leave:reader leave:game ");
+    CHECK(uos_ss_top(&ss) == &login);
+}
+
+TEST(on_top_names_the_top_screen_only)
+{
+    uos_sstack_t ss;
+    SCREEN(a, "a", 1);
+    SCREEN(b, "b", 1);
+
+    uos_ss_init(&ss);
+    CHECK_EQ(uos_ss_on_top(&ss, &a), 0);
+    CHECK_EQ(uos_ss_on_top(NULL, &a), 0);
+    uos_ss_push(&ss, &a);
+    CHECK_EQ(uos_ss_on_top(&ss, &a), 1);
+    CHECK_EQ(uos_ss_on_top(&ss, NULL), 0);
+    uos_ss_push(&ss, &b);
+    CHECK_EQ(uos_ss_on_top(&ss, &a), 0);
+    CHECK_EQ(uos_ss_on_top(&ss, &b), 1);
+}
+
+TEST(unwind_pops_down_to_the_bottom_screen)
+{
+    uos_sstack_t ss;
+    SCREEN(a, "a", 1);
+    SCREEN(b, "b", 1);
+    SCREEN(c, "c", 1);
+
+    uos_ss_init(&ss);
+    CHECK_EQ(uos_ss_unwind(&ss), 0);
+    uos_ss_push(&ss, &a);
+    uos_ss_push(&ss, &b);
+    uos_ss_push(&ss, &c);
+    log_buf[0] = '\0';
+    CHECK_EQ(uos_ss_unwind(&ss), 2);
+    CHECK_STR(log_buf, "leave:c leave:b ");
+    CHECK(uos_ss_top(&ss) == &a);
+    CHECK_EQ(uos_ss_unwind(&ss), 0);
 }
 
 TEST(replace_leaves_then_enters)
@@ -105,7 +170,7 @@ static int pop_self(uos_screen_t *s, const uos_event_t *ev)
 {
     (void)ev;
     note("event", s);
-    uos_ss_pop(popper_ss);
+    uos_ss_pop(popper_ss, s);
     return 0;
 }
 
@@ -114,7 +179,7 @@ TEST(a_screen_may_pop_itself_in_its_handler)
     uos_sstack_t ss;
     uos_event_t ev = { .type = UOS_EV_KEY };
     SCREEN(a, "a", 1);
-    uos_screen_t b = { "b", NULL, leave, pop_self, NULL, NULL };
+    uos_screen_t b = { "b", NULL, leave, pop_self, NULL, NULL, 0, NULL, NULL };
 
     uos_ss_init(&ss);
     popper_ss = &ss;
@@ -125,6 +190,50 @@ TEST(a_screen_may_pop_itself_in_its_handler)
     CHECK_EQ(uos_ss_event(&ss, &ev), 0);
     CHECK_STR(log_buf, "event:b leave:b ");
     CHECK(uos_ss_top(&ss) == &a);
+}
+
+TEST(a_held_key_stops_at_the_screen_it_closed)
+{
+    uos_sstack_t ss;
+    uos_event_t press = { .type = UOS_EV_KEY, .code = INPUT_KEY_BACK, .value = INPUT_PRESS };
+    uos_event_t rep = press, other = press;
+    SCREEN(a, "a", 1);
+    uos_screen_t b = { "b", NULL, leave, pop_self, NULL, NULL, 0, NULL, NULL };
+
+    rep.value = INPUT_REPEAT;
+    other.code = INPUT_KEY_DOWN;
+    other.value = INPUT_REPEAT;
+    uos_ss_init(&ss);
+    popper_ss = &ss;
+    uos_ss_push(&ss, &a);
+    uos_ss_push(&ss, &b);
+    log_buf[0] = '\0';
+    CHECK_EQ(uos_ss_event(&ss, &press), 0);
+    /* The repeats of the key that closed b never reach a. */
+    CHECK_EQ(uos_ss_event(&ss, &rep), 1);
+    CHECK_EQ(uos_ss_event(&ss, &rep), 1);
+    CHECK_STR(log_buf, "event:b leave:b ");
+    /* Another key's repeats pass. */
+    CHECK_EQ(uos_ss_event(&ss, &other), 1);
+    CHECK_STR(log_buf, "event:b leave:b event:a ");
+    /* A new press of the same key that changes nothing ends the drop. */
+    CHECK_EQ(uos_ss_event(&ss, &press), 1);
+    CHECK_EQ(uos_ss_event(&ss, &rep), 1);
+    CHECK_STR(log_buf, "event:b leave:b event:a event:a event:a ");
+}
+
+TEST(a_repeat_that_changes_nothing_passes)
+{
+    uos_sstack_t ss;
+    uos_event_t rep = { .type = UOS_EV_KEY, .code = INPUT_KEY_UP, .value = INPUT_REPEAT };
+    SCREEN(a, "a", 1);
+
+    uos_ss_init(&ss);
+    uos_ss_push(&ss, &a);
+    log_buf[0] = '\0';
+    CHECK_EQ(uos_ss_event(&ss, &rep), 1);
+    CHECK_EQ(uos_ss_event(&ss, &rep), 1);
+    CHECK_STR(log_buf, "event:a event:a ");
 }
 
 TEST(depth_limit_and_bad_arguments)
@@ -144,7 +253,8 @@ TEST(depth_limit_and_bad_arguments)
     CHECK_EQ(uos_ss_push(&ss, NULL), UOS_SCREEN_ERR_ARG);
     CHECK_EQ(uos_ss_push(NULL, &s[0]), UOS_SCREEN_ERR_ARG);
     CHECK_EQ(uos_ss_replace(&ss, &s[0]), UOS_SCREEN_ERR_ARG);
-    CHECK_EQ(uos_ss_pop(NULL), UOS_SCREEN_ERR_ARG);
+    CHECK_EQ(uos_ss_pop(NULL, &s[0]), UOS_SCREEN_ERR_ARG);
+    CHECK_EQ(uos_ss_pop(&ss, NULL), UOS_SCREEN_ERR_ARG);
     /* NULL callbacks are allowed. */
     CHECK_EQ(uos_ss_draw(&ss), 1);
     CHECK_EQ(uos_ss_event(&ss, &(uos_event_t){ .type = UOS_EV_KEY }), 0);
@@ -156,7 +266,7 @@ TEST(empty_stack)
 
     uos_ss_init(&ss);
     CHECK(uos_ss_top(&ss) == NULL);
-    CHECK_EQ(uos_ss_pop(&ss), UOS_SCREEN_ERR_LAST);
+    CHECK_EQ(uos_ss_pop(&ss, &(uos_screen_t){ .name = "x" }), UOS_SCREEN_ERR_LAST);
     CHECK_EQ(uos_ss_draw(&ss), 0);
     uos_ss_invalidate(&ss);
     CHECK_EQ(uos_ss_draw(&ss), 0);
@@ -175,4 +285,426 @@ TEST(invalidate_draws_again)
     uos_ss_invalidate(&ss);
     CHECK_EQ(uos_ss_draw(&ss), 1);
     CHECK_STR(log_buf, "draw:a ");
+}
+
+#define FULL(var, nm) \
+    uos_screen_t var = { nm, enter, leave, event, draw, (void *)1, 1, NULL, NULL }
+
+/* login (full), read line, reader (full), refusal (full), pause line */
+TEST(pop_redraws_from_the_highest_full_screen_up)
+{
+    uos_sstack_t ss;
+    FULL(login, "login");
+    SCREEN(line, "line", 1);
+    FULL(reader, "reader");
+    FULL(game, "game");
+    SCREEN(pause, "pause", 1);
+
+    uos_ss_init(&ss);
+    uos_ss_push(&ss, &login);
+    uos_ss_push(&ss, &line);
+    uos_ss_push(&ss, &reader);
+    uos_ss_push(&ss, &game);
+    uos_ss_push(&ss, &pause);
+    uos_ss_draw(&ss);
+    log_buf[0] = '\0';
+    /* The pause line closes: the game it sat on repaints, the game only. */
+    uos_ss_pop(&ss, &pause);
+    CHECK_EQ(uos_ss_draw(&ss), 1);
+    uos_ss_pop(&ss, &game);
+    CHECK_EQ(uos_ss_draw(&ss), 1);
+    CHECK_STR(log_buf, "leave:pause draw:game leave:game draw:reader ");
+    log_buf[0] = '\0';
+    /* The reader closes over the read line: the login first, then the line. */
+    uos_ss_pop(&ss, &reader);
+    CHECK_EQ(uos_ss_draw(&ss), 2);
+    CHECK_STR(log_buf, "leave:reader draw:login draw:line ");
+}
+
+TEST(push_and_invalidate_draw_the_top_only)
+{
+    uos_sstack_t ss;
+    FULL(login, "login");
+    SCREEN(line, "line", 1);
+
+    uos_ss_init(&ss);
+    uos_ss_push(&ss, &login);
+    uos_ss_push(&ss, &line);
+    log_buf[0] = '\0';
+    CHECK_EQ(uos_ss_draw(&ss), 1);
+    uos_ss_invalidate(&ss);
+    CHECK_EQ(uos_ss_draw(&ss), 1);
+    CHECK_STR(log_buf, "draw:line draw:line ");
+}
+
+TEST(no_full_screen_redraws_from_the_bottom)
+{
+    uos_sstack_t ss;
+    SCREEN(a, "a", 1);
+    SCREEN(b, "b", 1);
+    SCREEN(c, "c", 1);
+
+    uos_ss_init(&ss);
+    uos_ss_push(&ss, &a);
+    uos_ss_push(&ss, &b);
+    uos_ss_push(&ss, &c);
+    uos_ss_draw(&ss);
+    log_buf[0] = '\0';
+    uos_ss_pop(&ss, &c);
+    CHECK_EQ(uos_ss_draw(&ss), 2);
+    CHECK_STR(log_buf, "leave:c draw:a draw:b ");
+}
+
+TEST(expose_and_replace_redraw_the_visible_screens)
+{
+    uos_sstack_t ss;
+    FULL(login, "login");
+    SCREEN(line, "line", 1);
+    SCREEN(other, "other", 1);
+
+    uos_ss_init(&ss);
+    uos_ss_push(&ss, &login);
+    uos_ss_push(&ss, &line);
+    uos_ss_draw(&ss);
+    log_buf[0] = '\0';
+    uos_ss_expose(&ss);
+    CHECK_EQ(uos_ss_draw(&ss), 2);
+    CHECK_EQ(uos_ss_draw(&ss), 0);
+    uos_ss_replace(&ss, &other);
+    CHECK_EQ(uos_ss_draw(&ss), 2);
+    CHECK_STR(log_buf, "draw:login draw:line leave:line enter:other draw:login draw:other ");
+}
+
+/* A covered screen whose timer fires: it never draws over the top. Under a
+ * full screen nothing draws; under a partial one the stack repaints from the
+ * screen up, so the partial screen stays on top of it. */
+TEST(dirty_paints_a_covered_screen_only_through_the_stack)
+{
+    uos_sstack_t ss;
+    FULL(lock, "lock");
+    SCREEN(line, "line", 1);
+    FULL(reader, "reader");
+    SCREEN(stranger, "stranger", 1);
+
+    uos_ss_init(&ss);
+    uos_ss_push(&ss, &lock);
+    uos_ss_draw(&ss);
+    log_buf[0] = '\0';
+    CHECK_EQ(uos_ss_dirty(&ss, &lock), 1);
+    CHECK_EQ(uos_ss_draw(&ss), 1);
+    uos_ss_push(&ss, &line);
+    uos_ss_draw(&ss);
+    log_buf[0] = '\0';
+    CHECK_EQ(uos_ss_dirty(&ss, &lock), 1);
+    CHECK_EQ(uos_ss_draw(&ss), 2);
+    CHECK_STR(log_buf, "draw:lock draw:line ");
+    uos_ss_push(&ss, &reader);
+    uos_ss_draw(&ss);
+    log_buf[0] = '\0';
+    CHECK_EQ(uos_ss_dirty(&ss, &lock), 0);
+    CHECK_EQ(uos_ss_dirty(&ss, &line), 0);
+    CHECK_EQ(uos_ss_dirty(&ss, &stranger), 0);
+    CHECK_EQ(uos_ss_draw(&ss), 0);
+    CHECK_STR(log_buf, "");
+    uos_ss_pop(&ss, &reader);
+    CHECK_EQ(uos_ss_draw(&ss), 2);
+    CHECK_STR(log_buf, "leave:reader draw:lock draw:line ");
+    CHECK_EQ(uos_ss_dirty(NULL, &lock), 0);
+    CHECK_EQ(uos_ss_dirty(&ss, NULL), 0);
+}
+
+static uos_sstack_t *uc_ss;
+static uos_screen_t *uc_push;   /* uncover() pushes this, once */
+
+static void uncover(uos_screen_t *s)
+{
+    note("uncover", s);
+    if (uc_push != NULL) {
+        uos_screen_t *p = uc_push;
+
+        uc_push = NULL;
+        uos_ss_push(uc_ss, p);
+    }
+}
+
+TEST(pop_calls_uncover_once_after_the_draw)
+{
+    uos_sstack_t ss;
+    SCREEN(login, "login", 1);
+    SCREEN(reader, "reader", 1);
+
+    login.uncover = uncover;
+    uos_ss_init(&ss);
+    uos_ss_push(&ss, &login);
+    uos_ss_push(&ss, &reader);
+    uos_ss_draw(&ss);
+    log_buf[0] = '\0';
+    uos_ss_pop(&ss, &reader);
+    CHECK_EQ(uos_ss_draw(&ss), 1);
+    CHECK_EQ(uos_ss_draw(&ss), 0);
+    uos_ss_invalidate(&ss);
+    uos_ss_draw(&ss);
+    CHECK_STR(log_buf, "leave:reader draw:login uncover:login draw:login ");
+}
+
+TEST(push_or_replace_before_the_draw_cancels_uncover)
+{
+    uos_sstack_t ss;
+    SCREEN(login, "login", 1);
+    SCREEN(reader, "reader", 1);
+    SCREEN(line, "line", 1);
+    SCREEN(other, "other", 1);
+
+    login.uncover = uncover;
+    other.uncover = uncover;
+    uos_ss_init(&ss);
+    uos_ss_push(&ss, &login);
+    uos_ss_push(&ss, &reader);
+    log_buf[0] = '\0';
+    uos_ss_pop(&ss, &reader);
+    uos_ss_push(&ss, &line);
+    uos_ss_draw(&ss);
+    CHECK(strstr(log_buf, "uncover") == NULL);
+    uos_ss_pop(&ss, &line);
+    uos_ss_replace(&ss, &other);
+    uos_ss_draw(&ss);
+    CHECK(strstr(log_buf, "uncover") == NULL);
+}
+
+TEST(unwind_uncovers_the_bottom_and_uncover_may_push)
+{
+    uos_sstack_t ss;
+    SCREEN(login, "login", 1);
+    SCREEN(game, "game", 1);
+    SCREEN(reader, "reader", 1);
+    SCREEN(line, "line", 1);
+
+    login.uncover = uncover;
+    game.uncover = uncover;
+    uos_ss_init(&ss);
+    uos_ss_push(&ss, &login);
+    uos_ss_push(&ss, &game);
+    uos_ss_push(&ss, &reader);
+    uos_ss_draw(&ss);
+    CHECK_EQ(uos_ss_unwind(&ss), 2);
+    log_buf[0] = '\0';
+    uc_ss = &ss;
+    uc_push = &line;
+    uos_ss_draw(&ss);
+    /* Only the screen left on top is uncovered, and its push draws next. */
+    CHECK_STR(log_buf, "draw:login uncover:login enter:line ");
+    CHECK(uos_ss_top(&ss) == &line);
+    CHECK_EQ(uos_ss_draw(&ss), 1);
+    CHECK(strstr(log_buf, "uncover:game") == NULL);
+}
+
+/* ---- Owners and children: one unit ---- */
+
+static uos_screen_t *uc_pop;    /* uncover() pops this, once */
+
+static void uncover_pop(uos_screen_t *s)
+{
+    note("uncover", s);
+    if (uc_pop != NULL) {
+        uos_screen_t *p = uc_pop;
+
+        uc_pop = NULL;
+        uos_ss_pop(uc_ss, p);
+    }
+}
+
+TEST(push_child_needs_its_owner_on_the_stack)
+{
+    uos_sstack_t ss;
+    SCREEN(shell, "shell", 1);
+    SCREEN(line, "line", 1);
+    SCREEN(other, "other", 1);
+
+    uos_ss_init(&ss);
+    uos_ss_push(&ss, &shell);
+    CHECK_EQ(uos_ss_push_child(&ss, &line, &other), UOS_SCREEN_ERR_ARG);
+    CHECK_EQ(uos_ss_push_child(&ss, &line, &shell), 0);
+    CHECK(line.owner == &shell);
+    uos_ss_pop(&ss, &line);
+    /* A plain push forgets an old owner. */
+    CHECK_EQ(uos_ss_push(&ss, &line), 0);
+    CHECK(line.owner == NULL);
+}
+
+TEST(unit_on_top_follows_the_owners)
+{
+    uos_sstack_t ss;
+    SCREEN(shell, "shell", 1);
+    SCREEN(line, "line", 1);
+    SCREEN(reader, "reader", 1);
+
+    uos_ss_init(&ss);
+    CHECK_EQ(uos_ss_unit_on_top(&ss, &shell), 0);
+    uos_ss_push(&ss, &shell);
+    CHECK_EQ(uos_ss_unit_on_top(&ss, &shell), 1);
+    uos_ss_push_child(&ss, &line, &shell);
+    CHECK_EQ(uos_ss_unit_on_top(&ss, &shell), 1);
+    CHECK_EQ(uos_ss_unit_on_top(&ss, &line), 1);
+    CHECK_EQ(uos_ss_on_top(&ss, &shell), 0);
+    uos_ss_push(&ss, &reader);
+    CHECK_EQ(uos_ss_unit_on_top(&ss, &shell), 0);
+    CHECK_EQ(uos_ss_unit_on_top(&ss, &line), 0);
+    CHECK_EQ(uos_ss_unit_on_top(&ss, NULL), 0);
+    /* A plain push over the shell is not its child. */
+    uos_ss_pop(&ss, &reader);
+    uos_ss_pop(&ss, &line);
+    uos_ss_push(&ss, &line);
+    CHECK_EQ(uos_ss_unit_on_top(&ss, &shell), 0);
+}
+
+TEST(uncover_runs_the_child_then_its_owner_once)
+{
+    uos_sstack_t ss;
+    SCREEN(shell, "shell", 1);
+    SCREEN(line, "line", 1);
+    SCREEN(reader, "reader", 1);
+
+    shell.uncover = uncover;
+    line.uncover = uncover;
+    uos_ss_init(&ss);
+    uos_ss_push(&ss, &shell);
+    uos_ss_push_child(&ss, &line, &shell);
+    uos_ss_push(&ss, &reader);
+    uos_ss_draw(&ss);
+    log_buf[0] = '\0';
+    uos_ss_pop(&ss, &reader);
+    uos_ss_draw(&ss);
+    CHECK_STR(log_buf, "leave:reader draw:shell draw:line uncover:line uncover:shell ");
+    log_buf[0] = '\0';
+    uos_ss_invalidate(&ss);
+    uos_ss_draw(&ss);
+    CHECK_STR(log_buf, "draw:line ");
+}
+
+TEST(uncover_runs_two_levels_top_first)
+{
+    uos_sstack_t ss;
+    SCREEN(shell, "shell", 1);
+    SCREEN(line, "line", 1);
+    SCREEN(keys, "keys", 1);
+    SCREEN(reader, "reader", 1);
+
+    shell.uncover = uncover;
+    line.uncover = uncover;
+    keys.uncover = uncover;
+    uos_ss_init(&ss);
+    uos_ss_push(&ss, &shell);
+    uos_ss_push_child(&ss, &line, &shell);
+    uos_ss_push_child(&ss, &keys, &line);
+    uos_ss_push(&ss, &reader);
+    CHECK_EQ(uos_ss_unit_on_top(&ss, &shell), 0);
+    uos_ss_draw(&ss);
+    log_buf[0] = '\0';
+    uos_ss_pop(&ss, &reader);
+    uos_ss_draw(&ss);
+    CHECK(strstr(log_buf, "uncover:keys uncover:line uncover:shell ") != NULL);
+}
+
+TEST(push_or_replace_before_the_draw_cancels_the_chain)
+{
+    uos_sstack_t ss;
+    SCREEN(shell, "shell", 1);
+    SCREEN(line, "line", 1);
+    SCREEN(reader, "reader", 1);
+    SCREEN(other, "other", 1);
+
+    shell.uncover = uncover;
+    line.uncover = uncover;
+    uos_ss_init(&ss);
+    uos_ss_push(&ss, &shell);
+    uos_ss_push_child(&ss, &line, &shell);
+    uos_ss_push(&ss, &reader);
+    uos_ss_draw(&ss);
+    log_buf[0] = '\0';
+    uos_ss_pop(&ss, &reader);
+    uos_ss_push(&ss, &other);
+    uos_ss_draw(&ss);
+    CHECK(strstr(log_buf, "uncover") == NULL);
+    uos_ss_pop(&ss, &other);
+    uos_ss_replace(&ss, &reader);
+    uos_ss_draw(&ss);
+    CHECK(strstr(log_buf, "uncover") == NULL);
+}
+
+TEST(a_push_inside_the_chain_stops_it)
+{
+    uos_sstack_t ss;
+    SCREEN(shell, "shell", 1);
+    SCREEN(line, "line", 1);
+    SCREEN(reader, "reader", 1);
+    SCREEN(other, "other", 1);
+
+    shell.uncover = uncover;
+    line.uncover = uncover;
+    uos_ss_init(&ss);
+    uos_ss_push(&ss, &shell);
+    uos_ss_push_child(&ss, &line, &shell);
+    uos_ss_push(&ss, &reader);
+    uos_ss_draw(&ss);
+    uos_ss_pop(&ss, &reader);
+    log_buf[0] = '\0';
+    uc_ss = &ss;
+    uc_push = &other;
+    uos_ss_draw(&ss);
+    /* The child covers its unit with a plain screen: the owner waits. */
+    CHECK(strstr(log_buf, "uncover:line enter:other ") != NULL);
+    CHECK(strstr(log_buf, "uncover:shell") == NULL);
+    log_buf[0] = '\0';
+    uos_ss_pop(&ss, &other);
+    uos_ss_draw(&ss);
+    CHECK(strstr(log_buf, "uncover:line uncover:shell ") != NULL);
+}
+
+TEST(a_child_that_pops_in_uncover_leaves_its_owner_to_the_next_draw)
+{
+    uos_sstack_t ss;
+    SCREEN(shell, "shell", 1);
+    SCREEN(line, "line", 1);
+    SCREEN(reader, "reader", 1);
+
+    shell.uncover = uncover_pop;
+    line.uncover = uncover_pop;
+    uos_ss_init(&ss);
+    uos_ss_push(&ss, &shell);
+    uos_ss_push_child(&ss, &line, &shell);
+    uos_ss_push(&ss, &reader);
+    uos_ss_draw(&ss);
+    uos_ss_pop(&ss, &reader);
+    log_buf[0] = '\0';
+    uc_ss = &ss;
+    uc_pop = &line;
+    uos_ss_draw(&ss);
+    CHECK(strstr(log_buf, "uncover:line leave:line ") != NULL);
+    CHECK(strstr(log_buf, "uncover:shell") == NULL);
+    log_buf[0] = '\0';
+    uos_ss_draw(&ss);
+    CHECK_STR(log_buf, "draw:shell uncover:shell ");
+    log_buf[0] = '\0';
+    uos_ss_draw(&ss);
+    CHECK_STR(log_buf, "");
+}
+
+TEST(unwind_through_a_unit_uncovers_the_bottom_once)
+{
+    uos_sstack_t ss;
+    SCREEN(shell, "shell", 1);
+    SCREEN(line, "line", 1);
+    SCREEN(reader, "reader", 1);
+
+    shell.uncover = uncover;
+    line.uncover = uncover;
+    uos_ss_init(&ss);
+    uos_ss_push(&ss, &shell);
+    uos_ss_push_child(&ss, &line, &shell);
+    uos_ss_push(&ss, &reader);
+    uos_ss_draw(&ss);
+    CHECK_EQ(uos_ss_unwind(&ss), 2);
+    log_buf[0] = '\0';
+    uos_ss_draw(&ss);
+    CHECK_STR(log_buf, "draw:shell uncover:shell ");
 }

@@ -1,7 +1,7 @@
 /*
  * Shared state of the session service's two thin files: sessvc.c (the
  * service, the session fields, the maintenance command) and sesscreen.c
- * (the login, lockout, welcome and placeholder screens). Not for other
+ * (the login, lockout and welcome screens). Not for other
  * modules: they use sess.h.
  */
 #ifndef UOS_SESSINT_H
@@ -39,6 +39,8 @@ typedef struct sess_state {
     uint32_t start_tick;
     sess_next_fn next;
     int next_set;
+    sess_hack_fn hack;
+    int lock_hack;              /* the running lock comes from the password game */
 } sess_state_t;
 
 extern sess_state_t sess;
@@ -61,6 +63,9 @@ void sess_show_only(uos_screen_t *s);
 /* sessvc.c: sets the session fields from record `idx` and prints the session
  * start marker with `how`. Loop. */
 void sess_begin(int idx, const char *how);
+
+/* sesscreen.c: starts the user name prompt on the next pass. Loop. */
+void sess_prompt_later(void);
 
 /* sesscreen.c: a line on the PL011 only, on a line of its own. Any. */
 void sess_serial(const char *line);

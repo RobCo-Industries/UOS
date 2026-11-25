@@ -206,6 +206,8 @@ Pager keys:
 | F4, `G` | Last page |
 | BACK, `q` | Leave |
 
+The pager screen in `src/console/pager.c` leaves only on a pressed BACK. A held BACK does not run on into the screen below. Every other held key keeps moving.
+
 Errors: `PG_E_ARG` (-1), `PG_E_SPACE` (-2), `PG_E_RANGE` (-3, no such line).
 
 ## Example content

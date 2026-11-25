@@ -799,3 +799,60 @@ def test_run_line_hook_absent_from_shipped_image(board, uos_image, need_mtools, 
         wait_ready(vm)
         assert vm.script("sh api - DIR", timeout=TIMEOUT).status.startswith("err"), \
             vm.script("sh api - DIR", timeout=TIMEOUT)
+
+
+def hold(vm, name, repeats):
+    """A held key through the test-only `hold` command: a press, repeats, a release."""
+    answer(vm, f"hold {name} {repeats}")
+
+
+def test_held_keys_over_the_shell(board, hooks_image, need_mtools, tmp_path):
+    """Held keys under the shell: in the TYPE /PAGE pager a held DOWN pages once per
+    repeat and a held BACK leaves once; at a /CONFIRM question a held SELECT answers
+    one question only; at the prompt a held SELECT runs the line once. The repeats of
+    a key that closed a screen never reach the next read."""
+    long_text = b"".join(b"LINE %03d\n" % i for i in range(100))
+    with alone(hooks_image, board,
+               shell_card(tmp_path, {"/UOS/HOME/ADMIN/LONG.TXT": long_text})) as vm:
+        wait_ready(vm)
+        login(vm, "ADMIN")
+        # The pager: DOWN repeats, BACK leaves once.
+        c = send_line(vm, "TYPE LONG.TXT /PAGE")
+        wait_marker(vm, "page top=0", 1)
+        hold(vm, "down", 3)
+        wait_marker(vm, "page top=4", 1)
+        hold(vm, "back", 3)
+        res, end, _ = wait_done(vm, c)
+        assert (end["verb"], end["rc"]) == ("TYPE", "NORMAL"), end
+        st = wait_state(vm, state="prompt", kind="cmd")
+        assert marks(vm, "page result=abort") == []
+        prompts = int(st["prompts"])
+        assert int(sh_state(vm)["prompts"]) == prompts, sh_state(vm)
+        # /CONFIRM: a held SELECT after Y deletes one file and leaves the next
+        # question waiting.
+        expect(vm, "CREATE [.T] /DIRECTORY", "CREATED")
+        for name in ("A", "B", "C"):
+            expect(vm, f"COPY LONG.TXT [.T]{name}.TXT", "COPIED")
+        q = n_marks(vm, "sh state=prompt kind=confirm")
+        c = send_line(vm, "DELETE [.T]*.TXT /CONFIRM")
+        wait_marker(vm, "sh state=prompt kind=confirm", q + 1)
+        wait_state(vm, ask="confirm")
+        answer(vm, "text Y")
+        hold(vm, "select", 3)
+        wait_marker(vm, "sh state=prompt kind=confirm", q + 2)
+        wait_state(vm, ask="confirm")
+        assert n_marks(vm, "sh state=prompt kind=confirm") == q + 2
+        assert [r for _, r in files(vm, c[2], "delete")] == ["ok"]
+        ctrl_c(vm, c)
+        _, end, _ = expect(vm, "DIR [.T]", "NORMAL")
+        assert end["files"] == "2", end
+        # The prompt: a held SELECT runs the typed line once.
+        st = wait_state(vm, state="prompt", kind="cmd")
+        prompts = int(st["prompts"])
+        starts = n_marks(vm, "cmd state=start verb=ROBCO")
+        answer(vm, "text ROBCO")
+        hold(vm, "select", 3)
+        wait_marker(vm, "cmd state=end verb=ROBCO", 1)
+        st = wait_state(vm, state="prompt", kind="cmd")
+        assert n_marks(vm, "cmd state=start verb=ROBCO") == starts + 1
+        assert int(st["prompts"]) == prompts + 1, st

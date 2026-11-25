@@ -1,0 +1,30 @@
+UOS HOLOTAPE READER
+Holotapes in SYS$HOLO: 3
+------------------------------------------------------------------------------
+> PROCS.HTP    Alder Creek operating procedures
+  STORY.HTP    The rake with the longer handle
+  TECHLOG.HTP  Alder Creek technician's log
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+------------------------------------------------------------------------------
+UP/DOWN move   ENTER open tape   BACK leave reader

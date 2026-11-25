@@ -159,7 +159,10 @@ def test_panic_with_keyboard_open(board, hooks_image, need_mtools, tmp_path):
         assert answer(vm, "state")
 
 
-SHUTDOWN_ORDER = ["devices", "shell", "session", "console", "vfs", "uptime"]
+SHUTDOWN_ORDER = list(reversed(SERVICES))
+# The services after `devices` in the table stop first. They hold memory only and
+# print nothing but their shutdown line.
+BEFORE_DEVICES = [("shutdown", n) for n in reversed(SERVICES[SERVICES.index("devices") + 1:])]
 
 
 def stop_lines(serial):
@@ -179,7 +182,7 @@ def stop_lines(serial):
 def test_shutdown_order(board, hooks_image, need_mtools, tmp_path, how):
     """Services stop in reverse table order: the device service first, with
     every output driven safe, before the console and the file system stop."""
-    assert SERVICES == ["uptime", "vfs", "console", "session", "shell", "devices"]
+    assert SERVICES.index("devices") > SERVICES.index("console")
     with alone(hooks_image, board, boot_card(tmp_path, ALL)) as vm:
         wait_ready(vm)
         start = len(vm.serial)
@@ -199,7 +202,7 @@ def test_shutdown_order(board, hooks_image, need_mtools, tmp_path, how):
         end = lines.index(("devdown", how))
         assert first < min(safe) and max(safe) < end < lines.index(("shutdown", "console")), \
             lines
-        assert lines[:end + 1] == [("shutdown", "devices")] + \
+        assert lines[:end + 1] == BEFORE_DEVICES + [("shutdown", "devices")] + \
             [lines[i] for i in safe] + [("devdown", how)], lines
 
 

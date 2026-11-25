@@ -104,8 +104,28 @@ uint32_t uos_ticks(void);
  */
 int uos_post_event(const uos_event_t *ev);
 
-/* Queues a call of fn(arg) from the loop. Any context. 0 or UOS_EVQ_ERR_FULL. */
+/*
+ * Input not handled yet: the events still in the input layer plus the
+ * keys, characters and port calls the loop took into its queue and has
+ * not handled. A maintenance command runs inside input_poll(), between
+ * the two, so a state reply must use this and not input_pending(). Loop
+ * only.
+ */
+unsigned uos_input_pending(void);
+
+/*
+ * Queues a call of fn(arg) from the loop. Main context, never an
+ * interrupt handler. 0 or UOS_EVQ_ERR_FULL.
+ *
+ * Inside a maintenance command the call goes through the input queue,
+ * behind every key received before the command: what the system received
+ * first is handled first, whatever path it came in on. The call then also
+ * counts in uos_input_pending() until it has run.
+ */
 int uos_post(uos_call_fn fn, void *arg);
+
+/* maint.c only: non-zero while a maintenance command runs. Main context. */
+void uos_port_command(int running);
 
 /*
  * Starts a timer: first expiry after `delay` ticks, then every `period`
@@ -124,11 +144,31 @@ const uos_timerq_t *uos_timer_table(void);
 
 /* The screen stack. See uos_screen.h for the rules. */
 int uos_screen_push(uos_screen_t *s);
-int uos_screen_pop(void);
+/* Pushes `s` as a child of `owner`, such as a read line or a pager a
+ * screen opens for itself. NULL is a plain push. See uos_screen.h. */
+int uos_screen_push_child(uos_screen_t *s, uos_screen_t *owner);
+/* Pops `s` only when it is the top. Otherwise a "screen pop=refused"
+ * marker and UOS_SCREEN_ERR_TOP; a test build panics. */
+int uos_screen_pop(uos_screen_t *s);
+/* Pops every screen above the bottom one: a reset of the whole stack. */
+int uos_screen_unwind(void);
+/* 1 when `s` is the top screen: the one test for "this screen may act". */
+int uos_screen_on_top(const uos_screen_t *s);
+/* 1 when `s` or a child it owns is the top: "is the unit of `s` covered"
+ * for work it owes. A command that stands in for a key uses
+ * uos_screen_on_top(): the child takes the keys. */
+int uos_screen_unit_on_top(const uos_screen_t *s);
 int uos_screen_replace(uos_screen_t *s);
 uos_screen_t *uos_screen_top(void);
+/* The screen at depth `i`, 0 at the bottom; NULL at or past the depth. */
+uos_screen_t *uos_screen_at(unsigned i);
 /* Asks for a redraw of the top screen after the current event. */
 void uos_screen_invalidate(void);
+/* Asks for a redraw of every visible screen, bottom-up, as after a pop. */
+void uos_screen_expose(void);
+/* `s` changed: redraws it through the stack when it shows, else
+ * nothing until it is uncovered. See uos_ss_dirty(). */
+void uos_screen_dirty(const uos_screen_t *s);
 
 /* Empties the queue, the timers and the screen stack. Once, before the first screen. */
 void uos_loop_init(void);

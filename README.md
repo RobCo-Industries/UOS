@@ -7,11 +7,10 @@ The goal is a small real system in the style of the terminals of the Fallout gam
 ## Status
 
 - The kernel base boots in QEMU on raspi0, raspi1ap, raspi2b and raspi3b, alone and after earlier stages.
-- It brings up the screen, the tick, the heap, the input layer and the card, reads `UOS.CFG` and shows a placeholder screen.
-- There is no login and no shell yet. The placeholder screen says so.
+- It brings up the screen, the tick, the heap, the input layer and the card, reads `UOS.CFG` and shows the login.
 - Eight pure modules are built and host-tested: the command language, file specifications, users and login, the on-screen keyboard, device control, the menu screen, the password minigame and holotapes. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#modules).
 - Three services wire some of them into the running system: the file system, the console with its line reader and pager, and the devices on the GPIO pins. They work together and are reached through the maintenance port. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#services).
-- A session service runs the login screen over them, with a lockout and a placeholder screen after login. No shell is built yet. See [docs/USER_MANUAL.md](docs/USER_MANUAL.md#logging-in).
+- A session service runs the login screen over them, with a lockout. After login the command shell runs, see [docs/COMMANDS.md](docs/COMMANDS.md). See [docs/USER_MANUAL.md](docs/USER_MANUAL.md#logging-in).
 - The default card holds a user database, sample devices, menus, word lists and holotapes. Their formats are in [docs/FORMATS.md](docs/FORMATS.md).
 - Nothing is validated on real hardware.
 

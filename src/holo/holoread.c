@@ -73,7 +73,10 @@ int hf_reader_event(hf_reader_t *r, hf_event_t ev, hf_action_t *act)
                 return HF_OK;
             }
             act->tape = r->sel_tape;
-            act->kind = r->tapes[r->sel_tape].err == HF_OK ? HF_ACT_LOAD : HF_ACT_REFUSED;
+            act->kind = r->tapes[r->sel_tape].err == HF_OK ||
+                                r->tapes[r->sel_tape].err == HF_E_UNCHECKED
+                            ? HF_ACT_LOAD
+                            : HF_ACT_REFUSED;
         } else if (ev == HF_EV_BACK) {
             act->kind = HF_ACT_EXIT;
         } else {
@@ -149,6 +152,9 @@ static void tape_row(char *line, const hf_tape_info_t *ti, int selected)
     if (ti->err == HF_OK) {
         k_snprintf(line, HF_LINE_SIZE, "%c %-12.12s %.63s", selected ? '>' : ' ', ti->file,
                    ti->title);
+    } else if (ti->err == HF_E_UNCHECKED) {
+        k_snprintf(line, HF_LINE_SIZE, "%c %-12.12s NOT CHECKED: select it to try again",
+                   selected ? '>' : ' ', ti->file);
     } else {
         k_snprintf(line, HF_LINE_SIZE, "%c %-12.12s DAMAGED: %.48s", selected ? '>' : ' ',
                    ti->file, hf_strerror(ti->err));

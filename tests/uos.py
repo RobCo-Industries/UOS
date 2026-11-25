@@ -6,10 +6,11 @@ import re
 import struct
 import subprocess
 import tempfile
+import time
 
 from PIL import Image
 
-from harness.boot import boot, parse_markers
+from harness.boot import SCRIPT_DATA, SCRIPT_PORT, boot, is_script_status, parse_markers
 from harness.env import minimal_env
 from harness.sdimage import make_sd_image
 
@@ -27,10 +28,11 @@ TICK_HZ = 100
 
 # Bring-up markers in order, docs/ARCHITECTURE.md.
 # One "service" marker per service of src/kernel/services.c, in table order.
-SERVICES = ["uptime", "vfs", "console", "session", "shell", "devices"]
+SERVICES = ["uptime", "vfs", "console", "session", "shell", "devices", "holo", "hack"]
 # The maintenance commands each service registers, test builds included.
 SERVICE_COMMANDS = {"uptime": ["uptime"], "vfs": ["fs"], "console": ["readline", "page", "osk", "button"],
-                    "session": ["sess"], "shell": ["sh"], "devices": ["dev"]}
+                    "session": ["sess"], "shell": ["sh"], "devices": ["dev"],
+                    "holo": ["holo"], "hack": ["hack"]}
 BOOT_ORDER = ["boot", "handoff", "maint", "board", "mbox", "mmu", "screen", "tick", "heap",
               "input", "selfcheck", "mount", "config", "rtc"] + ["service"] * len(SERVICES) + \
              ["ready"]
@@ -135,6 +137,41 @@ def answer(vm, command):
     reply = vm.script(command, timeout=TIMEOUT)
     assert reply.status == "ok", (command, reply)
     return reply.lines
+
+
+# Characters the screens ignore, sent before a key in an ordering test. The
+# loop takes one input event per poll, so the key and a command sent after it
+# reach the loop while these still fill the input layer: a call that jumps the
+# input queue then runs before the key every time, not only on a loaded host.
+FILLER = "text " + "z" * 20
+
+
+def batch(vm, commands, timeout=TIMEOUT):
+    """Several maintenance commands in one port write. Returns one ScriptReply-like
+    (status, lines) pair per command, in order: the port answers the commands one by
+    one, so the n-th status line belongs to the n-th command."""
+    if any("\n" in c or "\r" in c for c in commands):
+        raise ValueError("one command per entry, without a line ending")
+    start = len(vm.lines(SCRIPT_PORT))
+    vm.send("".join(c + "\n" for c in commands), port=SCRIPT_PORT)
+    deadline = time.monotonic() + timeout
+    while True:
+        new = vm.lines(SCRIPT_PORT)[start:]
+        out, data = [], []
+        for line in new:
+            if is_script_status(line):
+                out.append((line, data))
+                data = []
+            elif line.startswith(SCRIPT_DATA):
+                data.append(line[len(SCRIPT_DATA):])
+        if len(out) >= len(commands):
+            assert len(out) == len(commands), (commands, new)
+            return out
+        left = deadline - time.monotonic()
+        assert left > 0, (commands, new)
+        # Woken by the reader thread when a byte arrives; no fixed sleep.
+        with vm._cond:
+            vm._cond.wait(min(left, 0.2))
 
 
 def state(vm):

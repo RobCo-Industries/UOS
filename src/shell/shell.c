@@ -28,6 +28,8 @@
  *   cmd state=end verb= rc=<IDENT> sev= files= skipped= failed= steps= maxticks=
  *   cmd output=<written|kept|toobig|failed> verb=   /OUTPUT, before the end
  *   sh stale=<step|read|pager|prog> id= cur=         a late callback ignored
+ *   sh op=wait why=covered id= owe=<step|end>        a job waits under a screen, once
+ *   sh op=resume id= owe=<step|end>                  the shell is on top again
  *   sh prog=<reg|start|done> n=                      test programs only
  * No marker holds a password: SET PASSWORD and AUTHORIZE read passwords
  * masked, and a command line never holds one.
@@ -53,6 +55,10 @@ static int sh_up;
 static unsigned runs;
 static uint32_t job_seq;            /* the last job identity given */
 static int test_hold, test_held;    /* sh hold: test builds only */
+static int owed;                    /* SH_OWE_*: the job's work a covered shell owes */
+/* 1: a session reset took the shell away under a running job. The job
+ * takes no step and prints nothing; the next tick ends it quietly. */
+static int orphan;
 
 /* ---- The session's default folder ---- */
 
@@ -178,6 +184,30 @@ static const char *ask_kind;        /* a command's read: its kind, else NULL */
 static con_line_fn ask_cb;
 
 static uos_screen_t shell_screen;
+
+/* 1 when the shell is the session's screen and another one covers it.
+ * The shell's own children, its reads and its pager, are part of it: a
+ * command the API starts while the `$` read waits runs under it. */
+static int covered(void)
+{
+    return sh_job_waits(shp.on, uos_screen_unit_on_top(&shell_screen));
+}
+
+uos_screen_t *sh_screen(void)
+{
+    return &shell_screen;
+}
+
+static const char *const owe_name[] = { "none", "step", "end" };
+
+/* Records work the job owes while the shell is covered; marks once. */
+static void owe(int what)
+{
+    if (sh_owe(&owed, what)) {
+        UOS_MARK("sh op=wait why=covered id=%u owe=%s", (unsigned)sh_job.id, owe_name[what]);
+    }
+}
+
 static void on_line(int result, const char *text, unsigned len, void *ctx);
 static int launch(const char *line, unsigned flags, const char *src, sh_done_fn cb, void *ctx,
                   char *need, size_t need_size);
@@ -192,7 +222,7 @@ static void prompt_start(int kind)
     } else if (kind == K_CONTIN) {
         k_snprintf(shp.prompt, sizeof(shp.prompt), "_$ ");
     }
-    rc = con_read_line(shp.prompt, kind == K_PARAM ? CON_RL_NOHIST : 0u, DCL_LINE_MAX, on_line,
+    rc = con_read_line(&shell_screen, shp.prompt, kind == K_PARAM ? CON_RL_NOHIST : 0u, DCL_LINE_MAX, on_line,
                        NULL);
     if (rc == 0) {
         shp.reading = 1;
@@ -202,12 +232,14 @@ static void prompt_start(int kind)
 }
 
 /* The next loop pass after a command: the prompt again, when the shell is
- * the screen on top and nothing else reads or runs. */
+ * the screen on top and nothing else reads or runs. A covered shell owes
+ * the prompt: shell_uncover() calls this again once it is the top. The
+ * guards make a second call do nothing while a read or a command runs. */
 static void shell_idle(void *arg)
 {
     (void)arg;
     if (!shp.on || shp.reading || sh_job.active || !sess_logged_in() ||
-        uos_screen_top() != &shell_screen || con_line_active()) {
+        !uos_screen_on_top(&shell_screen) || con_line_active()) {
         return;
     }
     dcl_line_reset(&shp.ln);
@@ -342,6 +374,9 @@ static void shell_leave(uos_screen_t *s)
     (void)s;
     shp.on = 0;
     shp.reading = 0;
+    if (sh_job.active) {
+        orphan = 1;
+    }
 }
 
 static int shell_event(uos_screen_t *s, const uos_event_t *ev)
@@ -361,12 +396,37 @@ static int shell_event(uos_screen_t *s, const uos_event_t *ev)
     return ev->type == UOS_EV_KEY || ev->type == UOS_EV_CHAR;
 }
 
+static void finish(void);
+
+/* On top again. A job that waited runs on: its owed end, or its next step.
+ * sh_owe_take() clears the debt before the work, and sh_resume() posts
+ * at most one step, so the work runs once. With no job, the `$` read a
+ * covered shell_idle() could not start. */
+static void shell_uncover(uos_screen_t *s)
+{
+    int what = sh_owe_take(&owed);
+
+    (void)s;
+    if (what != SH_OWE_NONE && sh_job.active) {
+        UOS_MARK("sh op=resume id=%u owe=%s", (unsigned)sh_job.id, owe_name[what]);
+        if (what == SH_OWE_END) {
+            finish();
+        } else {
+            sh_resume(&sh_job, SH_MORE);
+        }
+        return;
+    }
+    shell_idle(NULL);
+}
+
 static uos_screen_t shell_screen = {
     .name = "shell",
+    .uncover = shell_uncover,
     .enter = shell_enter,
     .leave = shell_leave,
     .event = shell_event,
     .draw = shell_draw,
+    .full = 1,
 };
 
 static uos_screen_t *shell_next(void)
@@ -465,7 +525,7 @@ int sh_ask(const char *kind, const char *prompt, unsigned flags, unsigned max, c
 
     ask_kind = kind;
     ask_cb = cb;
-    rc = con_read_line(prompt, flags | CON_RL_NOHIST, max, ask_done, sh_job_tag(&sh_job));
+    rc = con_read_line(&shell_screen, prompt, flags | CON_RL_NOHIST, max, ask_done, sh_job_tag(&sh_job));
     if (rc != 0) {
         ask_kind = NULL;
         ask_cb = NULL;
@@ -476,8 +536,6 @@ int sh_ask(const char *kind, const char *prompt, unsigned flags, unsigned max, c
 }
 
 /* ---- The executor ---- */
-
-static void finish(void);
 
 static void drive(void *arg)
 {
@@ -490,6 +548,15 @@ static void drive(void *arg)
         return;
     }
     j->posted = 0;
+    if (orphan) {
+        return;
+    }
+    /* A covered shell: the step could ask, page, start a program or print
+     * over the covering screen. It waits; shell_uncover() posts it. */
+    if (covered()) {
+        owe(SH_OWE_STEP);
+        return;
+    }
     if (j->cancel || j->impl == NULL || j->impl->step == NULL) {
         j->tally.cancelled = 1;
         (void)sh_end(j, DCL_SYS_CANCEL, NULL, 0, 1);
@@ -514,7 +581,7 @@ static void drive(void *arg)
 
 void sh_resume(sh_job_t *j, int rc)
 {
-    if (!j->active) {
+    if (!j->active || orphan) {
         return;
     }
     if (rc == SH_MORE) {
@@ -531,6 +598,11 @@ void sh_resume(sh_job_t *j, int rc)
             }
         }
     } else if (rc == SH_DONE) {
+        if (covered()) {
+            /* The end prints its message: it waits for the shell. */
+            owe(SH_OWE_END);
+            return;
+        }
         finish();
     }
 }
@@ -584,6 +656,8 @@ static void finish(void)
     int after = j->after;
     int status;
 
+    owed = SH_OWE_NONE;
+    orphan = 0;
     if (j->impl != NULL && j->impl->stop != NULL) {
         j->impl->stop(j);
     }
@@ -696,7 +770,15 @@ static int launch(const char *line, unsigned flags, const char *src, sh_done_fn 
     if (!sess_logged_in()) {
         return SH_ERR_NOUSER;
     }
+    if (!sh_takes_job(shp.on, uos_screen_unit_on_top(&shell_screen))) {
+        /* start() may ask, page or start a program's screen. A shell
+         * covered by another screen, or not on the stack yet, such as
+         * during the welcome, takes no job. */
+        return SH_ERR_COVERED;
+    }
     k_memset(j, 0, sizeof(*j));
+    owed = SH_OWE_NONE;
+    orphan = 0;
     if (++job_seq == 0) {
         job_seq = 1;
     }
@@ -790,15 +872,21 @@ static void port_run(void *arg)
     (void)arg;
     port_pending = 0;
     /* The prompt gives way: its read ends quietly, the command runs, and
-     * the prompt comes back after it. */
-    if (shp.reading && uos_screen_top() != &shell_screen && con_line_active() &&
-        ask_kind == NULL) {
-        (void)uos_screen_pop();
+     * the prompt comes back after it. A shell under another screen, a
+     * holotape reader for one, takes no command. */
+    if (shp.on && !uos_screen_unit_on_top(&shell_screen) && (shp.reading || !sh_job.active)) {
+        UOS_MARK("sh run=refused why=covered");
+        return;
+    }
+    if (shp.reading && ask_kind == NULL) {
+        (void)con_line_abort();
         shp.reading = 0;
         dcl_line_reset(&shp.ln);
     }
     rc = launch(port_line, 0, "port", port_done, NULL, NULL, 0);
-    if (rc != 0) {
+    if (rc == SH_ERR_COVERED) {
+        UOS_MARK("sh run=refused why=covered");
+    } else if (rc != 0) {
         UOS_MARK("sh run=refused rc=%d", rc);
     }
 }
@@ -1042,8 +1130,10 @@ static void sh_svc_tick(uint32_t now)
 {
     (void)now;
     /* The session ended under a running command: a logout pops every
-     * screen, so a read or a program it waited on never calls back. */
-    if (sh_job.active && !sess_logged_in()) {
+     * screen, so a read or a program it waited on never calls back. A
+     * reset that took the shell away leaves the job an orphan: it ends
+     * here, before any step paints over the screen that replaced it. */
+    if (sh_job.active && (!sess_logged_in() || orphan)) {
         sh_job.cancel = 1;
         (void)sh_end(&sh_job, DCL_SYS_CANCEL, NULL, 0, 0);
         finish();

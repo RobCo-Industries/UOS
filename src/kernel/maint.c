@@ -9,6 +9,7 @@
  * up in the registry of uos_maint.h. Commands registered here:
  *   help           the registered commands with their help, sorted
  *   state          one line: phase, screen, user, card, last error
+ *   screens        screens depth=<n> stack=<bottom,...,top>
  *   dump           the console cells, through console_dump()
  *   type <words>   the words as characters, then SELECT: one typed line of
  *                  at most 30 characters, or "err full"
@@ -19,6 +20,7 @@
  *   panic              calls uos_panic()
  *   halt               calls uos_halt()
  *   bench uaf <n>      times uaf_hash() over n iterations
+ *   hold <key> <n>     a held key: one press, n repeats, then the release
  * Every answer line is complete; the port then says "ok" or "err <why>".
  */
 
@@ -103,7 +105,9 @@ static int dispatch(int argc, char *argv[], input_script_reply_t *reply, void *c
         return -1;
     }
     cur_reply = reply;
+    uos_port_command(1);
     rc = cmd->fn(n, args);
+    uos_port_command(0);
     cur_reply = NULL;
     return rc < 0 ? -1 : 0;
 }
@@ -149,6 +153,31 @@ static int cmd_state(int argc, char **argv)
                     top != NULL && top->name != NULL ? top->name : "none",
                     uos.user[0] != '\0' ? uos.user : "none", uos_card_name(uos.card),
                     uos.trusted, uos.error[0] != '\0' ? uos.error : "none");
+    return 0;
+}
+
+static int cmd_screens(int argc, char **argv)
+{
+    char names[96];
+    size_t n = 0;
+    unsigned i;
+    uos_screen_t *s;
+
+    (void)argv;
+    if (argc != 0) {
+        return uos_maint_fail("unknown command");
+    }
+    names[0] = '\0';
+    for (i = 0; (s = uos_screen_at(i)) != NULL; i++) {
+        int w = k_snprintf(names + n, sizeof(names) - n, "%s%s", i > 0 ? "," : "",
+                           s->name != NULL ? s->name : "?");
+
+        if (w < 0 || (size_t)w >= sizeof(names) - n) {
+            break;
+        }
+        n += (size_t)w;
+    }
+    uos_maint_reply("screens depth=%u stack=%s", i, i > 0 ? names : "none");
     return 0;
 }
 
@@ -317,6 +346,43 @@ static int cmd_halt(int argc, char **argv)
     return argc != 0 ? uos_maint_fail("unknown command") : test_post(uos_test_halt, NULL);
 }
 
+/* A held key, as the repeat timer would send it. UOS sets no repeat rate,
+ * so the script channel alone cannot send INPUT_REPEAT. */
+static int cmd_hold(int argc, char **argv)
+{
+    input_event_t ev = { .type = INPUT_EV_KEY, .source = INPUT_SRC_SCRIPT,
+                         .value = INPUT_PRESS };
+    unsigned code, i, n = 0;
+    const char *p;
+
+    if (uos.phase != UOS_PHASE_READY || argc != 2) {
+        return uos_maint_fail("usage: hold <key> <repeats>");
+    }
+    for (code = 1; code < INPUT_KEY_COUNT; code++) {
+        if (k_strcmp(input_key_name(code), argv[0]) == 0) {
+            break;
+        }
+    }
+    for (p = argv[1]; *p >= '0' && *p <= '9' && n <= 16u; p++) {
+        n = n * 10u + (unsigned)(*p - '0');
+    }
+    if (code >= INPUT_KEY_COUNT || *p != '\0' || p == argv[1] || n > 16u) {
+        return uos_maint_fail("usage: hold <key> <repeats>");
+    }
+    if (!input_room(n + 2u)) {
+        return uos_maint_fail("full");
+    }
+    ev.code = (uint16_t)code;
+    (void)input_push(&ev);
+    ev.value = INPUT_REPEAT;
+    for (i = 0; i < n; i++) {
+        (void)input_push(&ev);
+    }
+    ev.value = INPUT_RELEASE;
+    (void)input_push(&ev);
+    return 0;
+}
+
 static int cmd_bench(int argc, char **argv)
 {
     uint32_t n = 0;
@@ -350,6 +416,7 @@ static void fill_table(void)
     (void)uos_mt_add(&table, "help", cmd_help, "lists the commands");
     (void)uos_mt_add(&table, "state", cmd_state, "phase, screen, user, card, trust, last error");
     (void)uos_mt_add(&table, "dump", cmd_dump, "the console cells");
+    (void)uos_mt_add(&table, "screens", cmd_screens, "the screen stack, bottom to top");
     (void)uos_mt_add(&table, "type", cmd_type, "types the words, then SELECT");
     (void)uos_mt_add(&table, "timers", cmd_timers, "the live timers");
     (void)uos_mt_add(&table, "reboot", cmd_reboot, "shuts the services down and restarts");
@@ -358,6 +425,7 @@ static void fill_table(void)
     (void)uos_mt_add(&table, "panic", cmd_panic, "test: calls uos_panic()");
     (void)uos_mt_add(&table, "halt", cmd_halt, "test: calls uos_halt()");
     (void)uos_mt_add(&table, "bench", cmd_bench, "test: bench uaf <iterations>");
+    (void)uos_mt_add(&table, "hold", cmd_hold, "test: hold <key> <repeats>");
 #endif
 }
 

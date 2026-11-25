@@ -38,7 +38,7 @@ The modules below are pure too. The image links them, but no kernel code calls t
 
 ## Modules
 
-Each module has a reference page in `docs/modules/`. The on-card formats are gathered in [FORMATS.md](FORMATS.md). The services of [Services](#services) use `dcl`, `vfs path`, `osk`, `dev`, `session` and the pager of `tui`. The shell uses `dcl` for every command line. No menu screen uses a module yet.
+Each module has a reference page in `docs/modules/`. The on-card formats are gathered in [FORMATS.md](FORMATS.md). The services of [Services](#services) use `dcl`, `vfs path`, `osk`, `dev`, `session`, `hack`, `holo` and the pager of `tui`. The shell uses `dcl` for every command line. No menu screen uses a module yet.
 
 Every module that tests privileges uses the bits of `src/kernel/uos_privs.h`: `SYSTEM` bit 0, `OPER` bit 1, `SECURITY` bit 2, `READALL` bit 3. Each module keeps its own names, such as `DCL_PRIV_OPER` or `UAF_PRIV_OPER`, as aliases, and static asserts check them.
 
@@ -54,9 +54,9 @@ Every module that tests privileges uses the bits of `src/kernel/uos_privs.h`: `S
 
 [tui](modules/tui.md): the menu-driven terminal screen and the pager. It parses `TERMINAL.CFG`, runs the menu model and lays out the screen. Pure files: `src/tui/tuicfg.c`, `tui.c`, `pager.c`. Public header: `src/tui/tui.h`, prefixes `tui_` and `pg_`.
 
-[hack](modules/hack.md): the password minigame. It parses the word lists, picks the candidates, builds the board and runs the game with its lockout timer. Pure file: `src/hack/hack.c`. Public header: `src/hack/hack.h`, prefix `hk_`.
+[hack](modules/hack.md): the password minigame. It parses the word lists, picks the candidates, builds the board and runs the game with its lockout timer. Pure files: `src/hack/hack.c`, and `hackui.c` for the screen's layout, keys and states, prefix `hg_`. Public header: `src/hack/hack.h`, prefix `hk_`. The screen's header is `hackscr.h`, see [Password game](#password-game).
 
-[holo](modules/holo.md): data holotapes. It validates a tape in memory, gives its title and entries, and runs the reader model. Pure files: `src/holo/holofmt.c`, `holoread.c`. Public header: `src/holo/holofmt.h`, prefix `hf_`.
+[holo](modules/holo.md): data holotapes. It validates a tape in memory, gives its title and entries, and runs the reader model. Pure files: `src/holo/holofmt.c`, `holoread.c`, and `holoscan.c` for the screen's scan and load results, prefix `hs_`. Public header: `src/holo/holofmt.h`, prefix `hf_`. The screen's header is `holoscr.h`, see [Holotape reader](#holotape-reader).
 
 ## Boot order
 
@@ -92,13 +92,39 @@ A `UOS.CFG` scheme applies only when the boot info gave none. Bad values are ski
 One thread of control. `uos_loop_run()` repeats:
 
 1. Posts one `TICK` event for the ticks since the last one, and one `TIMER` event per timer expiry due.
-2. Takes input events while the queue has room. Key releases are dropped. The rest waits in the input layer.
+2. Takes input events while the queue has room, in the order the input layer received them, port calls included. Key releases and dial turns are dropped. The rest waits in the input layer.
 3. Delivers the events queued before this step, drawing the top screen after each one when it is dirty. An event posted meanwhile waits for the next pass, so a call that posts itself again, such as a copy step, runs once per pass and time and input get their turn between two steps.
 4. Sleeps in `wfi`, through `input_wait()`, until input or the next tick. A pass that left events queued skips the sleep.
 
 Each `TICK` event first calls the `tick` function of every started service, then goes to the screens.
 
-Event types, `uos_event.h`: `KEY`, `CHAR`, `TICK`, `TIMER` and `CALL`. `uos_post(fn, arg)` queues a call from any context. The queue holds 32 events. A full queue refuses an event and counts it in `uos_events_dropped()`: `uos_post()` then returns `UOS_EVQ_ERR_FULL`, and the call never runs unless the caller posts it again. A key that finds the queue full is dropped and counted. Under a flood the loop takes input only while there is room, so drops are rare; the PL011 console then stalls instead of dropping.
+Event types, `uos_event.h`: `KEY`, `CHAR`, `TICK`, `TIMER` and `CALL`. `uos_post(fn, arg)` queues a call from main context. The queue holds 32 events. A full queue refuses an event and counts it in `uos_events_dropped()`: `uos_post()` then returns `UOS_EVQ_ERR_FULL`, and the call never runs unless the caller posts it again. A key that finds the queue full is dropped and counted. Under a flood the loop takes input only while there is room, so drops are rare; the PL011 console then stalls instead of dropping.
+
+Maintenance commands run inside `input_poll()`, while the loop may hold keys it took and has not dispatched. `uos_input_pending()`, loop only, counts both those keys and the events still in the input layer, port calls included. Every `pending=` field of a state reply uses it.
+
+### Arrival order
+
+What the system received first is handled first, whatever path it came in on. Keys go into the input layer's queue. A call that a maintenance command posts with `uos_post()` goes into the same queue, behind the keys received before the command. The input event has the UOS type `UOS_INPUT_EV_CALL`, and its code names a slot of the port call table, `uos_portcall.h`. The loop turns input events into kernel events in queue order, so the call runs after every earlier key and before every later one.
+
+The rule holds by construction. `maint.c` marks the time a command runs with `uos_port_command()`, and `uos_post()` routes the call by that mark. A new command cannot post around the queue. A call posted from the loop, such as a stepped copy, still goes straight into the loop's queue.
+
+```mermaid
+flowchart LR
+    K[key, button, type] --> IQ[input queue]
+    C[port command posts a call] --> IQ
+    IQ -->|take_input, in order| EQ[loop queue]
+    T[ticks, timers, loop posts] --> EQ
+    EQ --> D[dispatch]
+```
+
+What stays the same:
+
+- The loop still runs only the events queued before each pass.
+- Ticks and timers still enter the loop's queue before the input of the same pass. Their order relative to input is unchanged.
+- The input queue keeps its `INPUT_DROP_NEWEST` policy. A full queue refuses the call, and the command answers `err full`. UOS never sets `INPUT_DROP_OLDEST`: under it a dropped call would keep its slot.
+- A key goes to the screen on top when the loop dispatches it. A call posted after a key that changes screens runs on the new screen, as a key sent at that point would.
+
+A port call counts in `pending=` until it has run. The holotape reader and the password game add their own count of posted calls, so their count can be higher than the work left. Zero still means everything sent before the query has been handled.
 
 ### Timers
 
@@ -115,13 +141,134 @@ An expiry is never lost. `uos_tq_deliver()` in `timerq.c` queues one `TIMER` eve
 
 ### Screens
 
-A screen is a struct of `enter`, `leave`, `event` and `draw` callbacks and a `ctx` pointer. The kernel keeps a stack of up to 8:
+A screen is a struct of `enter`, `leave`, `event`, `draw` and `uncover` callbacks and a `ctx` pointer. The kernel keeps a stack of up to 8:
 
-- `uos_screen_push()` puts a screen on top, such as a pager or the on-screen keyboard. The screen below gets no `leave`.
-- `uos_screen_pop()` removes the top. The last screen cannot be popped.
+- `uos_screen_push()` puts a screen on top, such as the holotape reader. The screen below gets no `leave`.
+- `uos_screen_push_child(s, owner)` puts a child on top, such as a read line or a pager a screen opens for itself. See [Owners and children](#owners-and-children).
+- `uos_screen_pop(s)` removes `s` when it is the top. The last screen cannot be popped.
+- `uos_screen_unwind()` pops every screen above the bottom one. Only a reset of the whole stack uses it, such as a logout or a lockout.
+- `uos_screen_on_top(s)` tells whether `s` is the top. `uos_screen_unit_on_top(s)` tells whether `s` or a child it owns is the top.
 - `uos_screen_replace()` swaps the top.
 - Events go to the top first. When its `event()` returns 0, the next screen down gets the event.
-- `uos_screen_invalidate()` asks for a redraw. `draw()` paints the whole screen.
+- `uos_screen_invalidate()` asks for a redraw of the top screen.
+- `uos_screen_dirty(s)` says that `s` changed. On top, the stack redraws it. Covered by partial screens only, the stack redraws from the highest full screen up, so `s` and the screens over it repaint in order. Under a full screen, nothing draws until a pop shows `s` again.
+
+A screen is full or partial. A full screen sets `.full = 1`: its `draw()` clears the console, paints every row and calls `con_status_redraw()` last. A partial screen paints only its own rows: the read line, the on-screen keyboard and the pause line are partial.
+
+The redraw rule: no screen draws what is under it. The stack does it.
+
+- After a push or an invalidate, the next draw runs the top's `draw()` only. A read line or a keystroke stays cheap.
+- A pop or a replace marks the stack exposed. The next draw then runs the `draw()` of every visible screen, bottom-up: from the highest full screen, or from the bottom when none is full, to the top.
+- `uos_screen_expose()` asks for the same full redraw. The read screen calls it when the on-screen keyboard closes, so the rows under the keyboard come back.
+
+So BACK from the holotape reader over the login's user name prompt draws the login screen, then the read line. The table in [TESTING.md](TESTING.md#screen-redraws) lists every pair of screens checked.
+
+A held key sends one press, then repeats. Movement and typed characters may repeat. An action that confirms, cancels, changes screen, starts a load or leaves takes only the press: test it with `uos_ev_fresh_key()` from `uos_event.h`, and consume the repeats. The stack adds one rule of its own: a key press that pushes, pops or replaces a screen spends that key, and `uos_ss_event()` drops its repeats until the next press. So a held BACK that closes a screen never reaches the screen below.
+
+#### Covered screens
+
+A screen that is not the top is covered. A covered screen takes no posted action: only the top acts. The rule covers every road that reaches a screen without a key, such as a maintenance command, a posted call, a timer or a `done` callback. Each on-top check is one of two kinds.
+
+- A port command with a reply. Refusing is right: the caller sees `covered`. `hack move`, `hack select`, `hack back`, `holo pick`, `osk open`, `osk close` and `sh run` do nothing under another screen and mark `result=covered`, or `why=covered` for `sh run`.
+- An internal continuation: a posted call, a timer, a `done` callback or a step of a state machine. Returning in silence would lose work the screen needs. So the screen records what it owes and does it in its `uncover()` callback.
+
+The stack calls `uncover()` once each time a pop or an unwind leaves the screen on top, after the next draw. A push or a replace before that draw cancels the call: the screen is covered again or gone. The stack clears its mark before the call, so `uncover()` may push or pop. Each continuation and its `uncover()` share one guard, such as "no read runs", so the work runs once whichever comes first.
+
+| Screen | Continuation | Owed while covered |
+|---|---|---|
+| `login` | `start_user`, posted after an empty name, a cancel or a wrong password | The user name read |
+| `shell` | `shell_idle`, posted after each line or command | The `$` read |
+| `hack` | `pause_end`, the 1 s result pause | The game's end. It marks `ev=hack op=wait why=covered` once |
+| `first` | `show`, the end of the banner | The handover to the login |
+| `shell` | `drive`, a command's posted step | The step. It marks `ev=sh op=wait why=covered owe=step` once |
+| `shell` | `sh_resume(SH_DONE)`, a command's end, such as a program's `done()` | The end and its result line. It marks `owe=end` |
+
+A running command waits whole while another screen covers the shell. Any step may ask a `/CONFIRM` question, read a `CREATE` line or a password, open the `TYPE /PAGE` pager or print. `con_print()` writes to the console cells at once, so a step's output would paint over the covering screen. So no step runs, quiet or not. The shell records the step or the end it owes, and `shell_uncover()` runs it with `ev=sh op=resume owe=`. `sh_owe_take()` clears the debt before the work, and `sh_resume()` posts at most one step, so the work runs once. An end outranks a step.
+
+Nothing starts on a covered shell, nor before the shell's screen is on the stack: `sh_run_line()` returns `SH_ERR_COVERED`, so no command, question or program starts. `sh run` already replies `covered`. The shell's own `$` read is its child, so it does not cover the shell. A command the API starts while that read waits runs under it. When the reader covers that read and closes, the step the command owes runs at once, with no key.
+
+Ctrl-C while a command waits under the reader goes to the reader, the top screen. The command neither ends nor asks. Once the reader closes, the question opens and Ctrl-C there cancels the command.
+
+The shell's pushes and their rule:
+
+| Push from the shell's side | Covered shell, before | Now |
+|---|---|---|
+| `sh_ask()`: `/CONFIRM`, `CREATE` line, password | The read line opened over the covering screen | The step waits. A start through `sh_run_line()` is refused |
+| `con_page_text()` in `TYPE /PAGE` | The pager opened over the covering screen | The step waits |
+| A program's `start()` through `RUN` | Could start through `sh_run_line()` | Refused with `SH_ERR_COVERED` |
+| Any job during the welcome, before the shell's screen exists | Ran and printed over the welcome | Refused with `SH_ERR_COVERED`; `sh run` marks `why=covered` |
+| `con_print()` through `sh_out()` and the end message | Painted over the covering screen | The step or the end waits |
+| `prompt_start()`, the `$` read | Already waited in `shell_idle()` | Unchanged |
+
+The invariant: a screen that is on top while no command runs has an active read or takes keys itself. The login, the shell, the game, the pager, the lockout, the welcome and the first screen take keys themselves; the login and the shell also own a read in their prompt states. Tests in `tests/test_screens.py` cover each prompt state with the reader at the moment its next step is due, close the reader and type on.
+
+Other rules:
+
+- A pop names its own screen. `uos_screen_pop(s)` refuses when `s` is not the top: it returns `UOS_SCREEN_ERR_TOP` and marks `ev=screen pop=refused want= top=`. A test build panics there, so a wrong pop fails loudly.
+- A session reset ends every screen at once with `uos_screen_unwind()`: a logout, a lockout, the welcome's end and a won game's session. It pops from the top down, so no screen pops another.
+- Background work on a covered screen, such as the holotape scan and load steps, may change that screen's own state. It never pushes or pops.
+- Only the draw pass paints. A timer, a tick or a posted call changes its screen's state and calls `uos_screen_dirty()` with that screen. It never calls `draw()` or writes cells itself. So the state moves on while the screen is covered, and the stack shows the real state once the screen shows again.
+- A session reset ends a covered screen too. A lockout's start or end, the welcome's end, an idle logout and `sess logout` unwind the whole stack, the reader included, and show the next screen with its read.
+- A job whose shell a reset took away is an orphan. It takes no step and prints nothing, and the shell's next tick ends it with `CANCEL`.
+
+Each site that changes a screen from outside a key to that screen:
+
+| Site | Screen | How it paints | Covered |
+|---|---|---|---|
+| `on_clock`, the 1 s clock | `first` | `uos_screen_dirty()` | The clock reads the time; the stack shows it once uncovered |
+| `show`, the banner's end with no database | `first` | `uos_screen_dirty()` | Nothing paints; the screen shows when the cover pops |
+| `lock_second`, the countdown | `lockout` | `uos_screen_dirty()` | The draw computes the time left from the clock, so it is right once uncovered. The end resets the stack |
+| `welcome_done`, 1.5 s | `welcome` | A reset | The reset ends the cover |
+| `pause_end`, the result pause | `hack` | Owed to `uncover()` | Waits, marks `hack op=wait` |
+| `scan_step`, `load_step` | `holo` | `uos_screen_dirty()` | The scan and the load go on; the list shows once uncovered |
+| `drive`, a job's step | `shell` | `con_print()` | Owed to `uncover()`; an orphan takes no step |
+| The read line and the keyboard | `readline` | Their `event()` | Keys reach them only on top. There is no blinking cursor |
+
+#### Owners and children
+
+A screen often opens a child screen for itself: a read line, a pager or a pause. The owner and its children form one unit. `uos_screen_push_child(s, owner)` pushes the child with its owner, and `con_read_line()`, `con_page_text()` and `con_pause()` take the owner as their first argument. A maintenance command that opens a read or a pager passes `NULL`: its screen belongs to nobody.
+
+| Owner | Child | What the owner owes while its unit is covered |
+|---|---|---|
+| `shell` | the `$`, `_$` and parameter reads | A command's step or end, started through the API under the read |
+| `shell` | a command's `/CONFIRM`, `CREATE` line or password read | Nothing: the command waits for the answer |
+| `shell` | the `TYPE /PAGE` pager | Nothing: the command waits for the pager |
+| `login` | the `USERNAME:` and `PASSWORD:` reads | Nothing: the next read starts after this one ends |
+| `holo` | the entry pager | Nothing: the scan never pushes or pops |
+
+The on-screen keyboard is part of the read line, not a screen.
+
+Two checks answer two questions.
+
+- `uos_screen_unit_on_top(s)`: is `s` or a child it owns the top? This says whether the unit is covered. The shell's `covered()`, `sh run`, `sess_prompt_on_top()` and `con_line_on_top()` use it.
+- `uos_screen_on_top(s)`: is `s` itself the top? A command that stands in for a key uses it, such as `holo pick` or `osk open`, since the child takes the keys.
+
+When a pop leaves a child on top, the next draw calls `uncover()` for the child, then for each owner down the chain, top first. Each runs at most once. The chain stops at a screen whose unit is no longer on top, such as after an `uncover()` that pushed another screen. When an `uncover()` pops its own screen, the new top is marked again, and the next draw calls it and its owners. So no screen runs its `uncover()` twice for one uncovering.
+
+```mermaid
+sequenceDiagram
+    participant R as reader
+    participant L as $ read
+    participant S as shell
+    R->>R: BACK pops the reader
+    Note over L: the draw repaints shell and read
+    L->>L: uncover(), if any
+    S->>S: shell_uncover() runs the owed step
+```
+
+An owner's `uncover()` must expect its child on top. Each one has a guard: `shell_idle()` does nothing while `shp.reading` or a job runs, `sh_owe_take()` clears a debt once, and `start_user()` does nothing while `reading_user` is set or a read runs.
+
+The invariant: when the covering screen leaves, every screen of the unit that owes work runs it exactly once, in stack order from the top down. No step of a job is lost or runs twice.
+
+#### How to add a screen
+
+1. Fill a `uos_screen_t` with a short `name`, the callbacks you need and `ctx`.
+2. When `draw()` clears the console and paints everything, set `.full = 1` and call `con_status_redraw()` last. Otherwise leave `full` at 0 and paint only your rows.
+3. Never call another screen's `draw()`. When a partial screen shrinks, call `uos_screen_expose()`.
+4. Close with `uos_screen_pop(&your_screen)`. The screens below come back on their own.
+5. A maintenance command that acts on your screen checks `uos_screen_on_top()` first and replies `covered`. A posted call or a timer that finds your screen covered records the work and does it in `uncover()`, as in [Covered screens](#covered-screens). When your screen opens a read, a pager or a pause for itself, pass your screen as the owner and test "covered" with `uos_screen_unit_on_top()`, as in [Owners and children](#owners-and-children).
+6. Apply the held-key rule above to each action.
+7. Add a `@RC` marker and a maintenance command, and a test in `tests/test_screens.py` that compares the grid before the screen opens and after it closes.
 
 ## The first screen
 
@@ -164,6 +311,7 @@ The base commands enter the table on the first use of the registry: `uos_maint_s
 |---|---|
 | `help` | One line per registered command, sorted by name: the name, then its help text |
 | `state` | `phase=... screen=... user=... card=... trusted=... error=...`: the phase `init`, `ready` or `panic`; the top screen's name; the user; the card `ok`, `none` or `notree`; the trust result; the last error. `none` stands for nothing. |
+| `screens` | `screens depth=<n> stack=<names>`: the screen stack, bottom to top, names joined with commas |
 | `dump` | The console cells, from `console_dump()` |
 | `key <name>` | Built in: presses and releases a key |
 | `char <c>`, `text <s>` | Built in: characters |
@@ -176,6 +324,19 @@ The base commands enter the table on the first use of the registry: `uos_maint_s
 | `bench uaf <n>` | Test builds only. Posts `uaf_hash()` over `n` iterations, 1 to 100000, on a fixed salt and password to the loop, which prints `ev=bench name=uaf iterations=<n> rc=<rc> ticks=<ticks> us=<us>` |
 
 The test commands are not registered in the shipped image, and they answer `err unknown command` once the loop has stopped.
+
+A command that acts posts its work, so it runs in arrival order with the keys, see [arrival order](#arrival-order). A query answers at once. A few commands act at once on purpose:
+
+| Command | Kind | Why |
+|---|---|---|
+| `key`, `char`, `text`, `dial`, `type`, `button` | Input | They push input events into the input queue, in order by nature |
+| `holo open`, `holo pick`, `hack start`, `hack move`, `hack select`, `hack back`, `hack seed`, `sess logout`, `sess login`, `fs` requests, `readline`, `page`, `osk open`, `osk close`, `dev stall`, `fault`, `panic`, `halt`, `bench` | Posts | Run in arrival order |
+| `state`, `dump`, `timers`, `help`, `services`, `uptime`, `holo state`, `holo list`, `hack state`, `sess state`, `osk state`, `dev list`, `dev rec`, `stats` | Query | Answer at once. `pending=` tells a test that earlier input is not handled yet. |
+| `reboot` | At once | A reset must work even when the loop is stuck or the queue is full |
+| `wait` | At once | Built in: it holds the port, not the loop |
+| `dev set` | At once | Its reply carries the new device state. A test that also types device commands waits for `pending=0` first. |
+| `dev sense`, `dev fail`, `dev hang`, `holo hog`, `fs fakedev` | At once | Test builds only. They change the outside world: a sensor level, a pin fault, the watchdog feed, free memory, a fake device. Real hardware changes the same way, with no queue. |
+| `fs default`, `fs who` | At once | They set the port's own path context. No screen reads it, and each `fs` request copies it when posted. |
 
 ## Services
 
@@ -208,10 +369,12 @@ Test builds put a service named `testfail` first, whose init returns -5, so the 
 | 4 | `session` | `src/session/sess.h` | `vfs` for `SYSUAF.DAT`, `console` for the prompts, the first screen |
 | 5 | `shell` | `src/shell/sh.h` | `session` for the user and the next screen, `vfs`, `console`, `DEV:` |
 | 6 | `devices` | `src/dev/devs.h` | `vfs` for `DEVICES.CFG` and `DEV:` |
+| 7 | `holo` | `src/holo/holoscr.h` | `vfs` for the tapes, `console` for the pager, `session` for the user's rights |
+| 8 | `hack` | `src/hack/hackscr.h` | `vfs` for the word lists, `session` for its rules, the lock and the session |
 
 The session comes after the file system and the console, which it uses. The shell comes after the session, whose `sess_set_next()` it calls at init. Both come before the devices so that the devices stay last: they stop first. Nothing in the device service uses the session; a device command gets its caller's privileges as an argument.
 
-Shutdown runs in reverse: `devices`, `shell`, `session`, `console`, `vfs`, `uptime`. The shell has no `shutdown`. So on a reboot, a halt and a panic the device service drives every output safe before anything else stops. Its `devsafe` lines and `devdown` come right after `ev=shutdown name=devices` and before `ev=shutdown name=console`. `test_link.py` checks this order for all three causes.
+Shutdown runs in reverse: `hack`, `holo`, `devices`, `shell`, `session`, `console`, `vfs`, `uptime`. The two screen services have no shutdown work: they hold memory only. The shell has no `shutdown`. So on a reboot, a halt and a panic the device service is the first service with work, and it drives every output safe before anything else stops. Its `devsafe` lines and `devdown` come right after `ev=shutdown name=devices` and before `ev=shutdown name=console`. `test_link.py` checks this order for all three causes.
 
 A file write cannot be cut by a reboot. `vfs_write_all()` runs in one loop pass, and the `reboot` command waits for the next one. A stepped copy can be cut between two steps. Its new content sits in a work file, and the target keeps its whole old content. The next call that looks at the target removes the work file. `test_link.py` reboots during a 1 MiB copy over a file and checks both. A power cut during a write is not tested: the library's atomic write states that guarantee.
 
@@ -241,6 +404,10 @@ Every command each service registers. The `fs`, `readline`, `page` and `osk` com
 | `sh hold`, `sh prog` | `shell` | Test builds only: hold a command between two steps; register and end a test program for `RUN` |
 | `sess login <user>` | `session` | Test builds only: a session with no password |
 | `button <key>` | `console` | Test builds only: a key from the GPIO source, which opens the on-screen keyboard during a read |
+| `holo open\|list\|pick <n>\|state` | `holo` | The holotape reader, see [Holotape reader](#holotape-reader) |
+| `holo hog` | `holo` | Test builds only: holds the heap until no tape fits, or gives it back |
+| `hack start\|move <dir> [n]\|select\|back\|state` | `hack` | The password game, see [Password game](#password-game) |
+| `hack seed <n>` | `hack` | Test builds only: the next games use a fixed seed |
 
 ### How to add a service
 
@@ -266,7 +433,9 @@ static int cmd_mail(int argc, char **argv)
 
 `argv[0]` is the first word after the command name. `uos_maint_reply()` sends one complete line per call. `uos_maint_fail(reason)` sets the `err` text and returns a negative code.
 
-A command function runs inside the input layer's script handler. That is in the loop between two events, or after a panic or a halt in the idle poll with IRQs off. It must not block, wait for ticks or do anything that can fault. It posts such work to the loop with `uos_post()`, after it checks that `uos.phase` is `UOS_PHASE_READY`, and the posted call reports its result with a marker. `uos_maint.h` states the same rules.
+A command function runs inside the input layer's script handler. That is in the loop between two events, or after a panic or a halt in the idle poll with IRQs off. It must not block, wait for ticks or do anything that can fault. It posts such work to the loop with `uos_post()`, after it checks that `uos.phase` is `UOS_PHASE_READY`, and the posted call reports its result with a marker.
+
+A command that changes what a screen, a service or the session does must post, even when the change itself is quick. Inside a command `uos_post()` puts the call behind the keys received before it, so it never jumps the queue. Act at once only for a query, a reset, or a test hook that stands for the outside world, and add the command to the table above with the reason. `uos_maint.h` states the same rules.
 
 ### uptime
 
@@ -316,7 +485,7 @@ Test builds add `fs pattern <spec> <bytes>` and `fs fakedev on|off`. `on` replac
 
 The console service, `src/console/`, gives every later screen a way to read a line, show a long text and print. Its header is `src/console/con.h`, prefix `con_`. Every `con_` function runs in the loop only. Pure files: `lineedit.c` (the line editor, prefix `le_`) and `conview.c` (layout and text decisions, prefix `cv_`). Thin files: `readline.c`, `pager.c`, `out.c` and `console.c`, the service.
 
-`con_read_line(prompt, flags, max, cb, ctx)` pushes a screen that reads one line of up to 255 characters. The prompt and the line go on the cursor's row, or the next row when the cursor is not in column 0. A prompt gets a blank after it when it lacks one. Only one read runs at a time; a second gets `CON_ERR_BUSY`. When the read ends, the screen pops, then calls `cb` with `CON_OK` or `CON_CANCEL` and the text. The text stays valid until `cb` returns.
+`con_read_line(owner, prompt, flags, max, cb, ctx)` pushes a screen that reads one line of up to 255 characters. The prompt and the line go on the cursor's row, or the next row when the cursor is not in column 0. A prompt gets a blank after it when it lacks one. Only one read runs at a time; a second gets `CON_ERR_BUSY`. When the read ends, the screen pops, then calls `cb` with `CON_OK` or `CON_CANCEL` and the text. The text stays valid until `cb` returns.
 
 Keys of the line editor:
 
@@ -335,9 +504,9 @@ Keys of the line editor:
 
 The library's serial parser turns ESC, BS and DEL all into BACK, so BACK is backspace and Ctrl-C cancels. Held keys repeat for moves and deletes, never for SELECT. The history keeps the last 16 lines. It skips empty lines and a repeat of the newest line. An edit of a recalled line does not change the stored one. `CON_RL_MASK` shows `*` per character and never stores or recalls a line. `CON_RL_NOHIST` neither stores nor recalls. A line wider than its window scrolls, with `<` and `>` at the cut ends.
 
-The on-screen keyboard opens on F4 or on any GPIO button event while a line is read. The event that opens it does nothing else. It covers the bottom 5 rows; an input row under it moves to the row above. Each event goes to `osk_handle()` first, and its output goes to the line editor. The console keeps no saved layers, so when the keyboard closes, the read screen calls the `draw()` of the screen below, then draws its own row again. GPIO input is off for now, so the tests open the keyboard with F4 and `osk open`.
+The on-screen keyboard opens on F4 or on any GPIO button event while a line is read. The event that opens it does nothing else. It covers the bottom 5 rows; an input row under it moves to the row above. Each event goes to `osk_handle()` first, and its output goes to the line editor. The console keeps no saved layers, so when the keyboard closes, the read screen calls `uos_screen_expose()`: the stack redraws the screens below, then the read line. GPIO input is off for now, so the tests open the keyboard with F4 and `osk open`.
 
-`con_page_text(title, text, len, cb, ctx)` pushes a full-screen pager: a title row, 28 rows of body at 78 columns and a status row `line A to B of N` with the keys. It copies the text into the kernel heap with every byte outside printable ASCII as `.`, and allocates the pager's index there. It frees both when the person leaves. Texts up to 1 MiB are accepted; a 64 KiB text wraps in one loop pass. An empty text shows `(no text)`. One pager runs at a time.
+`con_page_text(owner, title, text, len, cb, ctx)` pushes a full-screen pager: a title row, 28 rows of body at 78 columns and a status row `line A to B of N` with the keys. It copies the text into the kernel heap with every byte outside printable ASCII as `.`, and allocates the pager's index there. It frees both when the person leaves. Texts up to 1 MiB are accepted; a 64 KiB text wraps in one loop pass. An empty text shows `(no text)`. One pager runs at a time.
 
 `out.c` holds `con_print()`, `con_message()` for `%FAC-S-IDENT, text` lines from `dcl_format_message()`, `con_clear_rows()`, a status row at the bottom (`con_status_set()`, `con_status_clear()`, `con_status_redraw()`) and `con_pause()`, a "press a key" screen. `con_print()` cuts a line at the screen width and also sends it to the PL011.
 
@@ -349,13 +518,13 @@ Maintenance commands, for tests and operators:
 |---|---|
 | `readline <flags> <max> [prompt]` | `ok`, then `ev=line state=reading` and, when the read ends, `ev=line result=<ok\|cancel> len=<n> text=<"text"\|masked>`. Flags are `-`, or `m` for masked and `h` for no history. The text shows a blank, a quote and `%` as `%XX`, and stops at 160 characters with `cut=1`. `err busy` while a read runs, and the refused command leaves the running read's flags alone. |
 | `page <short\|long\|empty\|big>` | A built-in test text. `ev=page top=<n> shown=<n> lines=<n>` on show and on each move, `ev=page result=done` when left, `ev=page result=cancel` when left with Ctrl-C. `err busy` while a pager runs. |
-| `osk <open\|close\|state>` | `open` and `close` act on the active read, else `err no line`. `state` answers `osk open= layer= row= col= line= reading=`. The keyboard marks `ev=osk state=open` and `ev=osk state=closed`. |
+| `osk <open\|close\|state>` | `open` and `close` act on the active read, else `err no line`. A read under another screen marks `ev=osk result=covered` and nothing changes. `state` answers `osk open= layer= row= col= line= reading=`. The keyboard marks `ev=osk state=open` and `ev=osk state=closed`. |
 
 ### Session
 
 The `session` service, `src/session/sessvc.c` and `sesscreen.c`, loads the user database, runs the login screen and holds the session. Its rules are pure, in `login.c`. Other services and screens call `src/session/sess.h`, prefix `sess_`. The [session page](modules/session.md#the-session-service) has the details: the database states, the markers, the `sess` command and the secrets rules.
 
-Its screens are on the kernel's stack. While nobody is logged in the bottom screen is `login` or `lockout`. After a login it is `welcome`, then the registered next screen or the placeholder `noshell`. A logout pops every screen above the bottom one, then shows `login`.
+Its screens are on the kernel's stack. While nobody is logged in the bottom screen is `login` or `lockout`. After a login it is `welcome`, then the screen of `sess_set_next()`: the shell. A logout pops every screen above the bottom one, then shows `login`.
 
 ```mermaid
 stateDiagram-v2
@@ -365,13 +534,17 @@ stateDiagram-v2
     system --> [*]: F4 restarts
     login --> login: wrong login, Ctrl-C, empty name
     login --> lockout: retries failed logins
+    login --> hack: F2 on an empty name
+    hack --> login: BACK
+    hack --> lockout: no attempt left
+    hack --> welcome: the password
     lockout --> login: lockout_s passed
     login --> welcome: good login
     welcome --> next: 1.5 s or a key
-    next --> login: logout, BACK, sess logout, idle time
+    next --> login: LOGOUT, sess logout, idle time
 ```
 
-`next` is the screen of `sess_set_next()`, or `noshell`.
+`next` is the screen of `sess_set_next()`, the `shell`. With no screen registered the session ends at once with `session screen=none`. The shell service always registers one, so a build with the shell never shows this.
 
 | Call | Context | For |
 |---|---|---|
@@ -380,6 +553,11 @@ stateDiagram-v2
 | `sess_logout(reason)` | loop | End the session: `SESS_END_USER`, `MAINT`, `IDLE` or `SHELL` |
 | `sess_set_next(fn)` | loop | The screen after login, once per boot. The shell or the terminal menu sets it. |
 | `sess_db()`, `sess_find(name)` | any | The user records, read only: the minigame and an `AUTHORIZE`-style listing |
+| `sess_hack_check()` | any | May the password game run now: an `lg_hack_t` reason |
+| `sess_hack_begin()` | loop | A won game: a session for the `[hack] user` with no password, `how=hack` |
+| `sess_hack_lock()` | loop | A lost game: the login's lock for `[hack] lockout_s` |
+| `sess_set_hack_entry(fn)`, `sess_resume()` | loop | The login's F2 entry to the game, and the way back to the prompt |
+| `sess_prompt_on_top()` | any | The login or its user name read is the top screen, nobody logged in |
 
 The password check costs 2000 to 3999 SHA-256 compressions. It runs at most 256 per loop pass, posted to the loop, so time, input and the device watchdog run between steps. One check took 7 to 18 ms in QEMU on the four boards, in 8 or 16 steps of at most 0.9 ms. These are QEMU numbers; QEMU does not model caches. The MMU and the caches are on, see [Memory](#memory).
 
@@ -406,7 +584,9 @@ Its init calls `sess_set_next()`, so the welcome screen hands over to the `shell
 - A complete line goes to `dcl_parse()` with `dcl_uos_table`. `DCL_INSFPRM` asks `_<prompt>: `, such as `_File: `, appends the answer and parses again. An empty answer asks again. Ctrl-C at any prompt drops the line.
 - `dcl_check_privs()` checks the parsed command against the session's mask before anything runs.
 
-Output goes through `con_print()`, so it scrolls in the console's text rows and also reaches the PL011. The shell keeps the last 40 rows it printed and repaints them when it becomes the top screen again, after the pager or the on-screen keyboard. `TYPE /PAGE` uses `con_page_text()`.
+Output goes through `con_print()`, so it scrolls in the console's text rows and also reaches the PL011. The shell keeps the last 40 rows it printed. Its screen is full: `draw()` clears the console and repaints those rows, so a pop or `uos_screen_expose()` over it redraws from the shell up, after the pager, the holotape reader or the on-screen keyboard.
+
+The shell follows the held-key rule of [Screens](#screens). Its own screen acts on Ctrl-C only, a character from the serial line with no repeat: each Ctrl-C is a new press. While a command runs, the shell screen takes every other key and drops it. Typed characters and moves repeat in the `$` read, a `/CONFIRM` question and the on-screen keyboard. SELECT accepts a read on its press only. The pager pages on held arrows and leaves on a fresh BACK; Ctrl-C leaves it with `CON_CANCEL`. The stack drops the repeats of the key that closed a read or the pager, so a held SELECT answers one question and a held BACK leaves one pager. `TYPE /PAGE` uses `con_page_text()`.
 
 #### The executor
 
@@ -414,7 +594,7 @@ One command runs at a time, for the prompt and every other caller together. Othe
 
 | Call | Context | Does |
 |---|---|---|
-| `sh_run_line(line, flags, cb, ctx)` | loop | Runs one line as the logged-in user, with the shell's current folder. `SH_RUN_QUIET` keeps the output off the console. The callback gets a status, `SH_OK`, `SH_WARN`, `SH_FAIL` or `SH_CANCELLED`, and the final message's first line. A missing parameter or a bad line runs as a command that fails: only the prompt asks for a parameter. Returns 0 and calls `cb` exactly once, maybe before it returns; `cb` may be NULL. Or returns `SH_ERR_DOWN`, `SH_ERR_ARG` for NULL, an empty or comment-only line or one over `DCL_LINE_MAX`, `SH_ERR_BUSY` or `SH_ERR_NOUSER`, checked in that order, and never calls `cb`. `SH_RUN_QUIET` keeps output and messages off the console; a question still shows. |
+| `sh_run_line(line, flags, cb, ctx)` | loop | Runs one line as the logged-in user, with the shell's current folder. `SH_RUN_QUIET` keeps the output off the console. The callback gets a status, `SH_OK`, `SH_WARN`, `SH_FAIL` or `SH_CANCELLED`, and the final message's first line. A missing parameter or a bad line runs as a command that fails: only the prompt asks for a parameter. Returns 0 and calls `cb` exactly once, maybe before it returns; `cb` may be NULL. Or returns `SH_ERR_DOWN`, `SH_ERR_ARG` for NULL, an empty or comment-only line or one over `DCL_LINE_MAX`, `SH_ERR_BUSY`, `SH_ERR_NOUSER` or `SH_ERR_COVERED`, checked in that order, and never calls `cb`. `SH_ERR_COVERED` means the shell takes no job: its screen is not on the stack yet, as during the welcome, or another screen covers it. `sh_takes_job()` in `shrules.c` is the rule. `SH_RUN_QUIET` keeps output and messages off the console; a question still shows. |
 | `sh_busy()` | any | Non-zero while a command runs |
 | `sh_program_register(name, start)` | loop | A program for `RUN`. `start(args, done, tag)` pushes its screen, returns 0, and calls `done(tag, status, text)` once, with the tag it got. Status 0 is success, `SH_CANCELLED` is Ctrl-C, anything else a failure. Its screen owns the keys, so it must end the run with `SH_CANCELLED` on Ctrl-C. Returns `SH_ERR_DOWN` before the shell service started. A name with no entry answers `%UOS-W-NOTINST, <NAME> is not installed in this build`. At most 8 programs. |
 
@@ -495,9 +675,11 @@ stateDiagram-v2
 | `cmd state=end verb= rc=<IDENT> sev= files= skipped= failed= steps= maxticks=` | A command ends |
 | `sh stale=<step\|read\|pager\|prog> id= cur=` | A callback of an ended run, ignored |
 | `sh held=1 id=`, `sh prog=<reg\|start\|done>` | Test builds: `sh hold` and the test program |
+| `sh op=wait why=covered id= owe=<step\|end>` | A command's step or end is due while another screen covers the shell. Once per wait |
+| `sh op=resume id= owe=<step\|end>` | The shell is on top again and runs what it owed |
 | `term scheme=<name>` | `SET TERMINAL /SCHEME` |
 | `uaf result=written users=` | `SYSUAF.DAT` was written |
-| `sh run=done status= result=<quoted>`, `sh run=refused rc=` | The end of `sh run` |
+| `sh run=done status= result=<quoted>`, `sh run=refused rc=`, `sh run=refused why=covered` | The end of `sh run`. `covered`: another screen covers the shell |
 
 No marker holds a password or a command line.
 
@@ -508,7 +690,50 @@ No marker holds a password or a command line.
 | `sh hold <1\|0>` | Test builds. 1: the next step of a command waits and prints `sh held=1`; Ctrl-C still cancels it. 0: it runs on. |
 | `sh prog reg <NAME>` | Test builds. Registers a test program for `RUN <NAME>`. It pushes no screen and prints `sh prog=start n=` per run. |
 | `sh prog done <n> <status>` | Test builds. Ends the n-th run of the test program, with the tag that run got, even after its job ended. |
-| `sh run <line>` | Runs the line as the session. The line is quoted as the console's markers quote text: a blank is `%20`. A read at the prompt gives way and comes back after. |
+| `sh run <line>` | Runs the line as the session. The line is quoted as the console's markers quote text: a blank is `%20`. A read at the prompt gives way and comes back after. A shell under another screen, such as the holotape reader, refuses with `sh run=refused why=covered`. |
+
+### Holotape reader
+
+The `holo` service, `src/holo/holoscr.c`, registers the `holo` command. The reader is a screen: `holo_screen_start(done, ctx)` pushes it, loop only. It scans `SYS$HOLO`, one tape per loop pass, then shows the model's tape list.
+
+Reads use `vfs_list()` and `vfs_read_all()` with the session's context and privileges. `SYS$HOLO` is readable by every user in the access table and the tape format has no rule of its own, so any user reads tapes, and a later access rule applies here too. With nobody logged in, the reader reads as a user with no privilege and no home.
+
+```mermaid
+stateDiagram-v2
+    [*] --> scan: holo_screen_start
+    scan --> list: one tape per loop pass
+    list --> loading: ENTER on a good tape
+    loading --> list: the read and hf_reader_loaded
+    list --> reading: ENTER on an entry, the pager
+    reading --> list: the pager closes, BACK to the model
+    list --> [*]: BACK on the tape list
+```
+
+A tape loads in one `vfs_read_all()` call, so the screen first draws `LOADING NAME.HTP ...` and posts the read to the next pass. A tape of `HF_TAPE_MAX` bytes took 0.51 to 0.60 s, 56 to 64 ticks, on raspi0, raspi1ap and raspi2b in QEMU over two runs, and 2.7 to 3.0 s, 276 to 301 ticks, on raspi3b. The scan reads each tape whole too, with `Scanning SYS$HOLO ...` on screen. During such a read the loop does not run: input waits in the input layer, timers fire late, and the device service's software watchdog sees no kick for that long. Its limit is 15 s, so it does not fire. These are QEMU numbers.
+
+The states a person can meet: no card, no `HOLO` folder, no tape, a damaged tape listed as damaged, more tapes than the 25 rows of the window (the window scrolls), more than 32 tapes (the list keeps the first 32 and says so), a tape damaged since the scan, a card taken out, and no heap for the tape.
+
+### Password game
+
+The `hack` service, `src/hack/hackscr.c`, registers the `hack` command and the login's entry. The game is a screen: `hack_screen_start(done, ctx)` pushes it, loop only. At the login, F2 on an empty user name line starts it: the read ends with `CON_ALT`, a result a read gets only with `CON_RL_ALTKEY`.
+
+```mermaid
+stateDiagram-v2
+    [*] --> error: refused, or no word list
+    [*] --> playing: board built
+    error --> [*]: BACK, the login prompt again
+    playing --> [*]: BACK
+    playing --> won: the password
+    playing --> lost: no attempt left
+    won --> welcome: after 1 s, sess_hack_begin
+    lost --> lockout: after 1 s, sess_hack_lock
+```
+
+The session service decides who may play, with `lg_hack_allowed()`: the game must be on, the `[hack] user` must exist and be neither disabled nor `NOHACK`, nobody may be logged in, the login must be at the user name prompt and not locked. The game checks before it starts, and `sess_hack_begin()` checks again before the session starts. It plays only when the user name prompt is the top screen at the start, `sess_prompt_on_top()`: a start over another screen, the holotape reader for one, or from a session shows its refusal, and BACK pops that screen alone. A screen closes only itself; only a session change, a win, a loss or a logout, replaces the whole stack. See [hack.md](modules/hack.md#the-screen) for each close path.
+
+A loss locks the terminal with the login's own lock and lockout screen, for `[hack] lockout_s`. There is one lock state: `lk_lock()` sets it with the game's length, and the login's own failures keep theirs. A reboot clears it, as it clears the login's.
+
+The word list is read with `vfs_sys_read_all()`: `/UOS/WORDS` is SYSTEM-only, and the game runs with nobody logged in. The seed comes from the hardware generator, `rng_u32()`; when `rng_init()` fails, from the microsecond timer, and the `hack op=rng` marker says which. The board is drawn on the screen only. The PL011 gets the markers and the result lines, never the board, so no unguessed word reaches it.
 
 ### Devices
 
@@ -617,7 +842,7 @@ The step runs before the screen and before IRQs are enabled, as RobCo-Core's `me
 
 QEMU does not model caches, so the MMU change cannot show a speed-up there. A real Pi should run the login hash and screen copies several times faster with the caches on. That is not measured: nothing is validated on real hardware. The login measures its check in QEMU, see [Session](#session).
 
-The pure files allocate nothing. The kernel base does not allocate yet; the heap is ready for the services that need it.
+The pure files allocate nothing. The file system's whole-file reads take their buffers from the heap. The holotape reader holds one tape there while it is open, up to `HF_TAPE_MAX`, 2098728 bytes, and the pager holds a copy of the entry it shows, up to 64 KiB. The password game keeps its list and board in static memory, about 5 KiB.
 
 ## Pending library features
 

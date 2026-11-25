@@ -11,7 +11,7 @@
 static const char *const err_names[HF_E_COUNT_OF] = {
     "ok", "arg", "toobig", "io", "magic", "version", "size", "subtype", "bounds",
     "abi", "crc", "title", "arcshort", "arcmagic", "arcver", "count", "table",
-    "name", "length", "range", "overlap", "index", "buf", "state",
+    "name", "length", "range", "overlap", "index", "buf", "state", "unchecked",
 };
 
 static const char *const err_text[HF_E_COUNT_OF] = {
@@ -39,6 +39,7 @@ static const char *const err_text[HF_E_COUNT_OF] = {
     "no such entry",
     "buffer too small",
     "not valid on this screen",
+    "tape could not be checked",
 };
 
 const char *hf_err_name(int code)

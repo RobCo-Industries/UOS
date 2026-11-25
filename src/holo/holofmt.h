@@ -62,6 +62,7 @@ typedef enum hf_err {
     HF_E_INDEX,     /* no such entry or tape */
     HF_E_BUF,       /* caller buffer too small */
     HF_E_STATE,     /* call not valid on the current screen */
+    HF_E_UNCHECKED, /* the caller could not read the tape: not known to be damaged */
     HF_E_COUNT_OF
 } hf_err_t;
 
@@ -118,7 +119,7 @@ char hf_display_char(uint8_t c);
 typedef struct hf_tape_info {
     char file[HF_FILE_MAX + 1];     /* "TECHLOG.HTP" */
     char title[HF_TITLE_MAX + 1];   /* from hf_title() when err is HF_OK */
-    int err;                        /* HF_OK, or why the tape is damaged */
+    int err;                        /* HF_OK, HF_E_UNCHECKED, or why the tape is damaged */
 } hf_tape_info_t;
 
 typedef enum hf_screen {
@@ -136,7 +137,7 @@ typedef enum hf_event {
 
 typedef enum hf_act_kind {
     HF_ACT_NONE = 0,
-    HF_ACT_LOAD,    /* read tapes[tape].file and call hf_reader_loaded() */
+    HF_ACT_LOAD,    /* read tapes[tape].file and call hf_reader_loaded() (good or unchecked) */
     HF_ACT_REFUSED, /* the selected tape is damaged; nothing opens */
     HF_ACT_SHOW,    /* show text/len with title in the pager, then send BACK */
     HF_ACT_CLOSE,   /* the open tape closed; its buffer may be freed */
@@ -166,7 +167,9 @@ int hf_reader_init(hf_reader_t *r, const hf_tape_info_t *tapes, uint32_t ntapes)
 
 /*
  * Applies one event and fills *act. UP and DOWN wrap. ENTER on the tape
- * list asks to load a good tape or refuses a damaged one; ENTER on the
+ * list asks to load a good or unchecked tape (HF_E_UNCHECKED: the scan
+ * could not read it, so the load tries again) or refuses a damaged one;
+ * ENTER on the
  * entry list shows an entry. BACK goes reading -> entries -> tapes -> exit.
  * Events on an empty list do nothing. Events while reading other than
  * BACK do nothing.

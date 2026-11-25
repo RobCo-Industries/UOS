@@ -54,4 +54,12 @@ unsigned uos_evq_count(const uos_evq_t *q);
 /* Name of an event type: "key", "char", "tick", "timer", "call", or "none". */
 const char *uos_ev_name(unsigned type);
 
+/*
+ * The held-key rule. A held key sends one press, then repeats. Movement
+ * and typed characters may repeat. An action that confirms, cancels,
+ * changes screen, starts a load or leaves takes only the press.
+ * Returns 1 for a KEY event with value INPUT_PRESS, else 0, NULL too.
+ */
+int uos_ev_fresh_key(const uos_event_t *ev);
+
 #endif

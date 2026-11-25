@@ -4,10 +4,10 @@
  * and osk.c; this file draws and routes events.
  *
  * The screen sits on top of the caller's screen and paints only its own
- * rows: the input row, and the keyboard's rows while it is open. The
- * library console keeps no saved layers, so when the keyboard closes the
- * screen below repaints itself: this screen calls its draw() from its
- * own draw(), then paints the input row again.
+ * rows: the input row, and the keyboard's rows while it is open. It is a
+ * partial screen. The library console keeps no saved layers, so when the
+ * keyboard closes this screen calls uos_screen_expose(): the stack then
+ * redraws the screens below, bottom-up, before this one.
  */
 
 #include <robco/console.h>
@@ -29,8 +29,6 @@ static struct {
     unsigned row;               /* the row drawn now */
     unsigned flags;
     osk_t osk;
-    int redraw_below;
-    uos_screen_t *below;
     con_line_fn cb;
     void *ctx;
 } rl;
@@ -100,11 +98,6 @@ static void paint_osk(void)
 static void rl_draw(uos_screen_t *s)
 {
     (void)s;
-    if (rl.redraw_below && rl.below != NULL && rl.below->draw != NULL) {
-        rl.below->draw(rl.below);
-        con_status_redraw();
-    }
-    rl.redraw_below = 0;
     paint_osk();
     paint_line(1, 0);
     echo(LE_RD_ALL);
@@ -138,13 +131,18 @@ static int feed(const input_event_t *ev)
     return r;
 }
 
+static uos_screen_t rl_screen;
+
+/* LE_ACCEPT, LE_CANCEL, or RL_ALT for the alt key. */
+#define RL_ALT  100
+
 static void finish(int r)
 {
     con_line_fn cb = rl.cb;
     void *ctx = rl.ctx;
-    int result = r == LE_ACCEPT ? CON_OK : CON_CANCEL;
+    int result = r == LE_ACCEPT ? CON_OK : r == RL_ALT ? CON_ALT : CON_CANCEL;
 
-    if (result == CON_CANCEL) {
+    if (result != CON_OK) {
         rl.buf[0] = 0;
     }
     osk_close(&rl.osk);
@@ -154,7 +152,7 @@ static void finish(int r)
     /* The serial line ends with the read. */
     uos_serial_break();
     rl.active = 0;
-    (void)uos_screen_pop();
+    (void)uos_screen_pop(&rl_screen);
     if (cb != NULL) {
         cb(result, rl.buf, (unsigned)k_strlen(rl.buf), ctx);
     }
@@ -181,6 +179,10 @@ static int rl_event(uos_screen_t *s, const uos_event_t *ev)
     in.value = ev->value;
     in.t_ms = 0;
 
+    if (cv_alt_key(&in, (rl.flags & CON_RL_ALTKEY) != 0, le_len(&rl.le), was_open)) {
+        finish(RL_ALT);
+        return 1;
+    }
     if (cv_opens_osk(&in, was_open)) {
         (void)con_osk_open();
         return 1;
@@ -204,8 +206,7 @@ static int rl_event(uos_screen_t *s, const uos_event_t *ev)
     }
     if (was_open && !osk_is_open(&rl.osk)) {
         UOS_MARK("osk state=closed");
-        rl.redraw_below = 1;
-        uos_screen_invalidate();
+        uos_screen_expose();
     } else if (was_open) {
         paint_osk();
         paint_line(1, 0);
@@ -236,17 +237,38 @@ static void rl_leave(uos_screen_t *s)
     UOS_MARK("line result=abort");
 }
 
-static uos_screen_t rl_screen = { "readline", NULL, rl_leave, rl_event, rl_draw, NULL };
+static uos_screen_t rl_screen = { "readline", NULL, rl_leave, rl_event, rl_draw, NULL, 0, NULL, NULL };
 
 int con_line_active(void)
 {
     return rl.active;
 }
 
+int con_line_on_top(void)
+{
+    return rl.active && uos_screen_unit_on_top(&rl_screen);
+}
+
+int con_line_abort(void)
+{
+    if (!rl.active) {
+        return CON_ERR_BUSY;
+    }
+    if (!uos_screen_on_top(&rl_screen)) {
+        return CON_ERR_COVERED;
+    }
+    /* rl_leave() ends the read with no callback. */
+    (void)uos_screen_pop(&rl_screen);
+    return 0;
+}
+
 int con_osk_open(void)
 {
     if (!rl.active) {
         return CON_ERR_BUSY;
+    }
+    if (!uos_screen_on_top(&rl_screen)) {
+        return CON_ERR_COVERED;
     }
     if (!osk_is_open(&rl.osk)) {
         osk_open(&rl.osk, (rl.flags & CON_RL_MASK) != 0);
@@ -262,11 +284,13 @@ int con_osk_close(void)
     if (!rl.active) {
         return CON_ERR_BUSY;
     }
+    if (!uos_screen_on_top(&rl_screen)) {
+        return CON_ERR_COVERED;
+    }
     if (osk_is_open(&rl.osk)) {
         osk_close(&rl.osk);
         UOS_MARK("osk state=closed");
-        rl.redraw_below = 1;
-        uos_screen_invalidate();
+        uos_screen_expose();
     }
     return 0;
 }
@@ -284,7 +308,7 @@ void con_osk_state(int *open, unsigned *layer, unsigned *row, unsigned *col,
     *line_row = rl.row;
 }
 
-int con_read_line(const char *prompt, unsigned flags, unsigned max, con_line_fn cb, void *ctx)
+int con_read_line(struct uos_screen *owner, const char *prompt, unsigned flags, unsigned max, con_line_fn cb, void *ctx)
 {
     unsigned col = 0, row = 0, last;
     size_t n;
@@ -308,14 +332,13 @@ int con_read_line(const char *prompt, unsigned flags, unsigned max, con_line_fn 
         rl.prompt[n++] = ' ';
     }
     rl.prompt[n] = 0;
-    if (le_init(&rl.le, rl.buf, sizeof(rl.buf), max, flags, &con_history,
-                cv_line_width(n, con_cols())) != 0) {
+    if (le_init(&rl.le, rl.buf, sizeof(rl.buf), max, flags & (CON_RL_MASK | CON_RL_NOHIST),
+                &con_history, cv_line_width(n, con_cols())) != 0) {
         return CON_ERR_ARG;
     }
     rl.plen = (unsigned)n;
     rl.flags = flags;
     osk_init(&rl.osk);
-    rl.redraw_below = 0;
     rl.cb = cb;
     rl.ctx = ctx;
 
@@ -335,8 +358,7 @@ int con_read_line(const char *prompt, unsigned flags, unsigned max, con_line_fn 
     }
     rl.want_row = row;
     rl.row = row;
-    rl.below = uos_screen_top();
-    if (uos_screen_push(&rl_screen) != 0) {
+    if (uos_screen_push_child(&rl_screen, owner) != 0) {
         return CON_ERR_SCREEN;
     }
     rl.active = 1;

@@ -1,6 +1,6 @@
 /*
- * The session's screens: login, lockout, welcome and the placeholder that
- * runs after a login until a shell registers itself. Thin: every decision
+ * The session's screens: login, lockout and welcome. After the welcome the
+ * screen of sess_set_next() takes over. Thin: every decision
  * comes from login.c. The state machine is lg_next(); sess_go() applies an
  * event and shows the screen of the new state.
  *
@@ -126,16 +126,34 @@ static void login_draw(uos_screen_t *s)
     set_cursor(sess.st == LG_S_PASS ? ROW_PASS : ROW_USER);
 }
 
+/* Non-zero while the user name read line runs over the login screen. */
+static int reading_user;
+
+int sess_prompt_on_top(void)
+{
+    if (sess.in || sess.st != LG_S_USER) {
+        return 0;
+    }
+    /* The user name read is the login's child: the unit is on top. */
+    return uos_screen_unit_on_top(&sess_login_screen);
+}
+
+/* Starts the user name read. A posted call and login_uncover() both come
+ * here: the first one that finds the login on top with no read starts it,
+ * and the other finds the read running and does nothing. A covered login
+ * starts nothing; it owes the read, and login_uncover() starts it. */
 static void start_user(void *arg)
 {
     int rc;
 
     (void)arg;
-    if (sess.st != LG_S_USER || uos_screen_top() != &sess_login_screen) {
+    if (sess.st != LG_S_USER || reading_user || con_line_active() ||
+        !uos_screen_on_top(&sess_login_screen)) {
         return;
     }
     set_cursor(ROW_USER);
-    rc = con_read_line("USERNAME:", CON_RL_NOHIST, UAF_NAME_MAX, on_user, NULL);
+    rc = con_read_line(&sess_login_screen, "USERNAME:", CON_RL_NOHIST | CON_RL_ALTKEY, UAF_NAME_MAX, on_user, NULL);
+    reading_user = rc == 0;
     UOS_MARK("login state=user rc=%d", rc);
 }
 
@@ -144,7 +162,7 @@ static void start_pass(void)
     int rc;
 
     set_cursor(ROW_PASS);
-    rc = con_read_line("PASSWORD:", CON_RL_MASK | CON_RL_NOHIST, UAF_PASSWORD_MAX, on_pass, NULL);
+    rc = con_read_line(&sess_login_screen, "PASSWORD:", CON_RL_MASK | CON_RL_NOHIST, UAF_PASSWORD_MAX, on_pass, NULL);
     UOS_MARK("login state=pass rc=%d", rc);
 }
 
@@ -163,9 +181,24 @@ static void step(lg_event_t e)
     uos_screen_invalidate();
 }
 
+void sess_prompt_later(void)
+{
+    later(start_user);
+}
+
 static void on_user(int result, const char *text, unsigned len, void *ctx)
 {
     (void)ctx;
+    reading_user = 0;
+    if (result == CON_ALT) {
+        /* F2 on an empty name: the password game, when one is installed. */
+        UOS_MARK("login state=hack");
+        if (sess.hack != NULL && sess.hack() == 0) {
+            return;
+        }
+        later(start_user);
+        return;
+    }
     if (result != CON_OK) {
         step(LG_E_USER_CANCEL);
     } else if (len == 0) {
@@ -223,20 +256,20 @@ static void check_done(void)
     /* A disabled account counts as a failure and shows the same message:
      * the screen never tells that the password was right. */
     if (rc == UAF_OK) {
-        lk_success(&sess.lk);
+        sess_begin(idx, "login");           /* clears the failure count */
         UOS_MARK("login user=%s result=ok left=%u steps=%u ticks=%u us=%u maxstep_us=%u", name,
                  lk_tries_left(&sess.lk), (unsigned)steps, ticks, us, (unsigned)chk_maxstep_us);
         sess.typed[0] = '\0';
         sess.msg_text[0] = '\0';
-        sess_begin(idx, "login");
         sess_go(LG_E_GOOD);
         return;
     }
     /* One reading for the lock and its start marker: a tick between two
-     * readings would make the marker later than the lock. */
+     * readings would make the marker later than the lock. A lock that
+     * already runs keeps its own start tick. */
     now = uos_ticks();
     locked = lk_fail(&sess.lk, now * (1000u / UOS_TICK_HZ));
-    if (locked) {
+    if (locked == LK_STARTED) {
         sess.lock_tick = now;
     }
     UOS_MARK("login user=%s result=bad left=%u steps=%u ticks=%u us=%u maxstep_us=%u", name,
@@ -309,16 +342,35 @@ static int login_event(uos_screen_t *s, const uos_event_t *ev)
     return ev->type == UOS_EV_KEY || ev->type == UOS_EV_CHAR;
 }
 
+/* On top again, after the screen over it closed. At the user name prompt
+ * the login owes a read: start it, so keys reach a prompt. In the other
+ * states a read runs, the check steps on its own, or the state machine
+ * moves to another screen. */
+static void login_uncover(uos_screen_t *s)
+{
+    (void)s;
+    start_user(NULL);
+}
+
 uos_screen_t sess_login_screen = {
     .name = "login",
+    .uncover = login_uncover,
     .enter = login_enter,
     .event = login_event,
     .draw = login_draw,
+    .full = 1,
 };
 
 /* ---- The lockout screen ---- */
 
 static uos_timer_id_t lock_timer;
+static uos_screen_t lock_screen;
+
+static const char *lock_text(void)
+{
+    return sess.lock_hack ? "TERMINAL LOCKED: PASSWORD RECOVERY FAILED."
+                          : "TERMINAL LOCKED: TOO MANY FAILED LOGINS.";
+}
 
 static void lock_draw(uos_screen_t *s)
 {
@@ -326,7 +378,7 @@ static void lock_draw(uos_screen_t *s)
 
     (void)s;
     header(0);
-    put_row(ROW_MSG, "TERMINAL LOCKED: TOO MANY FAILED LOGINS.", CONSOLE_ATTR_BRIGHT);
+    put_row(ROW_MSG, lock_text(), CONSOLE_ATTR_BRIGHT);
     (void)lg_locked_line(line, sizeof(line), lk_remaining_s(&sess.lk, sess_now_ms()));
     put_row(ROW_USER, line, CONSOLE_ATTR_NORMAL);
     put_row(ROW_PASS, "INPUT IS REFUSED UNTIL THEN.", CONSOLE_ATTR_DIM);
@@ -341,7 +393,8 @@ static void lock_end(uint32_t now)
     }
     (void)uos_timer_cancel(lock_timer);
     lock_timer = UOS_TIMER_NONE;
-    UOS_MARK("lockout state=end t=%u", (unsigned)now);
+    UOS_MARK("lockout state=end t=%u why=%s", (unsigned)now, sess.lock_hack ? "hack" : "login");
+    sess.lock_hack = 0;
     sess_go(LG_E_LOCK_END);
 }
 
@@ -357,7 +410,7 @@ static void lock_second(void *arg)
         return;
     }
     UOS_MARK("lockout s=%u", (unsigned)left);
-    uos_screen_invalidate();
+    uos_screen_dirty(&lock_screen);
 }
 
 static void lock_enter(uos_screen_t *s)
@@ -366,9 +419,10 @@ static void lock_enter(uos_screen_t *s)
     uint32_t left = lk_remaining_s(&sess.lk, sess_now_ms());
 
     (void)s;
-    UOS_MARK("lockout state=start s=%u t=%u", (unsigned)left, (unsigned)sess.lock_tick);
+    UOS_MARK("lockout state=start s=%u t=%u why=%s", (unsigned)left, (unsigned)sess.lock_tick,
+             sess.lock_hack ? "hack" : "login");
     header(1);
-    sess_serial("TERMINAL LOCKED: TOO MANY FAILED LOGINS.");
+    sess_serial(lock_text());
     (void)lg_locked_line(line, sizeof(line), left);
     sess_serial(line);
     if (uos_timer_start(LOCK_TICKS, LOCK_TICKS, lock_second, NULL, &lock_timer) != 0) {
@@ -408,49 +462,7 @@ static uos_screen_t lock_screen = {
     .leave = lock_leave,
     .event = lock_event,
     .draw = lock_draw,
-};
-
-/* ---- The placeholder after a login ---- */
-
-static void nosh_draw(uos_screen_t *s)
-{
-    char line[UOS_LINE_MAX + 1];
-    char privs[UAF_PRIVS_TEXT_MAX];
-
-    (void)s;
-    header(0);
-    if (uaf_privs_format(sess.privs, privs, sizeof(privs)) != UAF_OK || privs[0] == '\0') {
-        k_snprintf(privs, sizeof(privs), "%s", "NONE");
-    }
-    k_snprintf(line, sizeof(line), "USER: %s    PRIVILEGES: %s", sess.user, privs);
-    put_row(ROW_MSG, line, CONSOLE_ATTR_BRIGHT);
-    put_row(ROW_USER, "No shell is installed in this build.", CONSOLE_ATTR_NORMAL);
-    put_row(ROW_PASS, "PRESS BACK TO LOG OUT.", CONSOLE_ATTR_DIM);
-    con_status_redraw();
-}
-
-static void nosh_enter(uos_screen_t *s)
-{
-    (void)s;
-    sess_serial("No shell is installed in this build.");
-    sess_serial("PRESS BACK TO LOG OUT.");
-}
-
-static int nosh_event(uos_screen_t *s, const uos_event_t *ev)
-{
-    (void)s;
-    if (ev->type == UOS_EV_KEY && ev->code == INPUT_KEY_BACK) {
-        (void)sess_logout(SESS_END_USER);
-        return 1;
-    }
-    return ev->type == UOS_EV_KEY || ev->type == UOS_EV_CHAR;
-}
-
-static uos_screen_t nosh_screen = {
-    .name = "noshell",
-    .enter = nosh_enter,
-    .event = nosh_event,
-    .draw = nosh_draw,
+    .full = 1,
 };
 
 /* ---- The welcome ---- */
@@ -483,7 +495,10 @@ static void welcome_done(void *arg)
         next = sess.next();
     }
     if (next == NULL) {
-        next = &nosh_screen;
+        /* No service registered a screen: no session without a screen. */
+        UOS_MARK("session screen=none");
+        (void)sess_logout(SESS_END_SHELL);
+        return;
     }
     sess.st = lg_next(sess.st, LG_E_WELCOME_DONE).next;
     sess_show_only(next);
@@ -518,11 +533,10 @@ static void welcome_leave(uos_screen_t *s)
 static int welcome_event(uos_screen_t *s, const uos_event_t *ev)
 {
     (void)s;
-    if (ev->type == UOS_EV_KEY || ev->type == UOS_EV_CHAR) {
+    if (uos_ev_fresh_key(ev) || ev->type == UOS_EV_CHAR) {
         welcome_done(NULL);
-        return 1;
     }
-    return 0;
+    return ev->type == UOS_EV_KEY || ev->type == UOS_EV_CHAR;
 }
 
 static uos_screen_t welcome_screen = {
@@ -531,6 +545,7 @@ static uos_screen_t welcome_screen = {
     .leave = welcome_leave,
     .event = welcome_event,
     .draw = welcome_draw,
+    .full = 1,
 };
 
 /* ---- Moving between them ---- */
@@ -539,9 +554,9 @@ void sess_show_only(uos_screen_t *s)
 {
     /* Every screen above the bottom one leaves first: a read or a pager
      * ends without calling back. */
-    while (uos_screen_pop() == 0) {
-    }
-    if (uos_screen_top() != s) {
+    (void)uos_screen_unwind();
+    reading_user = 0;
+    if (!uos_screen_on_top(s)) {
         (void)uos_screen_replace(s);
     } else {
         uos_screen_invalidate();
@@ -563,7 +578,7 @@ void sess_go(lg_event_t e)
     switch (sess.st) {
     case LG_S_USER:
         sess.typed[0] = '\0';
-        if (uos_screen_top() == &sess_login_screen) {
+        if (uos_screen_on_top(&sess_login_screen)) {
             /* The first start: the login screen is already shown. */
             uos_screen_invalidate();
             later(start_user);
