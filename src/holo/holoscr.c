@@ -10,11 +10,13 @@
  * Maintenance command:
  *   holo open          posts holo_screen_start()
  *   holo list          one line per tape: i= file= err= title=
- *   holo pick <n>      moves the selection to item n of the shown list, then ENTER
+ *   holo pick <n>      moves the selection to item n of the shown list, then ENTER;
+ *                      the index and the screen it was meant for travel in the call
  *   holo state         state= scan= tapes= total= sel= entry= open= msg= pending=
  * Test builds only (UOS_TEST_HOOKS=1):
  *   holo hog           takes the heap until no tape fits, or gives it back
  * Markers:
+ *   holo result=<busy|range|gone>   a posted call that could not act
  *   holo op=open, holo op=exit
  *   holo op=tape i= file= result=<ok|hf error> bytes= us=      one per scanned tape
  *   holo op=scan result=<list|empty|nocard|nofolder|error> total= kept= damaged= rc=
@@ -67,7 +69,7 @@ static struct {
     holo_done_fn done;
     void *ctx;
     unsigned posted;            /* maintenance calls not yet run */
-    uint32_t pick;
+    uint16_t closes;            /* times the screen closed: tags posted calls */
 } hs;
 
 static uos_screen_t holo_screen;
@@ -156,11 +158,14 @@ static void holo_draw(uos_screen_t *s)
 
 /* ---- Scan ---- */
 
+/* The step carries the screen it belongs to: a step left over from a closed
+ * reader never runs in the next one. */
 static void later(uos_call_fn fn)
 {
     uos_timer_id_t id;
+    void *arg = (void *)(uintptr_t)hs.closes;
 
-    if (uos_post(fn, NULL) != 0 && uos_timer_start(1, 0, fn, NULL, &id) != 0) {
+    if (uos_post(fn, arg) != 0 && uos_timer_start(1, 0, fn, arg, &id) != 0) {
         uos_set_error("holo");
     }
 }
@@ -188,8 +193,7 @@ static void scan_step(void *arg)
     uint32_t us = 0;
     int rc;
 
-    (void)arg;
-    if (hs.st != ST_SCAN) {
+    if (hs.st != ST_SCAN || (uint16_t)(uintptr_t)arg != hs.closes) {
         return;
     }
     if (hs.next >= hs.kept) {
@@ -272,8 +276,7 @@ static void load_step(void *arg)
     int rc, hrc = HF_OK;
     const char *file = hs.tapes[hs.open].file;
 
-    (void)arg;
-    if (hs.st != ST_LOADING) {
+    if (hs.st != ST_LOADING || (uint16_t)(uintptr_t)arg != hs.closes) {
         return;
     }
     rc = read_tape(file, &buf, &len, &us);
@@ -374,6 +377,7 @@ static void holo_leave(uos_screen_t *s)
     (void)s;
     close_tape();
     hs.st = ST_CLOSED;
+    hs.closes++;
     hs.done = NULL;
     hs.msg[0] = '\0';
     UOS_MARK("holo op=exit");
@@ -450,12 +454,19 @@ static void post_open(void *arg)
     }
 }
 
+/* The index and the screen's close count travel in the argument: two picks
+ * posted back to back each keep their own, and a pick meant for a reader
+ * that has closed since does nothing. */
 static void post_pick(void *arg)
 {
-    uint32_t want = hs.pick, *sel, n;
+    uintptr_t v = (uintptr_t)arg;
+    uint32_t want = (uint32_t)(v & 0xffffu), *sel, n;
 
-    (void)arg;
     hs.posted--;
+    if ((uint16_t)(v >> 16) != hs.closes || hs.st == ST_CLOSED) {
+        UOS_MARK("holo result=gone");
+        return;
+    }
     if (hs.st != ST_LIST) {
         UOS_MARK("holo result=busy");
         return;
@@ -472,9 +483,9 @@ static void post_pick(void *arg)
     model_event(HF_EV_ENTER);
 }
 
-static int post(uos_call_fn fn)
+static int post(uos_call_fn fn, void *arg)
 {
-    if (uos_post(fn, NULL) != 0) {
+    if (uos_post(fn, arg) != 0) {
         return uos_maint_fail("full");
     }
     hs.posted++;
@@ -555,13 +566,15 @@ static int cmd_holo(int argc, char **argv)
     }
 #endif
     if (argc == 1 && k_strcmp(argv[0], "open") == 0) {
-        return post(post_open);
+        return post(post_open, NULL);
     }
     if (argc == 2 && k_strcmp(argv[0], "pick") == 0) {
-        if (uos_dec_u32(argv[1], HF_TAPES_MAX, &hs.pick) != 0) {
+        uint32_t n;
+
+        if (uos_dec_u32(argv[1], HF_TAPES_MAX, &n) != 0) {
             return uos_maint_fail("usage holo pick <n>");
         }
-        return post(post_pick);
+        return post(post_pick, (void *)(((uintptr_t)hs.closes << 16) | n));
     }
     return uos_maint_fail("usage holo open|list|pick <n>|state");
 }

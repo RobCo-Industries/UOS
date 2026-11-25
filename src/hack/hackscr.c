@@ -67,6 +67,7 @@ static struct {
     void *ctx;
     int how;
     uos_timer_id_t pause;
+    uint16_t closes;            /* times the screen closed: tags posted calls */
     unsigned posted;
 #if defined(UOS_TEST_HOOKS) && UOS_TEST_HOOKS
     int fixed;
@@ -358,6 +359,7 @@ static void hack_leave(uos_screen_t *s)
         UOS_MARK("hack op=end result=left");
     }
     hg.st = HG_S_OFF;
+    hg.closes++;
     hg.done = NULL;
     /* Nothing of the board stays in memory once the game is over. */
     k_memset(&game, 0, sizeof(game));
@@ -431,6 +433,19 @@ static void post_start(void *arg)
     }
 }
 
+/* Bits 16 and up of a posted argument: the screen's close count when the
+ * command came. A call meant for a game that has ended since, or that finds
+ * no game, does nothing and says so. */
+static int stale(uintptr_t v)
+{
+    hg.posted--;
+    if ((uint16_t)(v >> 16) != hg.closes || hg.st == HG_S_OFF) {
+        UOS_MARK("hack result=gone");
+        return 1;
+    }
+    return 0;
+}
+
 /* The direction and the count travel in the argument: two moves posted
  * back to back each keep their own. */
 static void post_move(void *arg)
@@ -438,24 +453,26 @@ static void post_move(void *arg)
     uintptr_t v = (uintptr_t)arg;
     unsigned i;
 
-    hg.posted--;
+    if (stale(v)) {
+        return;
+    }
     for (i = 0; i < (v & 0xffu); i++) {
-        do_key(HG_K_MOVE, (hk_dir_t)(v >> 8));
+        do_key(HG_K_MOVE, (hk_dir_t)((v >> 8) & 0xffu));
     }
 }
 
 static void post_select(void *arg)
 {
-    (void)arg;
-    hg.posted--;
-    do_key(HG_K_SELECT, HK_UP);
+    if (!stale((uintptr_t)arg)) {
+        do_key(HG_K_SELECT, HK_UP);
+    }
 }
 
 static void post_back(void *arg)
 {
-    (void)arg;
-    hg.posted--;
-    do_key(HG_K_BACK, HK_UP);
+    if (!stale((uintptr_t)arg)) {
+        do_key(HG_K_BACK, HK_UP);
+    }
 }
 
 static int post_arg(uos_call_fn fn, void *arg)
@@ -467,9 +484,10 @@ static int post_arg(uos_call_fn fn, void *arg)
     return 0;
 }
 
-static int post(uos_call_fn fn)
+/* Tags the call with the screen it is meant for. */
+static int post(uos_call_fn fn, uintptr_t v)
 {
-    return post_arg(fn, NULL);
+    return post_arg(fn, (void *)(((uintptr_t)hg.closes << 16) | v));
 }
 
 static void reply_state(void)
@@ -551,20 +569,20 @@ static int cmd_hack(int argc, char **argv)
         return uos_maint_fail("not ready");
     }
     if (argc == 1 && k_strcmp(argv[0], "start") == 0) {
-        return post(post_start);
+        return post_arg(post_start, NULL);
     }
     if (argc == 1 && k_strcmp(argv[0], "select") == 0) {
-        return post(post_select);
+        return post(post_select, 0);
     }
     if (argc == 1 && k_strcmp(argv[0], "back") == 0) {
-        return post(post_back);
+        return post(post_back, 0);
     }
     if ((argc == 2 || argc == 3) && k_strcmp(argv[0], "move") == 0) {
         if (parse_dir(argv[1], &dir) != 0 ||
             (argc == 3 && (uos_dec_u32(argv[2], MOVES_MAX, &n) != 0 || n == 0))) {
             return uos_maint_fail("usage hack move up|down|left|right [n]");
         }
-        return post_arg(post_move, (void *)(((uintptr_t)dir << 8) | n));
+        return post(post_move, ((uintptr_t)dir << 8) | n);
     }
 #if defined(UOS_TEST_HOOKS) && UOS_TEST_HOOKS
     if (argc == 2 && k_strcmp(argv[0], "seed") == 0) {
