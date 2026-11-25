@@ -82,7 +82,7 @@ The user database: a 32-byte header, then one 96-byte record per user, at most 3
 
 ## SYSUAF.DEF
 
-The default user database, the same bytes as the card's fresh `SYSUAF.DAT`. `card/UOS/SYSUAF.DEF` is a copy of `card/UOS/SYSUAF.DAT`, so `make sdimage` puts both on the card. The maintenance image's restore users tool copies it over `SYSUAF.DAT` when every password is lost, see RobCo-Core's `BOOT_PROTOCOL.md`, "Maintenance image". UOS never reads or writes it. Rebuild both files together when `tools/default_users.ini` changes.
+The default user database, the same bytes as the card's fresh `SYSUAF.DAT`. `card/UOS/SYSUAF.DEF` is a copy of `card/UOS/SYSUAF.DAT`, so `make sdimage` puts both on the card. The maintenance image's restore users tool copies it over `SYSUAF.DAT` when every password is lost, see RobCo-Core's `BOOT_PROTOCOL.md`, "Maintenance image". UOS never writes it. The path module protects it as it protects `SYSUAF.DAT` for reading, `SYSTEM` or `SECURITY`, and refuses every change for every user with `%UOS-E-PROTECT`, see [vfs-path](modules/vfs-path.md). Rebuild both files together when `tools/default_users.ini` changes.
 
 ## MAINT.REQ
 

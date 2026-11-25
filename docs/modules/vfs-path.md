@@ -101,12 +101,14 @@ Each cell is read, write, delete, list. OK is allowed, NP is `VP_E_NOPRIV`, RO i
 | Another home, or a file directly in `HOME` | NP NP NP NP | NP NP NP NP | OK NP NP OK | OK OK OK OK |
 | The `HOME` folder | NP NP NP NP | NP NP NP NP | NP NP NP OK | OK OK OK OK |
 | `/UOS/SYSUAF.DAT` | NP PR PR NP | OK PR PR OK | NP PR PR NP | OK PR PR OK |
+| `/UOS/SYSUAF.DEF` | NP PR PR NP | OK PR PR OK | NP PR PR NP | OK PR PR OK |
 | The root, other root files, other folders such as `WORDS` | NP NP NP NP | NP NP NP NP | NP NP NP NP | OK OK OK OK |
 | `BOOT:` | NP RO RO NP | NP RO RO NP | NP RO RO NP | OK RO RO OK |
 | `DEV:` | OK OK NP OK | OK OK NP OK | OK OK NP OK | OK OK NP OK |
 
 - `DEV:` reads and writes pass here. The device module checks each device's own `privs` mask.
 - A wildcard result checks the folder. The caller checks each matched file again, so `DELETE *.*` at the root still meets the `SYSUAF.DAT` rule.
+- `SYSUAF.DEF` holds the default users that the maintenance image restores. Nobody may change it, so a restore always gives known defaults. Any write, delete, copy or rename onto or over it is `VP_E_PROTECTED`, whatever the privilege.
 - An unknown op is `VP_E_NOPRIV`.
 
 ## Limits
