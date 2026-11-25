@@ -247,3 +247,104 @@ TEST(dev_paths_are_left_alone)
     CHECK_EQ(vfs_exists(&ctx, 0, "DEV:LAMP"), VFS_E_NODEV);
     CHECK(there("#S1.TXT"));
 }
+
+/* ---- The maintenance request ---- */
+
+static const char *const none[] = { NULL };
+
+/* A fresh card with a /ROBCO folder, then read-only if asked. */
+static void boot_card(int read_only)
+{
+    card(none, 0);
+    CHECK_EQ(fs_mkdir("/ROBCO"), FS_OK);
+    if (read_only) {
+        CHECK_EQ(fs_unmount("sd"), FS_OK);
+        dev.flags |= BLK_FLAG_READONLY;
+        CHECK_EQ(fs_mount("sd", &dev), FS_OK);
+    }
+}
+
+static int req_text(char *out, size_t size)
+{
+    size_t len = 0;
+    int rc = fs_read_file(VFS_MAINT_REQ_PATH, out, size - 1, &len);
+
+    out[rc == FS_OK ? len : 0] = '\0';
+    return rc;
+}
+
+TEST(maint_request_is_created_with_its_note)
+{
+    char text[80];
+    int made = -1;
+
+    boot_card(0);
+    CHECK_EQ(vfs_maint_request("NOTE\r\n", &made), VFS_OK);
+    CHECK_EQ(made, 1);
+    CHECK_EQ(req_text(text, sizeof(text)), FS_OK);
+    CHECK_STR(text, "NOTE\r\n");
+    /* A plain name: no work file next to it. */
+    CHECK(fs_stat("/ROBCO/~MAINT.REQ", &st_b) != FS_OK);
+    CHECK(fs_stat("/ROBCO/#MAINT.REQ", &st_b) != FS_OK);
+}
+
+TEST(maint_request_leaves_an_existing_file)
+{
+    char text[80];
+    int made = -1;
+
+    boot_card(0);
+    put(VFS_MAINT_REQ_PATH, "OLD");
+    CHECK_EQ(vfs_maint_request("NEW", &made), VFS_OK);
+    CHECK_EQ(made, 0);
+    CHECK_EQ(req_text(text, sizeof(text)), FS_OK);
+    CHECK_STR(text, "OLD");
+    /* An empty note makes an empty file, a valid request. */
+    CHECK_EQ(fs_unlink(VFS_MAINT_REQ_PATH), FS_OK);
+    CHECK_EQ(vfs_maint_request(NULL, &made), VFS_OK);
+    CHECK_EQ(made, 1);
+    CHECK_EQ(req_text(text, sizeof(text)), FS_OK);
+    CHECK_STR(text, "");
+}
+
+TEST(maint_request_fails_without_a_file)
+{
+    int made = -1;
+
+    /* No /ROBCO folder. */
+    card(none, 0);
+    CHECK_EQ(vfs_maint_request("X", &made), VFS_E_DIRNF);
+    CHECK_EQ(made, 0);
+    /* A folder of that name. */
+    boot_card(0);
+    CHECK_EQ(fs_mkdir(VFS_MAINT_REQ_PATH), FS_OK);
+    CHECK_EQ(vfs_maint_request("X", &made), VFS_E_ISDIR);
+    CHECK_EQ(made, 0);
+    /* A read-only card. */
+    boot_card(1);
+    CHECK_EQ(vfs_maint_request("X", &made), VFS_E_READONLY);
+    CHECK_EQ(made, 0);
+    CHECK(fs_stat(VFS_MAINT_REQ_PATH, &st_b) != FS_OK);
+    /* No card. */
+    uos.card = UOS_CARD_NONE;
+    CHECK_EQ(vfs_maint_request("X", &made), VFS_E_NOCARD);
+    uos.card = UOS_CARD_OK;
+}
+
+TEST(maint_clear_removes_only_a_file)
+{
+    int removed = -1;
+    int made = 0;
+
+    boot_card(0);
+    CHECK_EQ(vfs_maint_clear(&removed), VFS_OK);
+    CHECK_EQ(removed, 0);
+    CHECK_EQ(vfs_maint_request("", &made), VFS_OK);
+    CHECK_EQ(vfs_maint_clear(&removed), VFS_OK);
+    CHECK_EQ(removed, 1);
+    CHECK(fs_stat(VFS_MAINT_REQ_PATH, &st_b) != FS_OK);
+    CHECK_EQ(fs_mkdir(VFS_MAINT_REQ_PATH), FS_OK);
+    CHECK_EQ(vfs_maint_clear(&removed), VFS_OK);
+    CHECK_EQ(removed, 0);
+    CHECK(fs_stat(VFS_MAINT_REQ_PATH, &st_b) == FS_OK && st_b.is_dir);
+}
