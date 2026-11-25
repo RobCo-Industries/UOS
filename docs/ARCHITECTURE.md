@@ -346,7 +346,7 @@ Maintenance commands, for tests and operators:
 | Command | Answer |
 |---|---|
 | `readline <flags> <max> [prompt]` | `ok`, then `ev=line state=reading` and, when the read ends, `ev=line result=<ok\|cancel> len=<n> text=<"text"\|masked>`. Flags are `-`, or `m` for masked and `h` for no history. The text shows a blank, a quote and `%` as `%XX`, and stops at 160 characters with `cut=1`. `err busy` while a read runs, and the refused command leaves the running read's flags alone. |
-| `page <short\|long\|empty\|big>` | A built-in test text. `ev=page top=<n> shown=<n> lines=<n>` on show and on each move, `ev=page result=done` when left. `err busy` while a pager runs. |
+| `page <short\|long\|empty\|big>` | A built-in test text. `ev=page top=<n> shown=<n> lines=<n>` on show and on each move, `ev=page result=done` when left, `ev=page result=cancel` when left with Ctrl-C. `err busy` while a pager runs. |
 | `osk <open\|close\|state>` | `open` and `close` act on the active read, else `err no line`. `state` answers `osk open= layer= row= col= line= reading=`. The keyboard marks `ev=osk state=open` and `ev=osk state=closed`. |
 
 ### Session
@@ -412,9 +412,9 @@ One command runs at a time, for the prompt and every other caller together. Othe
 
 | Call | Context | Does |
 |---|---|---|
-| `sh_run_line(line, flags, cb, ctx)` | loop | Runs one line as the logged-in user, with the shell's current folder. `SH_RUN_QUIET` keeps the output off the console. The callback gets a status, `SH_OK`, `SH_WARN`, `SH_FAIL` or `SH_CANCELLED`, and the final message's first line. A missing parameter is an error here: only the prompt asks. Returns 0, or `SH_ERR_BUSY`, `SH_ERR_NOUSER`, `SH_ERR_ARG`, `SH_ERR_DOWN` with no callback. |
+| `sh_run_line(line, flags, cb, ctx)` | loop | Runs one line as the logged-in user, with the shell's current folder. `SH_RUN_QUIET` keeps the output off the console. The callback gets a status, `SH_OK`, `SH_WARN`, `SH_FAIL` or `SH_CANCELLED`, and the final message's first line. A missing parameter or a bad line runs as a command that fails: only the prompt asks for a parameter. Returns 0 and calls `cb` exactly once, maybe before it returns; `cb` may be NULL. Or returns `SH_ERR_DOWN`, `SH_ERR_ARG` for NULL, an empty or comment-only line or one over `DCL_LINE_MAX`, `SH_ERR_BUSY` or `SH_ERR_NOUSER`, checked in that order, and never calls `cb`. `SH_RUN_QUIET` keeps output and messages off the console; a question still shows. |
 | `sh_busy()` | any | Non-zero while a command runs |
-| `sh_program_register(name, start)` | loop | A program for `RUN`. `start(args, done, tag)` pushes its screen, returns 0, and calls `done(tag, status, text)` once, with the tag it got. A name with no entry answers `%UOS-W-NOTINST, <NAME> is not installed in this build`. At most 8 programs. |
+| `sh_program_register(name, start)` | loop | A program for `RUN`. `start(args, done, tag)` pushes its screen, returns 0, and calls `done(tag, status, text)` once, with the tag it got. Status 0 is success, `SH_CANCELLED` is Ctrl-C, anything else a failure. Its screen owns the keys, so it must end the run with `SH_CANCELLED` on Ctrl-C. Returns `SH_ERR_DOWN` before the shell service started. A name with no entry answers `%UOS-W-NOTINST, <NAME> is not installed in this build`. At most 8 programs. |
 
 The terminal menu runs its `COMMAND` entries through `sh_run_line()`. Questions a command asks, such as `/CONFIRM` or a password, are read with `con_read_line()` on top of the caller's screen.
 
@@ -456,7 +456,22 @@ stateDiagram-v2
 | `AUTHORIZE LIST` | every user, in `start` | 32 users, `UAF_MAX_USERS` |
 | End of a command | `/OUTPUT` write | 64 KiB, one atomic write |
 
-- Ctrl-C on the shell screen while a command steps sets a flag; the next step ends the command with `%UOS-I-CANCEL`. A command that waits on a program with no screen of its own gets a step posted, so Ctrl-C ends it too. `stop` frees what the command holds: a running copy is aborted and its work file removed.
+- Ctrl-C ends the running command with `%UOS-I-CANCEL`, `rc=CANCEL` in the end marker and `SH_CANCELLED` for the caller, whichever screen takes the key. The screen on top owns Ctrl-C and reports it to the shell through its callback; the shell never reads another screen's keys. The table lists each state.
+- Ctrl-C on the shell screen while a command steps sets a flag; the next step ends the command. A command that waits on a program with no screen of its own gets a step posted, so Ctrl-C ends it too.
+
+| State while a command runs | Screen with the keys | Ctrl-C |
+|---|---|---|
+| Steps: a copy, a loop, a listing, a long `TYPE` | shell | Flag, the next step ends the command |
+| `TYPE /PAGE` | pager | The pager pops and calls back `CON_CANCEL`; the shell ends the command |
+| `/CONFIRM` question | read | `CON_CANCEL`; the shell ends the command. `Q` instead stops the loop and reports the files done |
+| Masked password of `SET PASSWORD` or `AUTHORIZE` | read | `CON_CANCEL`; the command ends, nothing written |
+| `CREATE` text lines | read | `CON_CANCEL`; the command ends, no file made |
+| On-screen keyboard over any read | read | The keyboard passes characters to the line editor, so the same as the read |
+| A program with its own screen | the program | The program calls `done()` with `SH_CANCELLED` |
+| A program with no screen | shell | A step is posted that ends the command |
+| The pause screen | none | No command uses `con_pause()` |
+
+  Files follow the atomic rules: a file a loop finished stays, a copy in progress is aborted and its work file removed, `CREATE` and `/OUTPUT` write nothing. `stop` frees what the command holds: a running copy is aborted and its work file removed.
 - Each command run gets an identity, a number from 1 that grows with every run. Every callback the shell hands out carries it as its context: the posted step, the `con_read_line()` of a `/CONFIRM` question, a `CREATE` line or a masked password, the `TYPE /PAGE` pager, and a program's `done()`. A callback whose identity is not the running job's comes from an ended run: the shell ignores it and prints `sh stale=<step|read|pager|prog> id= cur=`. So a program that ends after its run was cancelled cannot end a later `RUN` with its result. At most one step is posted at a time.
 - When the session ends under a command, the shell's `tick` ends it the same way: a logout pops every screen, so a read or a program it waited on never calls back.
 - Every error goes through `sh_err_msg()`, the one map from file system, `DEV:`, path and user database codes to `dcl` messages. `DEV:` codes keep the device service's meaning: a sensor gives `%DEVICE-E-SENSOR`, a bad action word `%DEVICE-E-IVACT`.
@@ -487,6 +502,7 @@ No marker holds a password or a command line.
 | Command | Answer |
 |---|---|
 | `sh state` | `sh state=<idle\|prompt\|running> kind= ask= verb= pending= prompts= runs= id=`. `pending` counts input events the loop has not taken yet. `id` is the running job's identity, 0 when idle. |
+| `sh api <-\|q> [null\|long\|<quoted line>]` | Test builds. Calls `sh_run_line()` with flags 0 or `SH_RUN_QUIET` on the line, an empty line, NULL or a line one byte over `DCL_LINE_MAX`. Prints `sh api=call rc= cbs=` and, per callback, `sh api=done n= status= result=`. |
 | `sh hold <1\|0>` | Test builds. 1: the next step of a command waits and prints `sh held=1`; Ctrl-C still cancels it. 0: it runs on. |
 | `sh prog reg <NAME>` | Test builds. Registers a test program for `RUN <NAME>`. It pushes no screen and prints `sh prog=start n=` per run. |
 | `sh prog done <n> <status>` | Test builds. Ends the n-th run of the test program, with the tag that run got, even after its job ended. |

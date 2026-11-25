@@ -12,6 +12,11 @@ All notable changes to UOS are recorded here. The format follows [Keep a Changel
 - `/OUTPUT` replaces its file only when the command succeeds. A failure, a warning or Ctrl-C leaves the old file as it was.
 - A wildcard whose matches the access table all refused gives `%UOS-E-NOPRIV`, not `%UOS-W-NOFILES`. Some refused give `%UOS-I-SKIPPED` and `skipped=` in the end marker. `vfs_list_keep()` returns `VFS_KEEP_REFUSED` for them.
 - `sh_program_register()`: `start(args, done, tag)` and `done(tag, status, text)`. A late `done()` from a cancelled run is ignored.
+- Ctrl-C ends a running command as cancelled whatever screen is on top: the `TYPE /PAGE` pager, a `/CONFIRM` question, a password, a `CREATE` line, the on-screen keyboard over a read, and a program's own screen. Before, Ctrl-C in the pager did nothing and at `/CONFIRM` it reported the files done as a success.
+- The pager calls back with `CON_CANCEL` on Ctrl-C; `page` marks `ev=page result=cancel`.
+- A program's `done()` takes `SH_CANCELLED` for Ctrl-C on its screen.
+- `sh_run_line()` refuses an empty or comment-only line with `SH_ERR_ARG` and no callback, and `sh run` refuses it with `rc=-1`. The prompt still shows a new prompt for one.
+- `sh_program_register()` returns `SH_ERR_DOWN` before the shell service started.
 - `TYPE` and `HELP` print 8 display rows a step, wrapped segments of a long line included, so a 1 MiB line no longer holds the loop.
 
 ### Added

@@ -15,7 +15,8 @@ This is the reference of every command of the UOS shell. The command table in `s
   - some refused: the command acts on the others, then prints `%UOS-I-SKIPPED, N files skipped: not enough privilege` before its count message, and the `cmd state=end` marker has `skipped=N`;
   - nothing matched: `%UOS-W-NOFILES`, with `skipped=0`.
 - `/OUTPUT=file` replaces the file only when the command succeeds, with a final message of severity `S` or `I`. An error, a warning such as `%UOS-W-NOCLOCK` or `%UOS-W-NOFILES`, Ctrl-C or text over 64 KiB leave an existing file exactly as it was. The new text goes in with one atomic write, so a power cut leaves the whole old or the whole new file.
-- Ctrl-C stops a command that runs in steps: a copy, a wildcard loop, a listing, a long `TYPE`.
+- Ctrl-C ends the running command and returns to the prompt with `%UOS-I-CANCEL, operation cancelled`. It works in steps, at a `/CONFIRM` question, at a password, at the `CREATE` lines, in the `TYPE /PAGE` pager, with the on-screen keyboard open, and in a program. Files a loop finished stay done; nothing half-written is left.
+- An empty or comment-only line at the prompt does nothing. Through `sh run` or `sh_run_line()` it is refused.
 - Every message comes from the catalogue in `src/dcl/msg.c` through one map, `sh_err_msg()`. The messages are `%FACILITY-S-IDENT, text`, with `S` the severity: `S` success, `I` information, `W` warning, `E` error.
 
 ## State of each verb
@@ -93,7 +94,7 @@ Copies files in steps of 16 KiB. `to-spec` may be a folder, or use `*` for the n
 | Qualifier | Does |
 |---|---|
 | `/LOG`, neg | `%COPY-I-FILCOPY, <file> copied` per file |
-| `/CONFIRM`, neg | `<file>, copy? [N]:` per file. `Y`, `YES`, `T`, `1` copy; `N`, an empty line or `F` skip; `A` copies this file and the rest; `Q` or Ctrl-C stops. Anything else asks again. |
+| `/CONFIRM`, neg | `<file>, copy? [N]:` per file. `Y`, `YES`, `T`, `1` copy; `N`, an empty line or `F` skip; `A` copies this file and the rest; `Q` stops and reports the files done; Ctrl-C cancels the command. Anything else asks again. |
 
 Messages: `%COPY-S-COPIED, N files copied`, then any per-file error such as `%UOS-E-EXISTS` with the file named.
 

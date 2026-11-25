@@ -100,7 +100,7 @@ $ TYPE NOTICE.TXT
 - You may shorten a command: `DIR` for `DIRECTORY`, `SH DEF` for `SHOW DEFAULT`. Upper and lower case are the same.
 - Options start with a slash: `DIR /SIZE`. Most take a `/NO` form: `/NOLOG`.
 - UP and DOWN bring back earlier lines. LEFT and RIGHT move in the line. Backspace erases.
-- Ctrl-C clears the line you are typing. It also stops a long command, such as a copy or a long listing.
+- Ctrl-C clears the line you are typing. While a command runs, Ctrl-C stops it and brings back the prompt, with `%UOS-I-CANCEL`. This works everywhere: in a long copy or listing, in the `TYPE /PAGE` viewer, at a yes or no question, at a password, while you type `CREATE` lines, with the on-screen keyboard open, and in a program. Files already done stay; a file in the middle is not left half-written.
 - A line that ends with `-` goes on: the next prompt is `_$`.
 - If you leave out something a command needs, it asks: `TYPE` alone asks `_File:`. Press Ctrl-C to drop the command.
 - Messages look like `%UOS-E-FNF, file not found`. The letter after the first dash says how it went: `S` done, `I` for your information, `W` a warning, `E` an error.
