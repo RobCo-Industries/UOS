@@ -38,7 +38,7 @@ The modules below are pure too. The image links them, but no kernel code calls t
 
 ## Modules
 
-Each module has a reference page in `docs/modules/`. The on-card formats are gathered in [FORMATS.md](FORMATS.md). The services of [Services](#services) use `dcl`, `vfs path`, `osk`, `dev`, `session`, `hack`, `holo` and the pager of `tui`. The shell uses `dcl` for every command line. No menu screen uses a module yet.
+Each module has a reference page in `docs/modules/`. The on-card formats are gathered in [FORMATS.md](FORMATS.md). The services of [Services](#services) use `dcl`, `vfs path`, `osk`, `dev`, `session`, `hack`, `holo` and the pager of `tui`. The shell uses `dcl` for every command line. The terminal menu uses `tui`, see [Terminal menu](#terminal-menu).
 
 Every module that tests privileges uses the bits of `src/kernel/uos_privs.h`: `SYSTEM` bit 0, `OPER` bit 1, `SECURITY` bit 2, `READALL` bit 3. Each module keeps its own names, such as `DCL_PRIV_OPER` or `UAF_PRIV_OPER`, as aliases, and static asserts check them.
 
@@ -52,7 +52,7 @@ Every module that tests privileges uses the bits of `src/kernel/uos_privs.h`: `S
 
 [dev](modules/dev.md): device control. It parses `DEVICES.CFG`, keeps each device's state, turns commands into pin operations with their timing and formats status lines. Pure files: `src/dev/devcfg.c`, `devstate.c`. Public header: `src/dev/dev.h`, prefix `dv_`.
 
-[tui](modules/tui.md): the menu-driven terminal screen and the pager. It parses `TERMINAL.CFG`, runs the menu model and lays out the screen. Pure files: `src/tui/tuicfg.c`, `tui.c`, `pager.c`. Public header: `src/tui/tui.h`, prefixes `tui_` and `pg_`.
+[tui](modules/tui.md): the menu-driven terminal screen and the pager. It parses `TERMINAL.CFG`, runs the menu model and lays out the screen. Pure files: `src/tui/tuicfg.c`, `tui.c`, `pager.c`. Public header: `src/tui/tui.h`, prefixes `tui_` and `pg_`. The screen's header is `tuiscr.h`, see [Terminal menu](#terminal-menu).
 
 [hack](modules/hack.md): the password minigame. It parses the word lists, picks the candidates, builds the board and runs the game with its lockout timer. Pure files: `src/hack/hack.c`, and `hackui.c` for the screen's layout, keys and states, prefix `hg_`. Public header: `src/hack/hack.h`, prefix `hk_`. The screen's header is `hackscr.h`, see [Password game](#password-game).
 
@@ -182,6 +182,7 @@ The stack calls `uncover()` once each time a pop or an unwind leaves the screen 
 | `first` | `show`, the end of the banner | The handover to the login |
 | `shell` | `drive`, a command's posted step | The step. It marks `ev=sh op=wait why=covered owe=step` once |
 | `shell` | `sh_resume(SH_DONE)`, a command's end, such as a program's `done()` | The end and its result line. It marks `owe=end` |
+| `menu` | A command entry's step or end, the job of `sh_run_line_on()` | The same debt, paid by `menu_uncover()` through `sh_host_uncover()` |
 
 A running command waits whole while another screen covers the shell. Any step may ask a `/CONFIRM` question, read a `CREATE` line or a password, open the `TYPE /PAGE` pager or print. `con_print()` writes to the console cells at once, so a step's output would paint over the covering screen. So no step runs, quiet or not. The shell records the step or the end it owes, and `shell_uncover()` runs it with `ev=sh op=resume owe=`. `sh_owe_take()` clears the debt before the work, and `sh_resume()` posts at most one step, so the work runs once. An end outranks a step.
 
@@ -222,6 +223,8 @@ Each site that changes a screen from outside a key to that screen:
 | `pause_end`, the result pause | `hack` | Owed to `uncover()` | Waits, marks `hack op=wait` |
 | `scan_step`, `load_step` | `holo` | `uos_screen_dirty()` | The scan and the load go on; the list shows once uncovered |
 | `drive`, a job's step | `shell` | `con_print()` | Owed to `uncover()`; an orphan takes no step |
+| `drive`, a menu command's step | `menu` | Nothing: the output is kept for the callback | Owed to the menu's `uncover()` |
+| `holo_done`, `pager_done`, `cmd_done` | `menu` | `uos_screen_dirty()` | They run when the menu is the top again: the screen over it has just closed, or the job's end waited for it |
 | The read line and the keyboard | `readline` | Their `event()` | Keys reach them only on top. There is no blinking cursor |
 
 #### Owners and children
@@ -235,6 +238,8 @@ A screen often opens a child screen for itself: a read line, a pager or a pause.
 | `shell` | the `TYPE /PAGE` pager | Nothing: the command waits for the pager |
 | `login` | the `USERNAME:` and `PASSWORD:` reads | Nothing: the next read starts after this one ends |
 | `holo` | the entry pager | Nothing: the scan never pushes or pops |
+| `menu` | the pager of a text entry or of a command's output | Nothing: the menu waits for the pager |
+| `menu` | a command entry's `/CONFIRM`, `CREATE` line or password read | Nothing: the command waits for the answer |
 
 The on-screen keyboard is part of the read line, not a screen.
 
@@ -371,10 +376,13 @@ Test builds put a service named `testfail` first, whose init returns -5, so the 
 | 6 | `devices` | `src/dev/devs.h` | `vfs` for `DEVICES.CFG` and `DEV:` |
 | 7 | `holo` | `src/holo/holoscr.h` | `vfs` for the tapes, `console` for the pager, `session` for the user's rights |
 | 8 | `hack` | `src/hack/hackscr.h` | `vfs` for the word lists, `session` for its rules, the lock and the session |
+| 9 | `menu` | `src/tui/tuiscr.h` | `shell` for its programs, the session's screen and the command entries, `vfs`, `devices`, `holo`, `console` for the pager |
 
 The session comes after the file system and the console, which it uses. The shell comes after the session, whose `sess_set_next()` it calls at init. Both come before the devices so that the devices stay last: they stop first. Nothing in the device service uses the session; a device command gets its caller's privileges as an argument.
 
-Shutdown runs in reverse: `hack`, `holo`, `devices`, `shell`, `session`, `console`, `vfs`, `uptime`. The two screen services have no shutdown work: they hold memory only. The shell has no `shutdown`. So on a reboot, a halt and a panic the device service is the first service with work, and it drives every output safe before anything else stops. Its `devsafe` lines and `devdown` come right after `ev=shutdown name=devices` and before `ev=shutdown name=console`. `test_link.py` checks this order for all three causes.
+The menu comes after the shell, whose `sh_program_register()` and `sh_session_screen_register()` it calls at init. Its place after `devices` does not break the stop rule above: it has no shutdown work.
+
+Shutdown runs in reverse: `menu`, `hack`, `holo`, `devices`, `shell`, `session`, `console`, `vfs`, `uptime`. The two screen services have no shutdown work: they hold memory only. The shell has no `shutdown`. The menu has none either. So on a reboot, a halt and a panic the device service is the first service with work, and it drives every output safe before anything else stops. Its `devsafe` lines and `devdown` come right after `ev=shutdown name=devices` and before `ev=shutdown name=console`. `test_link.py` checks this order for all three causes.
 
 A file write cannot be cut by a reboot. `vfs_write_all()` runs in one loop pass, and the `reboot` command waits for the next one. A stepped copy can be cut between two steps. Its new content sits in a work file, and the target keeps its whole old content. The next call that looks at the target removes the work file. `test_link.py` reboots during a 1 MiB copy over a file and checks both. A power cut during a write is not tested: the library's atomic write states that guarantee.
 
@@ -408,6 +416,7 @@ Every command each service registers. The `fs`, `readline`, `page` and `osk` com
 | `holo hog` | `holo` | Test builds only: holds the heap until no tape fits, or gives it back |
 | `hack start\|move <dir> [n]\|select\|back\|state` | `hack` | The password game, see [Password game](#password-game) |
 | `hack seed <n>` | `hack` | Test builds only: the next games use a fixed seed |
+| `menu state\|msg\|show\|list\|pick <n>\|back` | `menu` | The terminal menu, see [Terminal menu](#terminal-menu) |
 
 ### How to add a service
 
@@ -599,7 +608,18 @@ One command runs at a time, for the prompt and every other caller together. Othe
 | `sh_busy()` | any | Non-zero while a command runs |
 | `sh_program_register(name, start)` | loop | A program for `RUN`. `start(args, done, tag)` pushes its screen, returns 0, and calls `done(tag, status, text)` once, with the tag it got. Status 0 is success, `SH_CANCELLED` is Ctrl-C, anything else a failure. Its screen owns the keys, so it must end the run with `SH_CANCELLED` on Ctrl-C. Returns `SH_ERR_DOWN` before the shell service started. A name with no entry answers `%UOS-W-NOTINST, <NAME> is not installed in this build`. At most 8 programs. |
 
-The terminal menu runs its `COMMAND` entries through `sh_run_line()`. Questions a command asks, such as `/CONFIRM` or a password, are read with `con_read_line()` on top of the caller's screen.
+More calls of `sh.h`, for the terminal menu and any later screen that is not the shell:
+
+| Call | Context | Does |
+|---|---|---|
+| `sh_run_line_on(host, line, flags, cb, ctx)` | loop | As `sh_run_line()`, but the job belongs to `host`. Its questions and its pager open as children of `host`, and the job is covered while another screen covers the unit of `host`. The shell need not be on the stack. `SH_ERR_COVERED` when the unit of `host` is not the top. The start marker says `src=<host name>`. |
+| `sh_host_uncover(host)` | loop | The host's `uncover()` calls it: the step or end the job owes runs once. |
+| `sh_host_gone(host)` | loop | The host's `leave()` calls it: the job becomes an orphan, and the next tick ends it. |
+| `sh_cancel()` | loop | Ctrl-C for the running job, as at the shell. |
+| `sh_output(&len)` | loop, inside the callback | With `SH_RUN_CAPTURE`, the output and the messages, the final one last, up to `SH_CAPTURE_MAX` (64 KiB); the rest is cut. Nothing reaches the console. |
+| `sh_session_screen_register(fn)` | loop | `fn` is asked first, at each login, for the session's screen. NULL from it gives the shell. Once per boot. |
+
+The terminal menu runs its `command` entries through `sh_run_line_on()` with `SH_RUN_CAPTURE`. Questions a command asks, such as `/CONFIRM` or a password, are read with `con_read_line()` on top of the menu.
 
 #### The command state machine
 
@@ -714,6 +734,52 @@ stateDiagram-v2
 A tape loads in one `vfs_read_all()` call, so the screen first draws `LOADING NAME.HTP ...` and posts the read to the next pass. A tape of `HF_TAPE_MAX` bytes took 0.51 to 0.60 s, 56 to 64 ticks, on raspi0, raspi1ap and raspi2b in QEMU over two runs, and 2.7 to 3.0 s, 276 to 301 ticks, on raspi3b. The scan reads each tape whole too, with `Scanning SYS$HOLO ...` on screen. During such a read the loop does not run: input waits in the input layer, timers fire late, and the device service's software watchdog sees no kick for that long. Its limit is 15 s, so it does not fire. These are QEMU numbers.
 
 The states a person can meet: no card, no `HOLO` folder, no tape, a damaged tape listed as damaged, more tapes than the 25 rows of the window (the window scrolls), more than 32 tapes (the list keeps the first 32 and says so), a tape damaged since the scan, a card taken out, and no heap for the tape.
+
+### Terminal menu
+
+The `menu` service, `src/tui/tuiscr.c`, draws the model of [tui](modules/tui.md). It registers the `menu` command, the program `TERMINAL` for `RUN`, and the session's screen with `sh_session_screen_register()`.
+
+```mermaid
+flowchart LR
+    W[welcome ends] --> C{TERMINAL.CFG in the home?}
+    C -->|yes| M[menu, session mode]
+    C -->|no, or no access| S[shell]
+    S -->|RUN TERMINAL| P[menu over the shell, close mode]
+    P -->|BACK at the top, then ENTER| S
+    M -->|BACK at the top, then ENTER, or a logout entry| L[login]
+```
+
+At each login the shell asks the menu first. The menu checks `TERMINAL.CFG` in the user's home with `vfs_exists()` and the user's rights, and marks `tui op=check result=<menu|shell>`. The menu is then the session's whole screen. A user reaches the shell only through a `command` entry.
+
+`RUN TERMINAL` ends its job at once and posts the push of the menu. So the shell's job is free while the menu shows, the menu's own command entries can run, and the shell owes only its `$` read until the menu closes. In this close mode BACK at the top asks `Close the menu?`. A `logout` entry still logs out.
+
+Each action and what answers it:
+
+| Entry | Glue | Failure line |
+|---|---|---|
+| `menu`, `header` | `vfs_read_all()` in the home, then `tui_give_menu()` or `tui_give_header()` | `File NAME not found`, `Cannot read NAME: <reason>`, `Bad menu file NAME (line L)` |
+| `text` | `vfs_read_all()`, then `con_page_text()` with the menu as owner | the same read lines; `Cannot show NAME now` when a pager is open |
+| `command` | `sh_run_line_on()` with `SH_RUN_CAPTURE`. The output opens in the pager. The final message shows on the message row | the command's own message, such as `%UOS-E-FNF`; `A command is running: try again` |
+| `device` | `devs_command()` with the user's privileges and name | `NAME: <the device service's message>` |
+| `holotape` | `vfs_exists()` on `SYS$HOLO:NAME`, then `holo_screen_start_tape()` | `No holotape NAME`, `The holotape reader is busy` |
+| `logout` | `sess_logout(SESS_END_USER)` | none |
+
+Every file is read in the key's own loop pass, up to 64 KiB. The menu follows the held-key rule: `tui_map_key()` lets only UP and DOWN repeat. Ctrl-C while a command runs calls `sh_cancel()`.
+
+The draw writes the model's lines and skips its rule row. Lines drawn with `fb_fill_rect()` in the scheme's dim colour stand in for it: a rule under the title, one over the message row, and the two sides between them. The font's box glyphs leave gaps between cells.
+
+Markers: `tui op=check`, `tui op=open mode=`, `tui op=exit`, `tui menu= sel= level= state= msg=` after each change, `tui act=<kind> target= result= why=` for each action, and `tui result=<covered|gone|busy|range>` for a `menu pick` or `menu back` that could not act. The message row also goes once to the PL011.
+
+The `menu` command:
+
+| Command | Answer |
+|---|---|
+| `menu state` | `menu state=<closed\|wait\|menu\|confirm\|done> pending= mode=<session\|program> level= file= sel= count= hidden= act= top= msg=<yes\|none>` |
+| `menu msg` | `msg <text>`: the message row as it is |
+| `menu show` | `line r= a=<N\|D\|I> text=<text>` per layout line |
+| `menu list` | `entry i= type= target=<quoted> label=<text>` per entry of the level |
+| `menu pick <n>` | Posts: entry n, from 0, then ENTER. Refused with `tui result=covered` under another screen |
+| `menu back` | Posts BACK |
 
 ### Password game
 
