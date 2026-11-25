@@ -7,6 +7,7 @@ All notable changes to UOS are recorded here. The format follows [Keep a Changel
 ### Changed
 
 - Rebuilt UOS on RobCo-Core. The prototype is gone.
+- RobCo-Core moved to `4249632`. The library's two-pass `test-host-gccwarn` and its `make ci-local` replace UOS's own `test-host-gccwarn-ci` and `tools/ci_local.sh`.
 
 ### Added
 

@@ -8,23 +8,22 @@ Every test runs on the host or in QEMU. Nothing is validated on real hardware.
 
 ### The cross GCC check
 
-On a Mac the host compiler is clang, and CI's host compiler is GCC. GCC reports warnings clang does not, such as `-Wformat-truncation`. Two targets compile with the cross GCC and the macOS SDK headers to catch them before a push. `make test-host` runs both.
+On a Mac the host compiler is clang, and CI's host compiler is GCC. GCC reports warnings clang does not, such as `-Wformat-truncation`. The library's `test-host-gccwarn`, from `mk/host.mk`, compiles every C file in `tests/host/` and every pure file with the cross GCC and the macOS SDK headers to catch them before a push. `make test-host` runs it. Each file goes through two passes:
 
-- `test-host-gccwarn` comes from the library. It uses `-O2` and drops the sanitizer flags.
-- `test-host-gccwarn-ci` is local. It uses the CI host flags: `-O1`, `-Wall -Wextra -Werror` and the sanitizers. It compiles every C file in `tests/host/` and every pure file. UBSan's checks hide loop bounds from GCC, so some truncation warnings appear only with these flags.
+- The ci pass uses CI's host flags: `-O1`, `-Wall -Wextra -Werror` and the sanitizers. UBSan's checks hide loop bounds from GCC, so some truncation warnings appear only with these flags.
+- The o2 pass drops the sanitizers and uses `-O2`, which other GCC warnings need.
 
-Both skip with one line when the host compiler is GCC, the cross GCC is missing or no host headers are found. Set `HOST_GCCWARN_INC` to the headers if needed. The macOS headers are not glibc's, so a few results can differ from CI, for example the size of `struct dirent`'s `d_name`.
+Each file and pass leaves a stamp in `build/host/gccwarn`, so a second run compiles only what changed. The check skips with one line when the host compiler is GCC, the cross GCC is missing or no host headers are found. Set `HOST_GCCWARN_INC` to the headers if needed. The macOS headers are not glibc's, so a few results can differ from CI, for example the size of `struct dirent`'s `d_name`.
 
 ### The CI build in a container
 
-`make ci-local` runs the CI build job, `make CI=1 all test-host`, in the robco-ci image. It copies the tree to `build/ci-local/src` and runs the container as your user. It needs Docker. A first run takes about two minutes on an Apple silicon Mac. A later run reuses the copy's build and takes about ten seconds.
+`make ci-local` runs the CI build job, `make CI=1 all test-host`, in the robco-ci image. It comes from the library's `mk/host.mk` and `tools/ci_local.sh`. The Makefile sets `CI_LOCAL_TARGETS` to the workflow's `make-targets`. The script copies the tree to `build/ci-local/src` and runs the container as your user, with no host environment and at most `CI_LOCAL_CPUS` CPUs, 4 by default. It needs Docker.
 
-The image is `ghcr.io/robco-industries/robco-ci:<tag>`, with the tag from `external/robco-core/ci/IMAGE_TAG`. Pulling it needs a GitHub token with `read:packages`. Without one, build it locally once:
+The image is `ghcr.io/robco-industries/robco-ci:<tag>`, with the tag from `external/robco-core/ci/IMAGE_TAG`. Pulling it needs a GitHub token with `read:packages`. Without one, build it locally once with `make ci-local-image`. `ci-local` uses the local tag when it exists.
 
-    docker build -f external/robco-core/ci/Dockerfile \
-      -t robco-ci:$(cat external/robco-core/ci/IMAGE_TAG) external/robco-core/ci
+To run other targets, set `CI_LOCAL_TARGETS` for one run: `make ci-local CI_LOCAL_TARGETS="-k all test-host"` or `make ci-local CI_LOCAL_TARGETS="test-target BOARD=raspi0"`.
 
-`ci-local` uses the local tag when it exists. To run other targets, call the script: `tools/ci_local.sh -k all test-host` or `tools/ci_local.sh test-target BOARD=raspi0`.
+### Test files
 
 The tests run from the repository root, so the ones that read the default card open `card/UOS/...` by a relative path. Before they build, `tools/mkuaf.py vectors-h` writes `build/host/gen/uaf_vectors.h` from `tests/vectors/uaf.json`.
 
