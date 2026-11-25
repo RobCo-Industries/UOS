@@ -36,6 +36,8 @@ WELCOME_TICKS = 150
 LOOP_LATENCY_TICKS = 1
 HOST_ALLOWANCE_TICKS = 20
 
+# The first line of the shell after a login, src/shell/shell.c.
+SHELL_BANNER = "command shell. Type HELP for the commands."
 # The message rows, src/session/login.c.
 DENIED = "ACCESS DENIED. {} ATTEMPT{} LEFT."
 ROW_MSG = 6
@@ -104,8 +106,8 @@ def secrets(uaf):
 
 
 def test_default_users_logout_and_login_again(board, uos_image, need_mtools, tmp_path):
-    """Each default user logs in, sees the placeholder, and logs out: ADMIN with
-    BACK, the others from the port. Logging in again works. The whole serial log
+    """Each default user logs in, sees the shell, and logs out: ADMIN with the
+    LOGOUT command, the others from the port. Logging in again works. The whole serial log
     then holds no password, no salt and no hash, and the check runs in steps."""
     with alone(uos_image, board, uaf_card(tmp_path)) as vm:
         wait_ready(vm)
@@ -127,15 +129,16 @@ def test_default_users_logout_and_login_again(board, uos_image, need_mtools, tmp
                       f"maxstep_us={m['maxstep_us']}")
                 start = wait_marker(vm, "session state=start", n)
                 assert (start["user"], start["how"]) == (user, "login"), start
-                wait_marker(vm, "session screen=noshell", n)
+                wait_marker(vm, "session screen=shell", n)
                 st = sess_state(vm)
                 assert (st["state"], st["user"], st["privs"], st["flags"], st["home"]) == \
                     ("session", user, EXPECT[user][0], EXPECT[user][1], user), st
                 assert state(vm)["user"] == user
-                rows = dump_until(vm, lambda r: "No shell is installed in this build." in r)
-                assert any(r.startswith(f"USER: {user} ") for r in rows), rows
+                dump_until(vm, lambda r: any(SHELL_BANNER in row for row in r))
                 if user == "ADMIN":
-                    key(vm, "back")
+                    # The shell's LOGOUT, typed through the line editor.
+                    wait_marker(vm, "sh state=prompt kind=cmd", n)
+                    answer(vm, "type LOGOUT")
                     reason = "user"
                 else:
                     answer(vm, "sess logout")
@@ -279,12 +282,12 @@ def test_masked_echo_on_the_pl011(board, uos_image, need_mtools, tmp_path):
     with alone(uos_image, board, uaf_card(tmp_path)) as vm:
         wait_ready(vm)
         login(vm, "GUEST", "GUEST")
-        wait_marker(vm, "session screen=noshell", 1)
+        wait_marker(vm, "session screen=shell", 1)
         assert "USERNAME: GUEST" in vm.serial
         assert "PASSWORD: *****" in vm.serial
         assert "PASSWORD: ******" not in vm.serial
         assert "WELCOME, GUEST." in vm.serial
-        assert "No shell is installed in this build." in vm.serial
+        assert SHELL_BANNER in vm.serial
 
 
 def osk_moves(text):
@@ -332,7 +335,7 @@ def test_login_with_buttons(board, hooks_image, need_mtools, tmp_path):
         osk_type_and_enter(vm, "GUEST", 2)
         m = wait_marker(vm, "login user=GUEST", 1)
         assert m["result"] == "ok", m
-        wait_marker(vm, "session screen=noshell", 1)
+        wait_marker(vm, "session screen=shell", 1)
 
 
 def test_sess_login_is_test_only(board, uos_image, hooks_image, need_mtools, tmp_path):
@@ -350,7 +353,7 @@ def test_sess_login_is_test_only(board, uos_image, hooks_image, need_mtools, tmp
         answer(vm, "sess login oper")
         start = wait_marker(vm, "session state=start", 1)
         assert (start["user"], start["how"]) == ("OPER", "test"), start
-        wait_marker(vm, "session screen=noshell", 1)
+        wait_marker(vm, "session screen=shell", 1)
         assert sess_state(vm)["privs"] == "2"
         answer(vm, "sess login GUEST")
         wait_marker(vm, "session result=busy", 1)
@@ -371,7 +374,7 @@ def test_idle_logout(board, hooks_image, need_mtools, tmp_path):
         answer(vm, "sess login GUEST")
         wait_marker(vm, "session state=start", 1)
         time.sleep(1.2)
-        key(vm, "down")                         # the placeholder ignores it
+        key(vm, "down")                         # the shell's prompt: no history yet
         t_key = time.monotonic()
         end = wait_marker(vm, "session state=end", 1)
         # The guest gets the key after the host sent it: never earlier.
