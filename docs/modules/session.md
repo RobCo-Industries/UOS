@@ -242,7 +242,7 @@ In every state but `ok` the first screen stays, with a second row that says what
 
 ### The login screen
 
-The screen shows a header, then `USERNAME:` and `PASSWORD:` read by `con_read_line()`. The user name is at most 16 characters with no history. The password is at most 32 characters, masked, with no history. Both work from the serial console and from the on-screen keyboard, which a GPIO button opens.
+The screen shows a header, then `USERNAME:` and `PASSWORD:` read by `con_read_line()`. The user name is at most 16 characters with no history. The password is at most 32 characters, masked, with no history. Both work from the serial console and from the on-screen keyboard, which a GPIO button opens. When the next user name read is due while another screen covers the login, such as the holotape reader, the login starts it in its `uncover()` callback once that screen closes. See [Covered screens](../ARCHITECTURE.md#covered-screens).
 
 - Ctrl-C or an empty line at `USERNAME:` brings the prompt back. BACK on an empty line does nothing. Nothing counts.
 - Ctrl-C at `PASSWORD:` shows `LOGIN CANCELLED.` and goes back to `USERNAME:`. Nothing counts.

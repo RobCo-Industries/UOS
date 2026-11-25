@@ -141,7 +141,7 @@ An expiry is never lost. `uos_tq_deliver()` in `timerq.c` queues one `TIMER` eve
 
 ### Screens
 
-A screen is a struct of `enter`, `leave`, `event` and `draw` callbacks and a `ctx` pointer. The kernel keeps a stack of up to 8:
+A screen is a struct of `enter`, `leave`, `event`, `draw` and `uncover` callbacks and a `ctx` pointer. The kernel keeps a stack of up to 8:
 
 - `uos_screen_push()` puts a screen on top, such as a pager or the on-screen keyboard. The screen below gets no `leave`.
 - `uos_screen_pop(s)` removes `s` when it is the top. The last screen cannot be popped.
@@ -165,11 +165,25 @@ A held key sends one press, then repeats. Movement and typed characters may repe
 
 #### Covered screens
 
-A screen that is not the top is covered. A covered screen takes no posted action: only the top acts. The rule covers every road that reaches a screen without a key, such as a maintenance command, a posted call, a timer or a `done` callback.
+A screen that is not the top is covered. A covered screen takes no posted action: only the top acts. The rule covers every road that reaches a screen without a key, such as a maintenance command, a posted call, a timer or a `done` callback. Each on-top check is one of two kinds.
+
+- A port command with a reply. Refusing is right: the caller sees `covered`. `hack move`, `hack select`, `hack back`, `holo pick`, `osk open`, `osk close` and `sh run` do nothing under another screen and mark `result=covered`, or `why=covered` for `sh run`.
+- An internal continuation: a posted call, a timer, a `done` callback or a step of a state machine. Returning in silence would lose work the screen needs. So the screen records what it owes and does it in its `uncover()` callback.
+
+The stack calls `uncover()` once each time a pop or an unwind leaves the screen on top, after the next draw. A push or a replace before that draw cancels the call: the screen is covered again or gone. The stack clears its mark before the call, so `uncover()` may push or pop. Each continuation and its `uncover()` share one guard, such as "no read runs", so the work runs once whichever comes first.
+
+| Screen | Continuation | Owed while covered |
+|---|---|---|
+| `login` | `start_user`, posted after an empty name, a cancel or a wrong password | The user name read |
+| `shell` | `shell_idle`, posted after each line or command | The `$` read |
+| `hack` | `pause_end`, the 1 s result pause | The game's end. It marks `ev=hack op=wait why=covered` once |
+| `first` | `show`, the end of the banner | The handover to the login |
+
+The invariant: a screen that is on top while no command runs has an active read or takes keys itself. The login, the shell, the game, the pager, the lockout, the welcome and the first screen take keys themselves; the login and the shell also own a read in their prompt states. Tests in `tests/test_screens.py` cover each prompt state with the reader at the moment its next step is due, close the reader and type on.
+
+Other rules:
 
 - A pop names its own screen. `uos_screen_pop(s)` refuses when `s` is not the top: it returns `UOS_SCREEN_ERR_TOP` and marks `ev=screen pop=refused want= top=`. A test build panics there, so a wrong pop fails loudly.
-- A maintenance command meant for a covered screen does nothing and marks `result=covered`, or `why=covered` for `sh run`. `hack move`, `hack select`, `hack back`, `holo pick`, `osk open`, `osk close` and `sh run` follow it.
-- A timer that would end a covered screen waits until the screen is the top again. The password game's 1 s result pause is the one such timer: it looks again every 100 ms and marks `ev=hack op=wait why=covered` once.
 - A session reset ends every screen at once with `uos_screen_unwind()`: a logout, a lockout, the welcome's end and a won game's session. It pops from the top down, so no screen pops another.
 - Background work on a covered screen, such as the holotape scan and load steps, may change that screen's own state. It never pushes or pops.
 
@@ -181,7 +195,7 @@ A screen that is not the top is covered. A covered screen takes no posted action
 2. When `draw()` clears the console and paints everything, set `.full = 1` and call `con_status_redraw()` last. Otherwise leave `full` at 0 and paint only your rows.
 3. Never call another screen's `draw()`. When a partial screen shrinks, call `uos_screen_expose()`.
 4. Close with `uos_screen_pop(&your_screen)`. The screens below come back on their own.
-5. A maintenance command or a timer that acts on your screen checks `uos_screen_on_top()` first, as in [Covered screens](#covered-screens).
+5. A maintenance command that acts on your screen checks `uos_screen_on_top()` first and replies `covered`. A posted call or a timer that finds your screen covered records the work and does it in `uncover()`, as in [Covered screens](#covered-screens).
 6. Apply the held-key rule above to each action.
 7. Add a `@RC` marker and a maintenance command, and a test in `tests/test_screens.py` that compares the grid before the screen opens and after it closes.
 
