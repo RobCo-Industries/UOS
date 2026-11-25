@@ -24,6 +24,12 @@ IMAGE      := uos
 LINK_ADDR  := 0x00400000
 CONFIG_H   := src/kernel/robco_config.h
 BUILD      ?= build
+# One spelling per build folder. gcc -MMD names the object in each .d
+# file as the compile rule spelled it, and make matches that name as a
+# string. A test fixture passes an absolute BUILD while `make all` uses
+# build: the .d of one never matched the other's target, so a header
+# change did not rebuild the object. Strip this folder from the front.
+override BUILD := $(patsubst $(CURDIR)/%,%,$(BUILD))
 PYTHON     ?= python3
 
 # Every src/<dir>/*.c builds into the image.
