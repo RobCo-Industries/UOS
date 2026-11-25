@@ -100,6 +100,8 @@ def test_masked_read(board, uos_image, need_mtools, tmp_path):
         wait_ready(vm)
         start_read(vm, "m 32 Password:", 1)
         row, _ = line_row(vm)
+        # A refused read with other flags leaves the active read masked.
+        assert vm.script("readline - 10 Other:", timeout=TIMEOUT).status == "err busy"
         answer(vm, "text s3cret")
         rows = dump_until(vm, lambda rows: rows[row] == "Password: ******")
         assert not any("s3cret" in r for r in rows), rows

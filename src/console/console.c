@@ -76,15 +76,18 @@ static void start_read(void *arg)
 static int cmd_readline(int argc, char **argv)
 {
     char *prompt = "";
+    unsigned flags, max;
     size_t n;
 
+    /* Parse into locals: a refused command must not change the flags the
+     * active read's on_line() checks for the mask. */
     if (argc < 2) {
         return uos_maint_fail("usage readline <flags> <max> [prompt]");
     }
-    if (cv_parse_flags(argv[0], &rl_flags) != 0) {
+    if (cv_parse_flags(argv[0], &flags) != 0) {
         return uos_maint_fail("bad flags");
     }
-    if (cv_parse_count(argv[1], LE_MAX, &rl_max) != 0) {
+    if (cv_parse_count(argv[1], LE_MAX, &max) != 0) {
         return uos_maint_fail("bad max");
     }
     if (!con_up) {
@@ -105,6 +108,8 @@ static int cmd_readline(int argc, char **argv)
     }
     k_memcpy(rl_prompt, prompt, n);
     rl_prompt[n] = 0;
+    rl_flags = flags;
+    rl_max = max;
     if (uos_post(start_read, NULL) != 0) {
         return uos_maint_fail("queue full");
     }
