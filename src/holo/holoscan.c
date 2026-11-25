@@ -47,20 +47,22 @@ hs_load_t hs_load_result(int read_rc, int hf_rc)
     case VFS_E_NOTFOUND:
     case VFS_E_DIRNF:
         return HS_LOAD_GONE;
-    default:
+    case VFS_E_TOOBIG:
         return HS_LOAD_DAMAGED;
+    default:
+        return HS_LOAD_RETRY;
     }
 }
 
 int hs_read_err(int read_rc)
 {
-    return read_rc == VFS_E_TOOBIG ? HF_E_TOOBIG : HF_E_IO;
+    return read_rc == VFS_E_TOOBIG ? HF_E_TOOBIG : HF_E_UNCHECKED;
 }
 
 const char *hs_load_name(hs_load_t l)
 {
     static const char *const names[HS_LOAD_NUM] = {
-        "ok", "nomem", "nocard", "gone", "damaged",
+        "ok", "nomem", "nocard", "gone", "damaged", "retry",
     };
 
     return (unsigned)l < HS_LOAD_NUM ? names[l] : "unknown";
@@ -74,6 +76,7 @@ const char *hs_load_text(hs_load_t l)
         "NO CARD: PUT THE UOS CARD BACK AND OPEN THE READER AGAIN.",
         "THIS HOLOTAPE IS NOT ON THE CARD ANY MORE.",
         "THIS HOLOTAPE IS DAMAGED AND CANNOT BE READ.",
+        "THIS HOLOTAPE COULD NOT BE READ NOW. TRY AGAIN.",
     };
 
     return (unsigned)l < HS_LOAD_NUM ? text[l] : "";

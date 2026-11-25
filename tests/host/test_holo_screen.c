@@ -28,9 +28,19 @@ TEST(load_results)
     CHECK_EQ(hs_load_result(VFS_E_NOTREE, HF_OK), HS_LOAD_NOCARD);
     CHECK_EQ(hs_load_result(VFS_E_NOTFOUND, HF_OK), HS_LOAD_GONE);
     CHECK_EQ(hs_load_result(VFS_E_TOOBIG, HF_OK), HS_LOAD_DAMAGED);
-    CHECK_EQ(hs_load_result(VFS_E_READ, HF_OK), HS_LOAD_DAMAGED);
+    CHECK_EQ(hs_load_result(VFS_E_READ, HF_OK), HS_LOAD_RETRY);
+    CHECK_EQ(hs_load_result(VFS_E_BUSY, HF_OK), HS_LOAD_RETRY);
     CHECK_EQ(hs_read_err(VFS_E_TOOBIG), HF_E_TOOBIG);
-    CHECK_EQ(hs_read_err(VFS_E_READ), HF_E_IO);
+    /* Only the size says something about the tape: every other read error
+     * leaves it unchecked, never damaged. */
+    CHECK_EQ(hs_read_err(VFS_E_NOMEM), HF_E_UNCHECKED);
+    CHECK_EQ(hs_read_err(VFS_E_READ), HF_E_UNCHECKED);
+    CHECK_EQ(hs_read_err(VFS_E_BUSY), HF_E_UNCHECKED);
+    CHECK_EQ(hs_read_err(VFS_E_NOCARD), HF_E_UNCHECKED);
+    CHECK_EQ(hs_read_err(VFS_E_NOTFOUND), HF_E_UNCHECKED);
+    CHECK_EQ(hs_read_err(VFS_E_NOPRIV), HF_E_UNCHECKED);
+    CHECK_STR(hs_load_name(HS_LOAD_RETRY), "retry");
+    CHECK(strlen(hs_load_text(HS_LOAD_RETRY)) <= 72);
     CHECK_STR(hs_load_name(HS_LOAD_NOMEM), "nomem");
     CHECK_STR(hs_load_text(HS_LOAD_OK), "");
     CHECK_STR(hs_load_text(HS_LOAD_NOMEM), "NOT ENOUGH MEMORY TO LOAD THIS HOLOTAPE.");

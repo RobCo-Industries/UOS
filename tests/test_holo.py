@@ -284,6 +284,27 @@ def test_no_memory(board, hooks_image, need_mtools, tmp_path):
         assert wait_marker(vm, "holo op=load", 2)["result"] == "ok"
 
 
+def test_no_memory_during_the_scan(board, hooks_image, need_mtools, tmp_path):
+    """With the heap held while the reader scans, the tape is shown as not checked,
+    never damaged; once the heap is free, picking it opens it."""
+    data = big_tape(tmp_path)
+    with alone(hooks_image, board, holo_card(tmp_path, {"BIG.HTP": data})) as vm:
+        wait_ready(vm)
+        answer(vm, "holo hog")
+        scan = open_reader(vm)
+        assert (scan["damaged"], scan["unchecked"]) == ("0", "1"), scan
+        tape = wait_marker(vm, "holo op=tape", 1)
+        assert tape["result"] == "unchecked", tape
+        assert tape_list(vm)[0]["err"] == "unchecked"
+        dump_until(vm, lambda r: r[3] == "> BIG.HTP      NOT CHECKED: select it to try again")
+        answer(vm, "holo hog")                  # gives the heap back
+        answer(vm, "holo pick 0")
+        load = wait_marker(vm, "holo op=load", 1)
+        assert load["result"] == "ok", load
+        assert holo_state(vm)["screen"] == "entries"
+        assert tape_list(vm)[0]["err"] == "ok"
+
+
 def test_reader_with_a_session(board, hooks_image, need_mtools, tmp_path):
     """A logged-in GUEST, no privilege, reads the tapes with its own rights; a second
     `holo open` while the reader is open is refused."""

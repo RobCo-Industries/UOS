@@ -35,7 +35,8 @@ typedef enum hs_load {
     HS_LOAD_NOMEM,          /* the heap has no room for the tape */
     HS_LOAD_NOCARD,         /* the card went away */
     HS_LOAD_GONE,           /* the file is not there any more */
-    HS_LOAD_DAMAGED,        /* a read error, a file too large, or hf_open() refused it */
+    HS_LOAD_DAMAGED,        /* a file too large, or hf_open() refused it */
+    HS_LOAD_RETRY,          /* the read failed for a reason that is not the tape's bytes */
     HS_LOAD_NUM
 } hs_load_t;
 
@@ -45,10 +46,13 @@ typedef enum hs_load {
 hs_load_t hs_load_result(int read_rc, int hf_rc);
 
 /* The tape's error code when a scan or load read fails before
- * hf_open() runs: HF_E_TOOBIG for a file over the limit, HF_E_IO else. */
+ * hf_open() runs. Only VFS_E_TOOBIG says something about the tape itself:
+ * HF_E_TOOBIG. Every other code (no memory, card busy or gone, file gone,
+ * a read error that may pass, no access) gives HF_E_UNCHECKED: the list
+ * shows the tape as not checked and opening it reads it again. */
 int hs_read_err(int read_rc);
 
-/* "ok", "nomem", "nocard", "gone", "damaged". */
+/* "ok", "nomem", "nocard", "gone", "damaged", "retry". */
 const char *hs_load_name(hs_load_t l);
 
 /*

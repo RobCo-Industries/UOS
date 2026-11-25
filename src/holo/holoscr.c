@@ -19,8 +19,8 @@
  *   holo result=<busy|range|gone>   a posted call that could not act
  *   holo op=open, holo op=exit
  *   holo op=tape i= file= result=<ok|hf error> bytes= us=      one per scanned tape
- *   holo op=scan result=<list|empty|nocard|nofolder|error> total= kept= damaged= rc=
- *   holo op=load file= result=<ok|nomem|nocard|gone|damaged> why= bytes= us= ticks=
+ *   holo op=scan result=<list|empty|nocard|nofolder|error> total= kept= damaged= unchecked= rc=
+ *   holo op=load file= result=<ok|nomem|nocard|gone|damaged|retry> why= bytes= us= ticks=
  *   holo op=show tape= entry= bytes=
  *   holo op=close file=
  */
@@ -172,15 +172,17 @@ static void later(uos_call_fn fn)
 
 static void scan_done(void)
 {
-    uint32_t i, damaged = 0;
+    uint32_t i, damaged = 0, unchecked = 0;
 
     for (i = 0; i < hs.kept; i++) {
-        damaged += hs.tapes[i].err != HF_OK;
+        unchecked += hs.tapes[i].err == HF_E_UNCHECKED;
+        damaged += hs.tapes[i].err != HF_OK && hs.tapes[i].err != HF_E_UNCHECKED;
     }
     (void)hf_reader_init(&hs.r, hs.tapes, hs.kept);
     hs.st = ST_LIST;
-    UOS_MARK("holo op=scan result=%s total=%u kept=%u damaged=%u rc=%d", hs_scan_name(hs.scan),
-             (unsigned)hs.total, (unsigned)hs.kept, (unsigned)damaged, hs.scan_rc);
+    UOS_MARK("holo op=scan result=%s total=%u kept=%u damaged=%u unchecked=%u rc=%d",
+             hs_scan_name(hs.scan), (unsigned)hs.total, (unsigned)hs.kept, (unsigned)damaged,
+             (unsigned)unchecked, hs.scan_rc);
     uos_screen_invalidate();
 }
 
@@ -293,6 +295,12 @@ static void load_step(void *arg)
     k_snprintf(hs.msg, sizeof(hs.msg), "%s", hs_load_text(res));
     if (res == HS_LOAD_OK) {
         hs.buf = buf;
+        /* A tape the scan could not read is checked now. */
+        if (hs.tapes[hs.open].err == HF_E_UNCHECKED) {
+            hs.tapes[hs.open].err = HF_OK;
+            k_snprintf(hs.tapes[hs.open].title, sizeof(hs.tapes[hs.open].title), "%s",
+                       hf_title(&hs.r.tape));
+        }
     } else {
         vfs_free(buf);
         if (res == HS_LOAD_DAMAGED) {

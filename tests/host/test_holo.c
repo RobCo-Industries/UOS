@@ -615,4 +615,23 @@ TEST(reader_long_title_fits)
     one[0].err = HF_E_OVERLAP;
     hf_layout(&rd, lines, HF_ROWS);
     CHECK_STR(lines[3], "> ABCDEFGH.HTP DAMAGED: two entries share text");
+    one[0].err = HF_E_UNCHECKED;
+    hf_layout(&rd, lines, HF_ROWS);
+    CHECK_STR(lines[3], "> ABCDEFGH.HTP NOT CHECKED: select it to try again");
+}
+
+/* A tape the scan could not read is not damaged: ENTER asks to load it. */
+TEST(reader_unchecked_tape_loads)
+{
+    static hf_tape_info_t one[1];
+
+    memset(one, 0, sizeof(one));
+    strcpy(one[0].file, "LATER.HTP");
+    one[0].err = HF_E_UNCHECKED;
+    hf_reader_init(&rd, one, 1);
+    ev(HF_EV_ENTER);
+    CHECK_EQ(act.kind, HF_ACT_LOAD);
+    CHECK_EQ(act.tape, 0);
+    CHECK_STR(hf_err_name(HF_E_UNCHECKED), "unchecked");
+    CHECK_STR(hf_strerror(HF_E_UNCHECKED), "tape could not be checked");
 }
