@@ -411,7 +411,7 @@ stateDiagram-v2
     list --> [*]: BACK on the tape list
 ```
 
-A tape loads in one `vfs_read_all()` call, so the screen first draws `LOADING NAME.HTP ...` and posts the read to the next pass. A tape of `HF_TAPE_MAX` bytes took 0.51 to 0.54 s, 56 to 58 ticks, on raspi0, raspi1ap and raspi2b in QEMU, and 2.7 s, 276 ticks, on raspi3b. The scan reads each tape whole too, with `Scanning SYS$HOLO ...` on screen. During such a read the loop does not run: input waits in the input layer, timers fire late, and the device service's software watchdog sees no kick for that long. Its limit is 15 s, so it does not fire. These are QEMU numbers.
+A tape loads in one `vfs_read_all()` call, so the screen first draws `LOADING NAME.HTP ...` and posts the read to the next pass. A tape of `HF_TAPE_MAX` bytes took 0.51 to 0.60 s, 56 to 64 ticks, on raspi0, raspi1ap and raspi2b in QEMU over two runs, and 2.7 to 3.0 s, 276 to 301 ticks, on raspi3b. The scan reads each tape whole too, with `Scanning SYS$HOLO ...` on screen. During such a read the loop does not run: input waits in the input layer, timers fire late, and the device service's software watchdog sees no kick for that long. Its limit is 15 s, so it does not fire. These are QEMU numbers.
 
 The states a person can meet: no card, no `HOLO` folder, no tape, a damaged tape listed as damaged, more tapes than the 25 rows of the window (the window scrolls), more than 32 tapes (the list keeps the first 32 and says so), a tape damaged since the scan, a card taken out, and no heap for the tape.
 

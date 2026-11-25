@@ -137,14 +137,14 @@ QEMU refuses a read-only drive as an SD card, and the library's target tests mak
 
 ### The holotape load time
 
-`test_holo.py -s` prints `holo board= bytes= scan_us= load_us= load_ticks=` for a tape of `HF_TAPE_MAX` bytes, 2098728. One `vfs_read_all()` call reads it. Measured in QEMU on the test host:
+`test_holo.py -s` prints `holo board= bytes= scan_us= load_us= load_ticks=` for a tape of `HF_TAPE_MAX` bytes, 2098728. One `vfs_read_all()` call reads it. Measured in QEMU on the test host, two runs:
 
 | Board | Scan read | Load read | Ticks |
 |---|---|---|---|
-| `raspi0` | 0.60 s | 0.53 s | 57 |
-| `raspi1ap` | 0.53 s | 0.54 s | 58 |
-| `raspi2b` | 0.54 s | 0.51 s | 56 |
-| `raspi3b` | 3.10 s | 2.71 s | 276 |
+| `raspi0` | 0.54 and 0.60 s | 0.53 and 0.55 s | 57 and 59 |
+| `raspi1ap` | 0.53 and 0.56 s | 0.54 and 0.57 s | 58 and 61 |
+| `raspi2b` | 0.54 and 0.59 s | 0.51 and 0.60 s | 56 and 64 |
+| `raspi3b` | 3.03 and 3.10 s | 2.71 and 2.96 s | 276 and 301 |
 
 The reader draws a loading line before the read. The test asserts no bound: it prints the figures for the docs.
 
