@@ -468,7 +468,7 @@ static void nosh_enter(uos_screen_t *s)
 static int nosh_event(uos_screen_t *s, const uos_event_t *ev)
 {
     (void)s;
-    if (ev->type == UOS_EV_KEY && ev->code == INPUT_KEY_BACK) {
+    if (uos_ev_fresh_key(ev) && ev->code == INPUT_KEY_BACK) {
         (void)sess_logout(SESS_END_USER);
         return 1;
     }
@@ -548,11 +548,10 @@ static void welcome_leave(uos_screen_t *s)
 static int welcome_event(uos_screen_t *s, const uos_event_t *ev)
 {
     (void)s;
-    if (ev->type == UOS_EV_KEY || ev->type == UOS_EV_CHAR) {
+    if (uos_ev_fresh_key(ev) || ev->type == UOS_EV_CHAR) {
         welcome_done(NULL);
-        return 1;
     }
-    return 0;
+    return ev->type == UOS_EV_KEY || ev->type == UOS_EV_CHAR;
 }
 
 static uos_screen_t welcome_screen = {

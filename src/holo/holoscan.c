@@ -1,3 +1,4 @@
+#include <robco/input.h>
 #include <robco/klibc.h>
 
 #include "holoscan.h"
@@ -110,5 +111,30 @@ void hs_apply(char lines[][HF_LINE_SIZE], int on_tape_list, hs_scan_t scan, uint
     }
     if (msg != NULL && msg[0] != '\0') {
         k_snprintf(lines[ROW_RULE2], HF_LINE_SIZE, "** %.72s", msg);
+    }
+}
+
+int hs_key(unsigned code, int32_t value, hf_event_t *out)
+{
+    if (value != INPUT_PRESS && value != INPUT_REPEAT) {
+        return 0;
+    }
+    switch (code) {
+    case INPUT_KEY_UP:
+        *out = HF_EV_UP;
+        return 1;
+    case INPUT_KEY_DOWN:
+        *out = HF_EV_DOWN;
+        return 1;
+    case INPUT_KEY_SELECT:
+    case INPUT_KEY_RIGHT:
+        *out = HF_EV_ENTER;
+        return value == INPUT_PRESS;
+    case INPUT_KEY_BACK:
+    case INPUT_KEY_LEFT:
+        *out = HF_EV_BACK;
+        return value == INPUT_PRESS;
+    default:
+        return 0;
     }
 }

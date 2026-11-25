@@ -92,6 +92,10 @@ static int pv_event(uos_screen_t *s, const uos_event_t *ev)
     } else {
         return 0;
     }
+    /* Held keys page; leaving takes a fresh press. */
+    if (key == INPUT_KEY_BACK && !uos_ev_fresh_key(ev)) {
+        return 1;
+    }
     top = pv.pg.top;
     if (pg_key(&pv.pg, key) == PG_EXIT) {
         cb = pv.cb;

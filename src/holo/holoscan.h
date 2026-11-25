@@ -72,4 +72,9 @@ const char *hs_load_text(hs_load_t l);
 /* The message row while a tape loads: "LOADING NAME.HTP ...". */
 void hs_loading_text(const char *file, char *buf, size_t size);
 
+/* A key for the tape and entry lists. UP and DOWN move on a press or a
+ * repeat. SELECT and RIGHT enter, BACK and LEFT go back: press only, so a
+ * held key does one step. Returns 1 and sets *out, or 0 for no action. */
+int hs_key(unsigned code, int32_t value, hf_event_t *out);
+
 #endif

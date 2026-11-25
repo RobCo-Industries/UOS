@@ -1,5 +1,7 @@
 /* Host tests of src/kernel/screen.c: the screen stack rules. */
 
+#include <robco/input.h>
+
 #include "rc_test.h"
 
 #include "uos_screen.h"
@@ -125,6 +127,50 @@ TEST(a_screen_may_pop_itself_in_its_handler)
     CHECK_EQ(uos_ss_event(&ss, &ev), 0);
     CHECK_STR(log_buf, "event:b leave:b ");
     CHECK(uos_ss_top(&ss) == &a);
+}
+
+TEST(a_held_key_stops_at_the_screen_it_closed)
+{
+    uos_sstack_t ss;
+    uos_event_t press = { .type = UOS_EV_KEY, .code = INPUT_KEY_BACK, .value = INPUT_PRESS };
+    uos_event_t rep = press, other = press;
+    SCREEN(a, "a", 1);
+    uos_screen_t b = { "b", NULL, leave, pop_self, NULL, NULL, 0 };
+
+    rep.value = INPUT_REPEAT;
+    other.code = INPUT_KEY_DOWN;
+    other.value = INPUT_REPEAT;
+    uos_ss_init(&ss);
+    popper_ss = &ss;
+    uos_ss_push(&ss, &a);
+    uos_ss_push(&ss, &b);
+    log_buf[0] = '\0';
+    CHECK_EQ(uos_ss_event(&ss, &press), 0);
+    /* The repeats of the key that closed b never reach a. */
+    CHECK_EQ(uos_ss_event(&ss, &rep), 1);
+    CHECK_EQ(uos_ss_event(&ss, &rep), 1);
+    CHECK_STR(log_buf, "event:b leave:b ");
+    /* Another key's repeats pass. */
+    CHECK_EQ(uos_ss_event(&ss, &other), 1);
+    CHECK_STR(log_buf, "event:b leave:b event:a ");
+    /* A new press of the same key that changes nothing ends the drop. */
+    CHECK_EQ(uos_ss_event(&ss, &press), 1);
+    CHECK_EQ(uos_ss_event(&ss, &rep), 1);
+    CHECK_STR(log_buf, "event:b leave:b event:a event:a event:a ");
+}
+
+TEST(a_repeat_that_changes_nothing_passes)
+{
+    uos_sstack_t ss;
+    uos_event_t rep = { .type = UOS_EV_KEY, .code = INPUT_KEY_UP, .value = INPUT_REPEAT };
+    SCREEN(a, "a", 1);
+
+    uos_ss_init(&ss);
+    uos_ss_push(&ss, &a);
+    log_buf[0] = '\0';
+    CHECK_EQ(uos_ss_event(&ss, &rep), 1);
+    CHECK_EQ(uos_ss_event(&ss, &rep), 1);
+    CHECK_STR(log_buf, "event:a event:a ");
 }
 
 TEST(depth_limit_and_bad_arguments)

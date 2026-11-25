@@ -1,6 +1,6 @@
 """The holotape reader: the three shipped tapes, every entry in the pager, a damaged
 tape, a card with no tapes, no HOLO folder, no card, more tapes than one screen and
-than the list holds, the largest tape with its load time, and no memory."""
+than the list holds, the largest tape with its load time, no memory, and held keys."""
 
 import os
 import re
@@ -345,3 +345,65 @@ def test_reader_with_a_session(board, hooks_image, need_mtools, tmp_path):
         wait_marker(vm, "holo op=exit", 1)
         rows = dump_until(vm, lambda r: "No shell is installed in this build." in r)
         assert rows
+
+
+def hold(vm, name, repeats):
+    """A held key through the test-only `hold` command: a press, repeats, a release."""
+    answer(vm, f"hold {name} {repeats}")
+
+
+def test_held_back_does_one_step(board, hooks_image, need_mtools, tmp_path):
+    """A held BACK or LEFT goes back one step: the pager to the entry list, the
+    entry list to the tape list. It never leaves the reader."""
+    with alone(hooks_image, board, holo_card(tmp_path, TAPES)) as vm:
+        wait_ready(vm)
+        open_reader(vm)
+        answer(vm, "holo pick 0")
+        assert wait_marker(vm, "holo op=load", 1)["result"] == "ok"
+        answer(vm, "holo pick 0")
+        wait_marker(vm, "holo op=show", 1)
+        assert holo_state(vm)["state"] == "reading"
+        hold(vm, "back", 3)
+        st = holo_state(vm)
+        assert (st["state"], st["screen"]) == ("list", "entries"), st
+        hold(vm, "left", 3)
+        st = holo_state(vm)
+        assert (st["state"], st["screen"]) == ("list", "tapes"), st
+        assert not [m for m in events(vm, "holo") if m.get("op") == "exit"]
+
+
+def test_held_select_loads_once(board, hooks_image, need_mtools, tmp_path):
+    """A held SELECT or RIGHT on a tape starts one load. A damaged tape is refused
+    once, a good one opens once and its entry list stays up."""
+    bad = bytearray(TAPES["STORY.HTP"])
+    bad[0x200] ^= 0x55
+    tapes = dict(TAPES, **{"STORY.HTP": bytes(bad)})
+    with alone(hooks_image, board, holo_card(tmp_path, tapes)) as vm:
+        wait_ready(vm)
+        open_reader(vm)
+        key(vm, "down")
+        hold(vm, "select", 3)
+        holo_state(vm)
+        hold(vm, "right", 3)
+        holo_state(vm)
+        loads = [(m["file"], m["result"]) for m in events(vm, "holo") if m.get("op") == "load"]
+        assert loads == [("STORY.HTP", "refused")] * 2, loads
+        key(vm, "down")
+        hold(vm, "select", 3)
+        wait_marker(vm, "holo op=load", 3)
+        st = holo_state(vm)
+        assert (st["state"], st["screen"], st["open"]) == ("list", "entries", "TECHLOG.HTP"), st
+        loads = [m for m in events(vm, "holo") if m.get("op") == "load"]
+        assert len(loads) == 3, loads
+        assert not [m for m in events(vm, "holo") if m.get("op") == "show"]
+
+
+def test_held_down_moves_rows(board, hooks_image, need_mtools, tmp_path):
+    """A held DOWN moves one row per press and per repeat, and a held UP moves back."""
+    with alone(hooks_image, board, holo_card(tmp_path, TAPES)) as vm:
+        wait_ready(vm)
+        open_reader(vm)
+        hold(vm, "down", 1)
+        assert holo_state(vm)["sel"] == "2"
+        hold(vm, "up", 1)
+        assert holo_state(vm)["sel"] == "0"

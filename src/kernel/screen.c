@@ -1,5 +1,6 @@
 /* The screen stack. Pure. */
 
+#include <robco/input.h>
 #include <robco/klibc.h>
 
 #include "uos_screen.h"
@@ -93,13 +94,41 @@ uos_screen_t *uos_ss_top(const uos_sstack_t *ss)
     return (ss != NULL && ss->depth > 0) ? ss->stack[ss->depth - 1] : NULL;
 }
 
+static int pass_down(uos_sstack_t *ss, const uos_event_t *ev);
+
 int uos_ss_event(uos_sstack_t *ss, const uos_event_t *ev)
 {
-    unsigned i;
+    uos_screen_t *top;
+    unsigned depth;
+    int used;
 
     if (ss == NULL || ev == NULL) {
         return 0;
     }
+    if (ev->type != UOS_EV_KEY || (ev->value != INPUT_PRESS && ev->value != INPUT_REPEAT)) {
+        return pass_down(ss, ev);
+    }
+    if (ev->value == INPUT_REPEAT) {
+        if (ss->spent && ss->spent_code == ev->code) {
+            return 1;
+        }
+        return pass_down(ss, ev);
+    }
+    ss->spent = 0;
+    top = uos_ss_top(ss);
+    depth = ss->depth;
+    used = pass_down(ss, ev);
+    if (ss->depth != depth || uos_ss_top(ss) != top) {
+        ss->spent = 1;
+        ss->spent_code = ev->code;
+    }
+    return used;
+}
+
+static int pass_down(uos_sstack_t *ss, const uos_event_t *ev)
+{
+    unsigned i;
+
     for (i = ss->depth; i > 0; i--) {
         uos_screen_t *s = ss->stack[i - 1];
         unsigned depth = ss->depth;

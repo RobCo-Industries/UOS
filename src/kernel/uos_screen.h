@@ -55,6 +55,8 @@ typedef struct {
     unsigned depth;
     int dirty;
     int exposed;            /* redraw from the highest full screen up */
+    int spent;              /* 1: repeats of spent_code are dropped */
+    uint16_t spent_code;    /* the key whose press changed the stack */
 } uos_sstack_t;
 
 void uos_ss_init(uos_sstack_t *ss);
@@ -63,7 +65,10 @@ int uos_ss_pop(uos_sstack_t *ss);
 int uos_ss_replace(uos_sstack_t *ss, uos_screen_t *s);
 /* The top screen, or NULL. */
 uos_screen_t *uos_ss_top(const uos_sstack_t *ss);
-/* Passes `ev` down from the top until a screen uses it. Returns 1 if one did. */
+/* Passes `ev` down from the top until a screen uses it. Returns 1 if one did.
+ * A key press that changes the stack spends its key: the repeats of that
+ * key are dropped until the next press, so a held key does not run on
+ * into the screen that comes up. */
 int uos_ss_event(uos_sstack_t *ss, const uos_event_t *ev);
 /* Marks the stack dirty. */
 void uos_ss_invalidate(uos_sstack_t *ss);

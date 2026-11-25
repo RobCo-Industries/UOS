@@ -1,9 +1,40 @@
 #include <string.h>
 
+#include <robco/input.h>
+
 #include "holoscan.h"
 #include "vfs.h"
 
 #include "rc_test.h"
+
+TEST(held_keys)
+{
+    hf_event_t e = HF_EV_BACK;
+
+    /* Movement repeats. */
+    CHECK_EQ(hs_key(INPUT_KEY_UP, INPUT_PRESS, &e), 1);
+    CHECK_EQ(e, HF_EV_UP);
+    CHECK_EQ(hs_key(INPUT_KEY_DOWN, INPUT_REPEAT, &e), 1);
+    CHECK_EQ(e, HF_EV_DOWN);
+    CHECK_EQ(hs_key(INPUT_KEY_UP, INPUT_REPEAT, &e), 1);
+    CHECK_EQ(e, HF_EV_UP);
+    /* Enter and back take the press only. */
+    CHECK_EQ(hs_key(INPUT_KEY_SELECT, INPUT_PRESS, &e), 1);
+    CHECK_EQ(e, HF_EV_ENTER);
+    CHECK_EQ(hs_key(INPUT_KEY_RIGHT, INPUT_PRESS, &e), 1);
+    CHECK_EQ(e, HF_EV_ENTER);
+    CHECK_EQ(hs_key(INPUT_KEY_BACK, INPUT_PRESS, &e), 1);
+    CHECK_EQ(e, HF_EV_BACK);
+    CHECK_EQ(hs_key(INPUT_KEY_LEFT, INPUT_PRESS, &e), 1);
+    CHECK_EQ(e, HF_EV_BACK);
+    CHECK_EQ(hs_key(INPUT_KEY_SELECT, INPUT_REPEAT, &e), 0);
+    CHECK_EQ(hs_key(INPUT_KEY_RIGHT, INPUT_REPEAT, &e), 0);
+    CHECK_EQ(hs_key(INPUT_KEY_BACK, INPUT_REPEAT, &e), 0);
+    CHECK_EQ(hs_key(INPUT_KEY_LEFT, INPUT_REPEAT, &e), 0);
+    /* Releases and other keys do nothing. */
+    CHECK_EQ(hs_key(INPUT_KEY_UP, INPUT_RELEASE, &e), 0);
+    CHECK_EQ(hs_key(INPUT_KEY_F1, INPUT_PRESS, &e), 0);
+}
 
 TEST(scan_results)
 {

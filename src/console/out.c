@@ -190,6 +190,9 @@ static int pause_event(uos_screen_t *s, const uos_event_t *ev)
     if (ev->type != UOS_EV_KEY && ev->type != UOS_EV_CHAR) {
         return 0;
     }
+    if (ev->type == UOS_EV_KEY && !uos_ev_fresh_key(ev)) {
+        return 1;   /* a held key does not run through the next pauses */
+    }
     cb = pause_st.cb;
     ctx = pause_st.ctx;
     pause_st.active = 0;

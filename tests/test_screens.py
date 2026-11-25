@@ -72,6 +72,22 @@ def test_pager_over_the_login_prompt(board, uos_image, need_mtools, tmp_path):
         same(before, settled_rows(vm))
 
 
+def test_held_back_leaves_the_pager_only(board, hooks_image, need_mtools, tmp_path):
+    """A held BACK closes the pager once. Its repeats do not reach the login read
+    line below, where they would erase the typed name."""
+    with alone(hooks_image, board, card(tmp_path, card_tree())) as vm:
+        at_prompt(vm)
+        answer(vm, "text GUE")
+        before = settled_rows(vm)
+        assert any(r.startswith("USERNAME: GUE") for r in before), before
+        answer(vm, "page short")
+        wait_marker(vm, "page top=0", 1)
+        settled_rows(vm)
+        answer(vm, "hold back 3")
+        wait_marker(vm, "page result=done", 1)
+        same(before, settled_rows(vm))
+
+
 def test_keyboard_over_the_login_prompt(board, uos_image, need_mtools, tmp_path):
     with alone(uos_image, board, card(tmp_path, card_tree())) as vm:
         at_prompt(vm)

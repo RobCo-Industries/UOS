@@ -410,26 +410,11 @@ static void holo_leave(uos_screen_t *s)
 
 static int holo_event(uos_screen_t *s, const uos_event_t *ev)
 {
+    hf_event_t hev;
+
     (void)s;
-    if (ev->type == UOS_EV_KEY && ev->value != INPUT_RELEASE) {
-        switch (ev->code) {
-        case INPUT_KEY_UP:
-            model_event(HF_EV_UP);
-            break;
-        case INPUT_KEY_DOWN:
-            model_event(HF_EV_DOWN);
-            break;
-        case INPUT_KEY_SELECT:
-        case INPUT_KEY_RIGHT:
-            model_event(HF_EV_ENTER);
-            break;
-        case INPUT_KEY_BACK:
-        case INPUT_KEY_LEFT:
-            model_event(HF_EV_BACK);
-            break;
-        default:
-            break;
-        }
+    if (ev->type == UOS_EV_KEY && hs_key(ev->code, ev->value, &hev)) {
+        model_event(hev);
     }
     return ev->type == UOS_EV_KEY || ev->type == UOS_EV_CHAR;
 }
