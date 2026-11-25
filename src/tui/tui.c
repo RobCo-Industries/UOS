@@ -162,7 +162,7 @@ int tui_key(tui_t *t, unsigned key)
     if (t->state == TUI_ST_CONFIRM) {
         if (is_choose(key)) {
             t->state = TUI_ST_DONE;
-            return TUI_ACT_LOGOUT;
+            return t->closes ? TUI_ACT_CLOSE : TUI_ACT_LOGOUT;
         }
         if (is_back(key)) {
             t->state = TUI_ST_MENU;
@@ -201,6 +201,47 @@ int tui_key(tui_t *t, unsigned key)
     }
     fix_scroll(t);
     return TUI_ACT_NONE;
+}
+
+int tui_set_close(tui_t *t)
+{
+    if (t == 0) {
+        return TUI_E_ARG;
+    }
+    t->closes = 1;
+    return TUI_OK;
+}
+
+unsigned tui_map_key(int is_char, unsigned code, int repeat)
+{
+    if (is_char) {
+        if (code >= '1' && code <= '9') {
+            return TUI_CHAR(code);
+        }
+        return (code == '\r' || code == '\n') ? INPUT_KEY_SELECT : 0;
+    }
+    if (code == INPUT_KEY_NONE || code >= INPUT_KEY_COUNT) {
+        return 0;
+    }
+    if (repeat && code != INPUT_KEY_UP && code != INPUT_KEY_DOWN) {
+        return 0;
+    }
+    return code;
+}
+
+const char *tui_act_name(int act)
+{
+    static const char *const names[] = { "none", "menu", "header", "text", "command",
+                                         "device", "holotape", "logout", "close" };
+
+    return act >= 0 && act <= TUI_ACT_CLOSE ? names[act] : "?";
+}
+
+const char *tui_state_name(int state)
+{
+    static const char *const names[] = { "wait", "menu", "confirm", "done" };
+
+    return state >= 0 && state <= TUI_ST_DONE ? names[state] : "?";
 }
 
 int tui_event(tui_t *t, const input_event_t *ev)
@@ -411,17 +452,18 @@ static const char *hint(const tui_t *t)
     case TUI_ST_WAIT:
         return "Please wait";
     case TUI_ST_CONFIRM:
-        return "ENTER: log out  BACK: stay";
+        return t->closes ? "ENTER: close  BACK: stay" : "ENTER: log out  BACK: stay";
     case TUI_ST_DONE:
-        return "Logged out";
+        return t->closes ? "Closed" : "Logged out";
     default:
         break;
     }
     if (l == 0 || l->menu.count == 0) {
-        return top ? "BACK: log out" : "BACK: up a level";
+        return !top ? "BACK: up a level" : t->closes ? "BACK: close" : "BACK: log out";
     }
-    return top ? "UP/DOWN: move  1-9: pick  ENTER: choose  BACK: log out"
-               : "UP/DOWN: move  1-9: pick  ENTER: choose  BACK: up a level";
+    return !top ? "UP/DOWN: move  1-9: pick  ENTER: choose  BACK: up a level"
+           : t->closes ? "UP/DOWN: move  1-9: pick  ENTER: choose  BACK: close"
+                       : "UP/DOWN: move  1-9: pick  ENTER: choose  BACK: log out";
 }
 
 int tui_layout(const tui_t *t, tui_line_t *out, unsigned max)
@@ -462,7 +504,9 @@ int tui_layout(const tui_t *t, tui_line_t *out, unsigned max)
         }
     }
     if (t->state == TUI_ST_CONFIRM) {
-        rc |= put(out, max, &n, TUI_ROW_MSG, TUI_A_NORMAL, "Log out? ENTER: yes  BACK: no");
+        rc |= put(out, max, &n, TUI_ROW_MSG, TUI_A_NORMAL,
+                  t->closes ? "Close the menu? ENTER: yes  BACK: no"
+                            : "Log out? ENTER: yes  BACK: no");
     } else {
         rc |= put(out, max, &n, TUI_ROW_MSG, TUI_A_NORMAL, t->msg);
     }
