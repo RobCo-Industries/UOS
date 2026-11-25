@@ -105,15 +105,27 @@ uint32_t uos_ticks(void);
 int uos_post_event(const uos_event_t *ev);
 
 /*
- * Input events not handled yet: those still in the input layer plus the
- * keys and characters the loop took into its queue and has not given to
- * a screen. A maintenance command runs inside input_poll(), between the
- * two, so a state reply must use this and not input_pending(). Loop only.
+ * Input not handled yet: the events still in the input layer plus the
+ * keys, characters and port calls the loop took into its queue and has
+ * not handled. A maintenance command runs inside input_poll(), between
+ * the two, so a state reply must use this and not input_pending(). Loop
+ * only.
  */
 unsigned uos_input_pending(void);
 
-/* Queues a call of fn(arg) from the loop. Any context. 0 or UOS_EVQ_ERR_FULL. */
+/*
+ * Queues a call of fn(arg) from the loop. Main context, never an
+ * interrupt handler. 0 or UOS_EVQ_ERR_FULL.
+ *
+ * Inside a maintenance command the call goes through the input queue,
+ * behind every key received before the command: what the system received
+ * first is handled first, whatever path it came in on. The call then also
+ * counts in uos_input_pending() until it has run.
+ */
 int uos_post(uos_call_fn fn, void *arg);
+
+/* maint.c only: non-zero while a maintenance command runs. Main context. */
+void uos_port_command(int running);
 
 /*
  * Starts a timer: first expiry after `delay` ticks, then every `period`

@@ -46,6 +46,7 @@ PURE_KERNEL := \
               src/kernel/bootlines.c \
               src/kernel/event.c \
               src/kernel/maintreg.c \
+              src/kernel/portcall.c \
               src/kernel/screen.c \
               src/kernel/service.c \
               src/kernel/settings.c \

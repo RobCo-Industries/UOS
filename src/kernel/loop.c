@@ -10,6 +10,7 @@
 #include <robco/tick.h>
 
 #include "uos.h"
+#include "uos_portcall.h"
 #include "uos_service.h"
 
 static uos_evq_t evq;
@@ -18,9 +19,14 @@ static uos_sstack_t ss;
 static uint32_t last_tick;
 /* The tick of the last key or character taken, for the idle rule. */
 static volatile uint32_t last_input;
-/* Keys and characters taken from the input layer and not dispatched yet.
- * Loop only: take_input() and dispatch() run in the loop. */
+/* Keys, characters and port calls taken from the input layer and not
+ * dispatched yet. Loop only: take_input() and dispatch() run in the loop. */
 static unsigned taken;
+/* Calls posted by maintenance commands, on their way through the input queue. */
+static uos_pc_t port_calls;
+/* Non-zero while a maintenance command runs: uos_post() then goes through
+ * the input queue. Set by maint.c, main context. */
+static int in_port_command;
 
 uint32_t uos_ticks(void)
 {
@@ -36,11 +42,37 @@ int uos_post_event(const uos_event_t *ev)
     return rc;
 }
 
+/*
+ * A maintenance command's call joins the input queue behind the keys
+ * received before it, so it runs after them and before later keys.
+ */
+static int post_port_call(uos_call_fn fn, void *arg)
+{
+    input_event_t in;
+
+    if (uos_pc_make(&port_calls, fn, arg, &in) != 0) {
+        return UOS_EVQ_ERR_FULL;
+    }
+    if (input_push(&in) == INPUT_ERR_FULL) {
+        uos_pc_cancel(&port_calls, &in);
+        return UOS_EVQ_ERR_FULL;
+    }
+    return 0;
+}
+
 int uos_post(uos_call_fn fn, void *arg)
 {
     uos_event_t ev = { .type = UOS_EV_CALL, .fn = fn, .arg = arg };
 
+    if (in_port_command) {
+        return post_port_call(fn, arg);
+    }
     return uos_post_event(&ev);
+}
+
+void uos_port_command(int running)
+{
+    in_port_command = running;
 }
 
 uint32_t uos_events_dropped(void)
@@ -89,22 +121,18 @@ void uos_screen_invalidate(void)
     uos_ss_invalidate(&ss);
 }
 
-/* Input events become kernel events. Releases are dropped. */
+/* Input events become kernel events, port calls included, in queue
+ * order. Releases and dial turns are dropped. */
 static void take_input(const input_event_t *in)
 {
-    uos_event_t ev = { 0 };
+    uos_event_t ev;
 
-    if (in->type == INPUT_EV_KEY && in->value != INPUT_RELEASE) {
-        ev.type = UOS_EV_KEY;
-    } else if (in->type == INPUT_EV_CHAR) {
-        ev.type = UOS_EV_CHAR;
-    } else {
+    if (!uos_pc_convert(&port_calls, in, &ev)) {
         return;
     }
-    ev.source = in->source;
-    ev.code = in->code;
-    ev.value = in->value;
-    last_input = tick_count();
+    if (ev.type != UOS_EV_CALL) {
+        last_input = tick_count();
+    }
     if (uos_post_event(&ev) == 0) {
         taken++;
     }
@@ -154,8 +182,9 @@ static int evq_room(void)
 
 static void dispatch(uos_event_t *ev)
 {
-    /* Only take_input() posts KEY and CHAR events. */
-    if ((ev->type == UOS_EV_KEY || ev->type == UOS_EV_CHAR) && taken > 0) {
+    /* Only take_input() posts KEY and CHAR events, and CALL events of value 1. */
+    if ((ev->type == UOS_EV_KEY || ev->type == UOS_EV_CHAR ||
+         (ev->type == UOS_EV_CALL && ev->value == 1)) && taken > 0) {
         taken--;
     }
     switch (ev->type) {
@@ -235,4 +264,5 @@ void uos_loop_init(void)
     uos_evq_init(&evq);
     uos_tq_init(&tq);
     uos_ss_init(&ss);
+    uos_pc_init(&port_calls);
 }

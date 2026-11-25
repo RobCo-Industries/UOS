@@ -103,7 +103,9 @@ static int dispatch(int argc, char *argv[], input_script_reply_t *reply, void *c
         return -1;
     }
     cur_reply = reply;
+    uos_port_command(1);
     rc = cmd->fn(n, args);
+    uos_port_command(0);
     cur_reply = NULL;
     return rc < 0 ? -1 : 0;
 }
