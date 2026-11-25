@@ -26,6 +26,15 @@ int cv_opens_osk(const input_event_t *ev, int osk_open)
     return ev->code == CV_OSK_KEY && ev->value == INPUT_PRESS;
 }
 
+int cv_alt_key(const input_event_t *ev, int alt, unsigned len, int osk_open)
+{
+    if (ev == NULL || !alt || len != 0 || osk_open || ev->type != INPUT_EV_KEY ||
+        ev->value != INPUT_PRESS || ev->source == INPUT_SRC_GPIO) {
+        return 0;
+    }
+    return ev->code == CV_ALT_KEY;
+}
+
 unsigned cv_line_width(size_t prompt_len, unsigned cols)
 {
     unsigned w;

@@ -154,6 +154,66 @@ int sess_logout(int reason)
     return 0;
 }
 
+/* ---- The password game ---- */
+
+int sess_hack_check(void)
+{
+    const uos_settings_t *cfg = uos_settings();
+
+    return lg_hack_allowed(cfg->hack_enabled, sess.db == LG_DB_OK, sess_find(cfg->hack_user),
+                           sess.in ? LG_S_SESSION : sess.st,
+                           sess.lk.locked &&
+                               (uint32_t)(sess_now_ms() - sess.lk.locked_at) < sess.lk.lock_ms);
+}
+
+int sess_hack_begin(void)
+{
+    int rc = sess_hack_check();
+    int idx;
+
+    if (rc == LG_HACK_OK) {
+        idx = uaf_find(&sess.uaf, uos_settings()->hack_user);
+        sess_begin(idx, "hack");
+        sess_go(LG_E_DIRECT);
+        return LG_HACK_OK;
+    }
+    UOS_MARK("session result=refused why=%s how=hack", lg_hack_name((lg_hack_t)rc));
+    return rc;
+}
+
+int sess_hack_lock(void)
+{
+    unsigned secs = uos_settings()->hack_lockout_s;
+
+    if (sess.in || sess.st != LG_S_USER || secs == 0) {
+        return 0;
+    }
+    (void)lk_lock(&sess.lk, sess_now_ms(), secs);
+    sess.lock_hack = 1;
+    sess_go(LG_E_HACK_LOCKED);
+    return 1;
+}
+
+int sess_set_hack_entry(sess_hack_fn fn)
+{
+    if (fn == NULL) {
+        return SESS_ERR_ARG;
+    }
+    if (sess.hack != NULL) {
+        return SESS_ERR_SET;
+    }
+    sess.hack = fn;
+    return 0;
+}
+
+void sess_resume(void)
+{
+    if (!sess.in && sess.st == LG_S_USER) {
+        sess_show_only(&sess_login_screen);
+        sess_prompt_later();
+    }
+}
+
 /* ---- The maintenance command ---- */
 
 static void post_logout(void *arg)

@@ -126,3 +126,34 @@ TEST(lock_starts_at_zero_tick)
     CHECK_EQ(lk_remaining_s(&lk, 0), 2);
     CHECK_EQ(lk_locked(&lk, 2000), 0);
 }
+
+/* The password game's lock: its own length, then the login's again. */
+TEST(lock_for_seconds)
+{
+    lk_t lk;
+
+    lk_init(&lk, 3, 30);
+    CHECK_EQ(lk_fail(&lk, 0), 0);
+    CHECK_EQ(lk_lock(&lk, 1000, 0), 0);         /* 0 s does not lock */
+    CHECK_EQ(lk_lock(&lk, 1000, 60), 1);
+    CHECK_EQ(lk_tries_left(&lk), 0);
+    CHECK_EQ(lk_remaining_s(&lk, 1000), 60);
+    CHECK_EQ(lk_locked(&lk, 60999), 1);
+    CHECK_EQ(lk_locked(&lk, 61000), 0);
+    CHECK_EQ(lk_tries_left(&lk), 3);            /* the count starts again */
+    /* A later failure lock uses the login's own length. */
+    lk_fail(&lk, 70000);
+    lk_fail(&lk, 70000);
+    CHECK_EQ(lk_fail(&lk, 70000), 1);
+    CHECK_EQ(lk_remaining_s(&lk, 70000), 30);
+    /* A shorter game lock does not cut a running one; a longer one wins. */
+    CHECK_EQ(lk_lock(&lk, 71000, 5), 1);
+    CHECK_EQ(lk_remaining_s(&lk, 71000), 29);
+    CHECK_EQ(lk_lock(&lk, 71000, 3601), 1);
+    CHECK_EQ(lk_remaining_s(&lk, 71000), 3600);
+    /* Across the wrap of the millisecond count. */
+    lk_init(&lk, 3, 30);
+    CHECK_EQ(lk_lock(&lk, 0xFFFFF000u, 10), 1);
+    CHECK_EQ(lk_locked(&lk, 0xFFFFF000u + 9999u), 1);
+    CHECK_EQ(lk_locked(&lk, 0xFFFFF000u + 10000u), 0);
+}

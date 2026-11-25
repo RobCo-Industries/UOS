@@ -41,6 +41,18 @@ unsigned cv_input_row(unsigned want, unsigned first, unsigned count);
  */
 int cv_opens_osk(const input_event_t *ev, int osk_open);
 
+/* The key that ends a read with CON_ALT when the caller asked for it. */
+#define CV_ALT_KEY          INPUT_KEY_F2
+
+/*
+ * Non-zero when `ev` ends the read with CON_ALT: the read has the alt key
+ * flag (`alt` non-zero), the line is empty, the keyboard is closed and the
+ * event is a press of CV_ALT_KEY that does not come from a GPIO button
+ * (a button opens the keyboard). On a line with text, F2 keeps its meaning:
+ * the end of the line.
+ */
+int cv_alt_key(const input_event_t *ev, int alt, unsigned len, int osk_open);
+
 /*
  * The columns the line gets after a prompt of `prompt_len` characters on
  * a row of `cols` columns: the last column stays free. At least

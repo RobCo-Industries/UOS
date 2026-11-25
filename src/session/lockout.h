@@ -26,6 +26,7 @@ typedef enum lk_err {
 typedef struct lk {
     uint32_t lockout_ms;
     uint32_t locked_at;     /* tick when the lock started */
+    uint32_t lock_ms;       /* length of the running lock: lockout_ms, or lk_lock()'s */
     uint8_t retries;
     uint8_t fails;          /* failures since the last success or unlock */
     uint8_t locked;
@@ -39,6 +40,13 @@ lk_err_t lk_init(lk_t *lk, unsigned retries, unsigned lockout_s);
  * count resets when it reaches retries and nothing locks.
  */
 int lk_fail(lk_t *lk, uint32_t now);
+/*
+ * Locks at `now` for `seconds`, whatever the count: the password game's
+ * lockout shares the login's lock. 0 seconds does not lock. While a lock
+ * runs, the one that ends later wins. Returns 1 if locked. Seconds over
+ * LK_LOCKOUT_MAX_S are LK_LOCKOUT_MAX_S.
+ */
+int lk_lock(lk_t *lk, uint32_t now, unsigned seconds);
 /* A successful login: clears the count. */
 void lk_success(lk_t *lk);
 /* 1 while locked at `now`. Ends an expired lock and clears the count. */

@@ -109,7 +109,9 @@ typedef enum lg_event {
     LG_E_LOCK_END,              /* the lockout ended */
     LG_E_WELCOME_DONE,          /* the welcome time is over, or a key */
     LG_E_LOGOUT,                /* sess_logout(), any reason */
-    LG_E_DIRECT,                /* a session set with no password: `sess login`, test builds */
+    LG_E_DIRECT,                /* a session set with no password: a won password game,
+                                 * or `sess login` in test builds */
+    LG_E_HACK_LOCKED,           /* the password game was lost: the lockout starts */
     LG_E_NUM
 } lg_event_t;
 
@@ -148,6 +150,36 @@ int lg_denied_line(char *buf, size_t size, unsigned tries_left);
 
 /* The countdown row of the lockout screen. Length or -1. */
 int lg_locked_line(char *buf, size_t size, uint32_t seconds);
+
+/* ---- The password game's session ---- */
+
+typedef enum lg_hack {
+    LG_HACK_OK = 0,
+    LG_HACK_OFF,                /* [hack] enabled = no */
+    LG_HACK_NODB,               /* no user database */
+    LG_HACK_NOUSER,             /* the [hack] user does not exist */
+    LG_HACK_DISABLED,           /* the account has UAF_FLAG_DISABLED */
+    LG_HACK_NOHACK,             /* the account has UAF_FLAG_NOHACK */
+    LG_HACK_BUSY,               /* someone is logged in, or the login is past the user name */
+    LG_HACK_LOCKED,             /* the terminal is locked */
+    LG_HACK_NUM
+} lg_hack_t;
+
+/*
+ * May the password game run, or log in its target? `enabled` is [hack]
+ * enabled, `db_ok` non-zero when the database loaded, `rec` the target's
+ * record or NULL, `st` the login state and `locked` non-zero while the
+ * lockout runs. The game runs only from the user name prompt. The first
+ * failing rule in the order of lg_hack_t wins.
+ */
+lg_hack_t lg_hack_allowed(int enabled, int db_ok, const uaf_rec_t *rec, lg_state_t st,
+                          int locked);
+
+/* "ok", "off", "nodb", "nouser", "disabled", "nohack", "busy", "locked". */
+const char *lg_hack_name(lg_hack_t h);
+
+/* One line for the screen, never the target's password. "" for LG_HACK_OK. */
+const char *lg_hack_text(lg_hack_t h);
 
 /* ---- Settings ---- */
 

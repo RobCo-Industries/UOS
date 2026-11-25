@@ -35,15 +35,18 @@
 /* Results given to the callbacks. */
 #define CON_OK          0       /* the person accepted the line, or left the pager */
 #define CON_CANCEL      1       /* the person cancelled the line (Ctrl-C) */
+#define CON_ALT         2       /* CON_RL_ALTKEY: F2 on an empty line */
 
 /* ---- Read a line ---- */
 
 /* Flags of con_read_line(). */
 #define CON_RL_MASK     LE_F_MASK       /* a password: '*' shown, never stored */
 #define CON_RL_NOHIST   LE_F_NOHIST     /* neither stored in nor read from the history */
+#define CON_RL_ALTKEY   0x100u          /* F2 on an empty line ends the read with CON_ALT */
 
 /*
- * Called once when the read ends. `result` is CON_OK or CON_CANCEL.
+ * Called once when the read ends. `result` is CON_OK, CON_CANCEL, or
+ * CON_ALT for a read with CON_RL_ALTKEY.
  * `text` holds `len` characters and a NUL (empty on CON_CANCEL); the
  * console owns it and it stays valid only until the callback returns.
  * The read screen is already popped, so the callback may start another

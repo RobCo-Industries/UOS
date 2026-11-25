@@ -142,7 +142,9 @@ lg_step_t lg_next(lg_state_t s, lg_event_t e)
         }
         break;
     case LG_S_USER:
-        if (e == LG_E_USER_OK) {
+        if (e == LG_E_HACK_LOCKED) {
+            TO(LG_S_LOCKED, LG_M_NONE);
+        } else if (e == LG_E_USER_OK) {
             TO(LG_S_PASS, LG_M_NONE);
         } else if (e == LG_E_USER_EMPTY || e == LG_E_USER_CANCEL) {
             /* Nothing was asked: the prompt comes back, nothing counts. */
@@ -187,6 +189,58 @@ lg_step_t lg_next(lg_state_t s, lg_event_t e)
     }
 #undef TO
     return r;
+}
+
+lg_hack_t lg_hack_allowed(int enabled, int db_ok, const uaf_rec_t *rec, lg_state_t st,
+                          int locked)
+{
+    if (!enabled) {
+        return LG_HACK_OFF;
+    }
+    if (!db_ok) {
+        return LG_HACK_NODB;
+    }
+    if (rec == NULL) {
+        return LG_HACK_NOUSER;
+    }
+    if (rec->flags & UAF_FLAG_DISABLED) {
+        return LG_HACK_DISABLED;
+    }
+    if (rec->flags & UAF_FLAG_NOHACK) {
+        return LG_HACK_NOHACK;
+    }
+    if (locked || st == LG_S_LOCKED) {
+        return LG_HACK_LOCKED;
+    }
+    if (st != LG_S_USER) {
+        return LG_HACK_BUSY;
+    }
+    return LG_HACK_OK;
+}
+
+const char *lg_hack_name(lg_hack_t h)
+{
+    static const char *const names[LG_HACK_NUM] = {
+        "ok", "off", "nodb", "nouser", "disabled", "nohack", "busy", "locked",
+    };
+
+    return (unsigned)h < LG_HACK_NUM ? names[h] : "unknown";
+}
+
+const char *lg_hack_text(lg_hack_t h)
+{
+    static const char *const text[LG_HACK_NUM] = {
+        "",
+        "THE PASSWORD GAME IS TURNED OFF ON THIS TERMINAL.",
+        "NO USER DATABASE: THE PASSWORD GAME CANNOT RUN.",
+        "THE PASSWORD GAME HAS NO TARGET ACCOUNT.",
+        "THE TARGET ACCOUNT IS DISABLED.",
+        "THE TARGET ACCOUNT CANNOT BE HACKED.",
+        "THE PASSWORD GAME STARTS ONLY FROM THE LOGIN PROMPT.",
+        "THE TERMINAL IS LOCKED.",
+    };
+
+    return (unsigned)h < LG_HACK_NUM ? text[h] : "";
 }
 
 const char *lg_state_name(lg_state_t s)

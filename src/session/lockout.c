@@ -13,12 +13,13 @@ lk_err_t lk_init(lk_t *lk, unsigned retries, unsigned lockout_s)
     lk->fails = 0;
     lk->locked = 0;
     lk->locked_at = 0;
+    lk->lock_ms = 0;
     return LK_OK;
 }
 
 int lk_locked(lk_t *lk, uint32_t now)
 {
-    if (lk->locked && (uint32_t)(now - lk->locked_at) >= lk->lockout_ms) {
+    if (lk->locked && (uint32_t)(now - lk->locked_at) >= lk->lock_ms) {
         lk->locked = 0;
         lk->fails = 0;
     }
@@ -36,9 +37,31 @@ int lk_fail(lk_t *lk, uint32_t now)
         if (lk->lockout_ms > 0) {
             lk->locked = 1;
             lk->locked_at = now;
+            lk->lock_ms = lk->lockout_ms;
         }
     }
     return lk->locked;
+}
+
+int lk_lock(lk_t *lk, uint32_t now, unsigned seconds)
+{
+    uint32_t ms;
+
+    if (seconds > LK_LOCKOUT_MAX_S) {
+        seconds = LK_LOCKOUT_MAX_S;
+    }
+    ms = (uint32_t)seconds * 1000u;
+    if (lk_locked(lk, now) && lk->lock_ms - (uint32_t)(now - lk->locked_at) >= ms) {
+        return 1;
+    }
+    if (ms == 0) {
+        return lk->locked;
+    }
+    lk->locked = 1;
+    lk->locked_at = now;
+    lk->lock_ms = ms;
+    lk->fails = 0;
+    return 1;
 }
 
 void lk_success(lk_t *lk)
@@ -53,7 +76,7 @@ uint32_t lk_remaining_s(lk_t *lk, uint32_t now)
     if (!lk_locked(lk, now)) {
         return 0;
     }
-    left = lk->lockout_ms - (uint32_t)(now - lk->locked_at);
+    left = lk->lock_ms - (uint32_t)(now - lk->locked_at);
     return (left + 999u) / 1000u;
 }
 

@@ -138,13 +138,16 @@ static int feed(const input_event_t *ev)
     return r;
 }
 
+/* LE_ACCEPT, LE_CANCEL, or RL_ALT for the alt key. */
+#define RL_ALT  100
+
 static void finish(int r)
 {
     con_line_fn cb = rl.cb;
     void *ctx = rl.ctx;
-    int result = r == LE_ACCEPT ? CON_OK : CON_CANCEL;
+    int result = r == LE_ACCEPT ? CON_OK : r == RL_ALT ? CON_ALT : CON_CANCEL;
 
-    if (result == CON_CANCEL) {
+    if (result != CON_OK) {
         rl.buf[0] = 0;
     }
     osk_close(&rl.osk);
@@ -181,6 +184,10 @@ static int rl_event(uos_screen_t *s, const uos_event_t *ev)
     in.value = ev->value;
     in.t_ms = 0;
 
+    if (cv_alt_key(&in, (rl.flags & CON_RL_ALTKEY) != 0, le_len(&rl.le), was_open)) {
+        finish(RL_ALT);
+        return 1;
+    }
     if (cv_opens_osk(&in, was_open)) {
         (void)con_osk_open();
         return 1;
@@ -308,8 +315,8 @@ int con_read_line(const char *prompt, unsigned flags, unsigned max, con_line_fn 
         rl.prompt[n++] = ' ';
     }
     rl.prompt[n] = 0;
-    if (le_init(&rl.le, rl.buf, sizeof(rl.buf), max, flags, &con_history,
-                cv_line_width(n, con_cols())) != 0) {
+    if (le_init(&rl.le, rl.buf, sizeof(rl.buf), max, flags & (CON_RL_MASK | CON_RL_NOHIST),
+                &con_history, cv_line_width(n, con_cols())) != 0) {
         return CON_ERR_ARG;
     }
     rl.plen = (unsigned)n;

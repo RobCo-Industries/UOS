@@ -88,6 +88,47 @@ typedef uos_screen_t *(*sess_next_fn)(void);
  */
 int sess_set_next(sess_next_fn fn);
 
+/* ---- The password game ---- */
+
+/*
+ * any: may the password game run now for the [hack] user? An lg_hack_t
+ * of login.h: LG_HACK_OK, or why not (game off, no database, no such
+ * account, account disabled or UAF_FLAG_NOHACK, someone logged in or the
+ * login past the user name prompt, terminal locked).
+ */
+int sess_hack_check(void);
+
+/*
+ * loop: the game was won. Checks again with sess_hack_check(), then starts
+ * a session for the [hack] user with no password: marker "session
+ * state=start ... how=hack", the welcome, then the next screen. On a
+ * refusal prints "session result=refused why=<name> how=hack", changes
+ * nothing and returns the lg_hack_t code. Every screen above the bottom
+ * one is removed on success.
+ */
+int sess_hack_begin(void);
+
+/*
+ * loop: the game was lost. Locks the terminal for [hack] lockout_s with
+ * the login's own lock and lockout screen: one lock state for the
+ * terminal. Returns 1 when it locked; 0 when lockout_s is 0 or the login
+ * is not at the user name prompt, and then nothing changes.
+ */
+int sess_hack_lock(void);
+
+/*
+ * The login's entry to the password game: F2 on an empty user name line
+ * calls `fn`. `fn` returns 0 when its screen took over: it calls
+ * sess_resume() when it gives the login back without a session. Any other
+ * value brings the user name prompt back at once. Once per boot, as
+ * sess_set_next(). Loop.
+ */
+typedef int (*sess_hack_fn)(void);
+int sess_set_hack_entry(sess_hack_fn fn);
+
+/* loop: the login screen is the top again: its user name prompt starts. */
+void sess_resume(void);
+
 /*
  * any: the user database, read only. NULL when no database loaded. For
  * the minigame and an AUTHORIZE-style listing. Nothing writes SYSUAF.DAT

@@ -135,7 +135,7 @@ static void start_user(void *arg)
         return;
     }
     set_cursor(ROW_USER);
-    rc = con_read_line("USERNAME:", CON_RL_NOHIST, UAF_NAME_MAX, on_user, NULL);
+    rc = con_read_line("USERNAME:", CON_RL_NOHIST | CON_RL_ALTKEY, UAF_NAME_MAX, on_user, NULL);
     UOS_MARK("login state=user rc=%d", rc);
 }
 
@@ -163,9 +163,23 @@ static void step(lg_event_t e)
     uos_screen_invalidate();
 }
 
+void sess_prompt_later(void)
+{
+    later(start_user);
+}
+
 static void on_user(int result, const char *text, unsigned len, void *ctx)
 {
     (void)ctx;
+    if (result == CON_ALT) {
+        /* F2 on an empty name: the password game, when one is installed. */
+        UOS_MARK("login state=hack");
+        if (sess.hack != NULL && sess.hack() == 0) {
+            return;
+        }
+        later(start_user);
+        return;
+    }
     if (result != CON_OK) {
         step(LG_E_USER_CANCEL);
     } else if (len == 0) {
@@ -313,13 +327,19 @@ uos_screen_t sess_login_screen = {
 
 static uos_timer_id_t lock_timer;
 
+static const char *lock_text(void)
+{
+    return sess.lock_hack ? "TERMINAL LOCKED: PASSWORD RECOVERY FAILED."
+                          : "TERMINAL LOCKED: TOO MANY FAILED LOGINS.";
+}
+
 static void lock_draw(uos_screen_t *s)
 {
     char line[UOS_LINE_MAX + 1];
 
     (void)s;
     header(0);
-    put_row(ROW_MSG, "TERMINAL LOCKED: TOO MANY FAILED LOGINS.", CONSOLE_ATTR_BRIGHT);
+    put_row(ROW_MSG, lock_text(), CONSOLE_ATTR_BRIGHT);
     (void)lg_locked_line(line, sizeof(line), lk_remaining_s(&sess.lk, sess_now_ms()));
     put_row(ROW_USER, line, CONSOLE_ATTR_NORMAL);
     put_row(ROW_PASS, "INPUT IS REFUSED UNTIL THEN.", CONSOLE_ATTR_DIM);
@@ -333,7 +353,9 @@ static void lock_end(void)
     }
     (void)uos_timer_cancel(lock_timer);
     lock_timer = UOS_TIMER_NONE;
-    UOS_MARK("lockout state=end t=%u", (unsigned)uos_ticks());
+    UOS_MARK("lockout state=end t=%u why=%s", (unsigned)uos_ticks(),
+             sess.lock_hack ? "hack" : "login");
+    sess.lock_hack = 0;
     sess_go(LG_E_LOCK_END);
 }
 
@@ -357,9 +379,10 @@ static void lock_enter(uos_screen_t *s)
     uint32_t left = lk_remaining_s(&sess.lk, sess_now_ms());
 
     (void)s;
-    UOS_MARK("lockout state=start s=%u t=%u", (unsigned)left, (unsigned)uos_ticks());
+    UOS_MARK("lockout state=start s=%u t=%u why=%s", (unsigned)left, (unsigned)uos_ticks(),
+             sess.lock_hack ? "hack" : "login");
     header(1);
-    sess_serial("TERMINAL LOCKED: TOO MANY FAILED LOGINS.");
+    sess_serial(lock_text());
     (void)lg_locked_line(line, sizeof(line), left);
     sess_serial(line);
     if (uos_timer_start(LOCK_TICKS, LOCK_TICKS, lock_second, NULL, &lock_timer) != 0) {
