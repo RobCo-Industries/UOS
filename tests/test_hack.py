@@ -182,6 +182,38 @@ def test_won_game_starts_a_guest_session(board, hooks_image, need_mtools, tmp_pa
         assert state(vm).f["state"] == "off"
 
 
+def win(vm):
+    """Guesses the board's words in order until the password; returns the guesses."""
+    g = state(vm)
+    n0 = len([m for m in events(vm, "hack") if m.get("op") == "guess"])
+    for n, s in enumerate(sorted(g.words), n0 + 1):
+        if guess(vm, s, n)["result"] == "win":
+            return
+    raise AssertionError("no win")
+
+
+def test_won_game_clears_the_failure_count(board, hooks_image, need_mtools, tmp_path):
+    """Two wrong passwords, a won game, logout: it then takes the configured 3 wrong
+    passwords to lock, as after a right password. lockout.h has the table."""
+    from test_login import login, sess_state
+    with alone(hooks_image, board, hack_card(tmp_path, cfg())) as vm:
+        wait_ready(vm)
+        at_login(vm)
+        assert login(vm, "GUEST", "nope", expect="bad")["left"] == "2"
+        assert login(vm, "GUEST", "nope", expect="bad")["left"] == "1"
+        at_login(vm)
+        answer(vm, f"hack seed {SEED}")
+        assert start_from_login(vm)["result"] == "ok"
+        win(vm)
+        assert wait_marker(vm, "session state=start", 1)["how"] == "hack"
+        assert sess_state(vm)["tries"] == "3"
+        answer(vm, "sess logout")
+        wait_marker(vm, "session state=end", 1)
+        lefts = [login(vm, "GUEST", "nope", expect="bad")["left"] for _ in range(3)]
+        assert lefts == ["2", "1", "0"], lefts
+        assert wait_marker(vm, "lockout state=start", 1)["why"] == "login"
+
+
 def test_lost_game_locks_and_never_logs_the_password(board, hooks_image, need_mtools,
                                                      tmp_path):
     """2 attempts, lockout_s = 3: two wrong guesses lock the terminal with the login's

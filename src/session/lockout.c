@@ -64,7 +64,7 @@ int lk_lock(lk_t *lk, uint32_t now, unsigned seconds)
     return 1;
 }
 
-void lk_success(lk_t *lk)
+void lk_session_start(lk_t *lk)
 {
     lk->fails = 0;
 }

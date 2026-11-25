@@ -10,6 +10,29 @@
  * the caller polls (any lk_ call) at least once per wrap period while a
  * lockout is running. The login screen polls on every tick, so it does.
  */
+/*
+ * The terminal has one lockout state, shared by the password login and
+ * the password game. Every event and its effect, `fails` being the count
+ * and `lock` the running lock:
+ *
+ *   wrong password          lk_fail: fails + 1; at retries, lock lockout_s, fails 0
+ *   unknown user            lk_fail, as a wrong password
+ *   right password, account
+ *     disabled              lk_fail, as a wrong password: the screen never
+ *                           tells the password was right
+ *   right password          lk_session_start: fails 0
+ *   game won                lk_session_start: fails 0
+ *   game started            nothing
+ *   game left with BACK     nothing, whatever the wrong guesses
+ *   game lost               lk_lock [hack] lockout_s: lock, fails 0; with 0 s
+ *                           nothing
+ *   game refused            nothing; while locked it is refused as `locked`
+ *   logout, idle timeout    nothing: fails is kept; no lock can run in a
+ *                           session, since a session cannot start while locked
+ *   lock runs out           lk_locked: lock ends, fails 0
+ *   input while locked      lk_fail ignored, lock unchanged
+ *   reboot                  lk_init: fails 0, no lock (RAM only)
+ */
 #define LK_RETRIES_MIN      1
 #define LK_RETRIES_MAX      9
 #define LK_RETRIES_DEFAULT  3
@@ -47,8 +70,12 @@ int lk_fail(lk_t *lk, uint32_t now);
  * LK_LOCKOUT_MAX_S are LK_LOCKOUT_MAX_S.
  */
 int lk_lock(lk_t *lk, uint32_t now, unsigned seconds);
-/* A successful login: clears the count. */
-void lk_success(lk_t *lk);
+/*
+ * A session starts: a right password, a won password game, or the
+ * test-only `sess login`. Clears the count. sess_begin() calls it, so
+ * every way into a session goes through it.
+ */
+void lk_session_start(lk_t *lk);
 /* 1 while locked at `now`. Ends an expired lock and clears the count. */
 int lk_locked(lk_t *lk, uint32_t now);
 /* Whole seconds left, rounded up; 0 when not locked. Ends an expired lock. */

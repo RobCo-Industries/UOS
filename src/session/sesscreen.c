@@ -252,12 +252,11 @@ static void check_done(void)
     /* A disabled account counts as a failure and shows the same message:
      * the screen never tells that the password was right. */
     if (rc == UAF_OK) {
-        lk_success(&sess.lk);
+        sess_begin(idx, "login");           /* clears the failure count */
         UOS_MARK("login user=%s result=ok left=%u steps=%u ticks=%u us=%u maxstep_us=%u", name,
                  lk_tries_left(&sess.lk), (unsigned)steps, ticks, us, (unsigned)chk_maxstep_us);
         sess.typed[0] = '\0';
         sess.msg_text[0] = '\0';
-        sess_begin(idx, "login");
         sess_go(LG_E_GOOD);
         return;
     }

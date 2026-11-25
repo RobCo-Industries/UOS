@@ -56,7 +56,7 @@ TEST(success_resets)
     lk_init(&lk, 3, 30);
     lk_fail(&lk, 1);
     lk_fail(&lk, 2);
-    lk_success(&lk);
+    lk_session_start(&lk);
     CHECK_EQ(lk_tries_left(&lk), 3);
     CHECK_EQ(lk_fail(&lk, 3), 0);
     CHECK_EQ(lk_fail(&lk, 4), 0);
@@ -156,4 +156,107 @@ TEST(lock_for_seconds)
     CHECK_EQ(lk_lock(&lk, 0xFFFFF000u, 10), 1);
     CHECK_EQ(lk_locked(&lk, 0xFFFFF000u + 9999u), 1);
     CHECK_EQ(lk_locked(&lk, 0xFFFFF000u + 10000u), 0);
+}
+
+/* ---- The lockout table of lockout.h, one test per row ---- */
+
+/* Two failures of three, the state the rows start from. */
+static void two_fails(lk_t *lk)
+{
+    lk_init(lk, 3, 30);
+    CHECK_EQ(lk_fail(lk, 0), 0);
+    CHECK_EQ(lk_fail(lk, 0), 0);
+    CHECK_EQ(lk_tries_left(lk), 1);
+}
+
+/* Wrong password, unknown user, a right password on a disabled account:
+ * the service calls lk_fail for each. */
+TEST(row_failures_count)
+{
+    lk_t lk;
+
+    two_fails(&lk);
+    CHECK_EQ(lk_fail(&lk, 0), 1);
+    CHECK_EQ(lk_remaining_s(&lk, 0), 30);
+}
+
+/* A right password and a won game both start a session: same call. */
+TEST(row_session_start_clears)
+{
+    lk_t lk;
+    int i;
+
+    two_fails(&lk);
+    lk_session_start(&lk);
+    CHECK_EQ(lk_tries_left(&lk), 3);
+    /* After logout it takes the configured number again. */
+    for (i = 0; i < 2; i++) {
+        CHECK_EQ(lk_fail(&lk, 1), 0);
+    }
+    CHECK_EQ(lk_fail(&lk, 1), 1);
+}
+
+/* Game started, BACK, refused, logout, idle timeout: no lk_ call, so the
+ * count stays as it was and the next failure takes it on. */
+TEST(row_no_call_keeps_count)
+{
+    lk_t lk;
+
+    two_fails(&lk);
+    CHECK_EQ(lk_locked(&lk, 5000), 0);
+    CHECK_EQ(lk_tries_left(&lk), 1);
+    CHECK_EQ(lk_fail(&lk, 5000), 1);
+}
+
+/* A lost game locks and clears the count; with 0 s nothing changes. */
+TEST(row_game_lost)
+{
+    lk_t lk;
+
+    two_fails(&lk);
+    CHECK_EQ(lk_lock(&lk, 0, 0), 0);
+    CHECK_EQ(lk_tries_left(&lk), 1);
+    CHECK_EQ(lk_lock(&lk, 0, 60), 1);
+    CHECK_EQ(lk_tries_left(&lk), 0);
+    CHECK_EQ(lk_locked(&lk, 60000), 0);
+    CHECK_EQ(lk_tries_left(&lk), 3);
+}
+
+/* The lock runs out: failures from before it do not carry over. */
+TEST(row_lock_ends_fresh_count)
+{
+    lk_t lk;
+
+    two_fails(&lk);
+    CHECK_EQ(lk_fail(&lk, 0), 1);
+    CHECK_EQ(lk_fail(&lk, 100), 1);             /* input while locked: ignored */
+    CHECK_EQ(lk_remaining_s(&lk, 100), 30);
+    CHECK_EQ(lk_locked(&lk, 30000), 0);
+    CHECK_EQ(lk_tries_left(&lk), 3);
+}
+
+/* A reboot: lk_init again clears a lock and the count. */
+TEST(row_reboot)
+{
+    lk_t lk;
+
+    two_fails(&lk);
+    CHECK_EQ(lk_fail(&lk, 0), 1);
+    CHECK_EQ(lk_init(&lk, 3, 30), LK_OK);
+    CHECK_EQ(lk_locked(&lk, 0), 0);
+    CHECK_EQ(lk_tries_left(&lk), 3);
+}
+
+/* Alternating password tries and game starts: a game start changes
+ * nothing, so the third wrong password still locks. */
+TEST(row_alternating_does_not_dodge)
+{
+    lk_t lk;
+
+    lk_init(&lk, 3, 30);
+    CHECK_EQ(lk_fail(&lk, 0), 0);
+    /* game started, BACK */
+    CHECK_EQ(lk_fail(&lk, 0), 0);
+    /* game started, refused */
+    CHECK_EQ(lk_fail(&lk, 0), 1);
 }

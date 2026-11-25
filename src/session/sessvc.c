@@ -129,6 +129,8 @@ void sess_begin(int idx, const char *how)
     sess.privs = r->privs;
     sess.flags = r->flags;
     sess.start_tick = uos_ticks();
+    /* Every way into a session clears the failure count: lockout.h. */
+    lk_session_start(&sess.lk);
     k_snprintf(uos.user, sizeof(uos.user), "%s", sess.user);
     UOS_MARK("session state=start user=%s privs=%u how=%s", sess.user, (unsigned)sess.privs, how);
 }
