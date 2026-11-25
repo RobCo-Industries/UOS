@@ -202,7 +202,18 @@ static int pause_event(uos_screen_t *s, const uos_event_t *ev)
     return 1;
 }
 
-static uos_screen_t pause_screen = { "pause", NULL, NULL, pause_event, pause_draw, NULL };
+/* Popped by another caller: the status row comes back, nobody is called. */
+static void pause_leave(uos_screen_t *s)
+{
+    (void)s;
+    if (pause_st.active) {
+        pause_st.active = 0;
+        con_status_set(pause_st.saved);
+        UOS_MARK("pause done=abort");
+    }
+}
+
+static uos_screen_t pause_screen = { "pause", NULL, pause_leave, pause_event, pause_draw, NULL };
 
 int con_pause(const char *text, con_done_fn cb, void *ctx)
 {
