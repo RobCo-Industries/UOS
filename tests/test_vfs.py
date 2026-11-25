@@ -197,8 +197,11 @@ def test_access(board, uos_image, need_mtools, tmp_path):
         ok(fs(vm, "ls SD0:[HOME.ADMIN]")[0])
         err(fs(vm, "del SD0:[HOME.ADMIN]DUTY.TXT")[0], "nopriv")
         err(fs(vm, "cat SD0:[000000]SYSUAF.DAT")[0], "nopriv")
+        err(fs(vm, "cat SD0:[000000]SYSUAF.DEF")[0], "nopriv")
         answer(vm, f"fs who - {SECURITY}")
         ok(fs(vm, "cat SD0:[000000]SYSUAF.DAT 4096")[0])
+        ok(fs(vm, "cat SD0:[000000]SYSUAF.DEF 4096")[0])
+        err(fs(vm, "write SD0:[000000]SYSUAF.DEF x")[0], "protected")
         err(fs(vm, "write SD0:[000000]SYSUAF.DAT x")[0], "protected")
         answer(vm, f"fs who - {SYS}")
         err(fs(vm, "write SD0:[000000]SYSUAF.DAT x")[0], "protected")
@@ -206,15 +209,23 @@ def test_access(board, uos_image, need_mtools, tmp_path):
         err(fs(vm, "ren SD0:[000000]UOS.CFG SYSUAF.DAT")[0], "protected")
         final, _ = fs(vm, "ls SD0:[000000]SYSUAF.DAT")
         ok(final, count=1)
+        ok(fs(vm, "cat SD0:[000000]SYSUAF.DEF 4096")[0])
+        err(fs(vm, "write SD0:[000000]SYSUAF.DEF x")[0], "protected")
+        err(fs(vm, "del SD0:[000000]SYSUAF.DEF")[0], "protected")
+        err(fs(vm, "copy SD0:[000000]UOS.CFG SD0:[000000]SYSUAF.DEF")[0], "protected")
+        err(fs(vm, "ren SD0:[000000]UOS.CFG SYSUAF.DEF")[0], "protected")
+        err(fs(vm, "ren SD0:[000000]SYSUAF.DEF SYSUAF.OLD")[0], "protected")
         ok(fs(vm, "cat BOOT:README.TXT")[0], len=10, line="boot_tree")
         err(fs(vm, "write BOOT:NEW.TXT x")[0], "readonly")
         err(fs(vm, "del BOOT:README.TXT")[0], "readonly")
-        # A wildcard delete at the root checks every file: SYSUAF.DAT stays.
+        # A wildcard delete at the root checks every file: the card holds
+        # SYSUAF.DAT and SYSUAF.DEF, and both stay.
         answer(vm, "fs default SD0:[000000]")
         final, items = fs(vm, "del SYSUAF.*")
         err(final, "nofiles")
-        assert final["skipped"] == "1", final
+        assert final["skipped"] == "2", final
         ok(fs(vm, "stat SYSUAF.DAT")[0], exists=1)
+        ok(fs(vm, "stat SYSUAF.DEF")[0], exists=1)
 
 
 def test_disk_full(board, hooks_image, need_mtools, tmp_path):
