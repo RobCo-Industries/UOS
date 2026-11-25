@@ -22,6 +22,7 @@ extern const uos_service_t uos_svc_shell;
 extern const uos_service_t uos_svc_devices;
 extern const uos_service_t uos_svc_holo;
 extern const uos_service_t uos_svc_hack;
+extern const uos_service_t uos_svc_menu;
 
 #if defined(UOS_TEST_HOOKS) && UOS_TEST_HOOKS
 /* Test builds only: a service whose init fails, first in the table, so the
@@ -58,6 +59,7 @@ static const uos_service_t *const services[] = {
     &uos_svc_devices,
     &uos_svc_holo,
     &uos_svc_hack,
+    &uos_svc_menu,
     /* END SERVICES */
 };
 

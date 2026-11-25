@@ -28,11 +28,11 @@ TICK_HZ = 100
 
 # Bring-up markers in order, docs/ARCHITECTURE.md.
 # One "service" marker per service of src/kernel/services.c, in table order.
-SERVICES = ["uptime", "vfs", "console", "session", "shell", "devices", "holo", "hack"]
+SERVICES = ["uptime", "vfs", "console", "session", "shell", "devices", "holo", "hack", "menu"]
 # The maintenance commands each service registers, test builds included.
 SERVICE_COMMANDS = {"uptime": ["uptime"], "vfs": ["fs"], "console": ["readline", "page", "osk", "button"],
                     "session": ["sess"], "shell": ["sh"], "devices": ["dev"],
-                    "holo": ["holo"], "hack": ["hack"]}
+                    "holo": ["holo"], "hack": ["hack"], "menu": ["menu"]}
 BOOT_ORDER = ["boot", "handoff", "maint", "board", "mbox", "mmu", "screen", "tick", "heap",
               "input", "selfcheck", "mount", "config", "rtc"] + ["service"] * len(SERVICES) + \
              ["ready"]
