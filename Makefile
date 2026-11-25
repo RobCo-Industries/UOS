@@ -49,6 +49,7 @@ PURE_KERNEL := \
               src/kernel/service.c \
               src/kernel/settings.c \
               src/kernel/timerq.c \
+              src/kernel/u64dec.c \
 
 
 PURE_SRCS  := $(sort $(wildcard $(PURE_NAMED))) $(PURE_KERNEL)
