@@ -11,9 +11,14 @@
  *            shows a built-in test text; ev=page result=done when left
  *   osk <open|close|state>
  *            the keyboard of the active read
+ * Test builds only (UOS_TEST_HOOKS=1):
+ *   button <key>
+ *            presses and releases a key as a GPIO button would, so the
+ *            tests reach the on-screen keyboard path QEMU cannot drive
  */
 
 #include <robco/alloc.h>
+#include <robco/input.h>
 #include <robco/klibc.h>
 
 #include "conint.h"
@@ -276,6 +281,42 @@ static int cmd_osk(int argc, char **argv)
     return 0;
 }
 
+#if defined(UOS_TEST_HOOKS) && UOS_TEST_HOOKS
+/* Test builds only: a key from the GPIO source. QEMU cannot drive the Pi's
+ * GPIO inputs, so this is how the tests press a button. */
+static int cmd_button(int argc, char **argv)
+{
+    input_event_t ev = { .type = INPUT_EV_KEY, .source = INPUT_SRC_GPIO,
+                         .value = INPUT_PRESS };
+    const char *name;
+    unsigned code;
+
+    if (argc != 1) {
+        return uos_maint_fail("usage button <key>");
+    }
+    if (uos.phase != UOS_PHASE_READY) {
+        return uos_maint_fail("not ready");
+    }
+    for (code = 1; code < INPUT_KEY_COUNT; code++) {
+        name = input_key_name(code);
+        if (name != NULL && k_strcmp(name, argv[0]) == 0) {
+            break;
+        }
+    }
+    if (code >= INPUT_KEY_COUNT) {
+        return uos_maint_fail("unknown key");
+    }
+    if (!input_room(2)) {
+        return uos_maint_fail("full");
+    }
+    ev.code = (uint16_t)code;
+    (void)input_push(&ev);
+    ev.value = INPUT_RELEASE;
+    (void)input_push(&ev);
+    return 0;
+}
+#endif
+
 /* ---- The service ---- */
 
 static int console_svc_init(void)
@@ -291,6 +332,11 @@ static int console_svc_init(void)
     if (rc == 0) {
         rc = uos_maint_register("osk", cmd_osk, "the keyboard: open close state");
     }
+#if defined(UOS_TEST_HOOKS) && UOS_TEST_HOOKS
+    if (rc == 0) {
+        rc = uos_maint_register("button", cmd_button, "test: a GPIO button press <key>");
+    }
+#endif
     con_up = rc == 0;
     return rc;
 }

@@ -35,6 +35,12 @@ All notable changes to UOS are recorded here. The format follows [Keep a Changel
 - `uos_halt()`, and `uos_reboot()` that shuts the services down first. The panic path shuts them down too.
 - The MMU and the caches are on from early boot, with an `ev=mmu` marker.
 - Test builds: `halt`, `bench uaf <n>` and a failing service for the tests.
+- The session service and the login screen: `SYSUAF.DAT` loaded at boot, `USERNAME:` and `PASSWORD:` prompts from the serial console or the on-screen keyboard, a password check in steps, one message for any failed login, the lockout screen with its countdown, a welcome, a placeholder screen after login and logout. `src/session/sess.h` for the next tasks.
+- A system screen that names a missing or damaged user database, no card or no `/UOS` folder, and restarts on F4.
+- `[login] idle_s` in `UOS.CFG`: a session ends after that many seconds with no key. 0, the default, means never.
+- Maintenance: `sess state`, `sess logout`; in test builds `sess login <user>` and `button <key>`.
+- A console read, pager or pause popped by another caller ends without calling back.
+- `docs/USER_MANUAL.md` with a "Logging in" section.
 - The panic path starts the maintenance port when a panic comes before it, with the base commands in the registry.
 - `uptime` reports `last=`, the tick of its last service tick.
 - The `vfs` service: file specifications to card files with access checks, safe writes, listings, wildcards, stepped copies, a `DEV:` hook and the `fs` maintenance command.

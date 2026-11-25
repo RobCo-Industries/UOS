@@ -31,9 +31,9 @@ The tests run from the repository root, so the ones that read the default card o
 |---|---|
 | `test_timerq.c` | Timers: one-shot, periodic, catch-up, the tick wrap, cancel before and after expiry, limits. Delivery through a full event queue: a one-shot, a periodic timer over several periods, a cancel while pending, 16 timers due, a timer started from a callback. The event queue. |
 | `test_screen.c` | The screen stack rules: push, pop, replace, events passed down, draws |
-| `test_settings.c` | `UOS.CFG`: every key, clamps, bad values, unknown keys, syntax errors, the `[watchdog]` keys, the shipped card's watchdog off |
+| `test_settings.c` | `UOS.CFG`: every key, `[login] idle_s` and the `[watchdog]` keys included, clamps, bad values, unknown keys, syntax errors, the shipped card's watchdog off |
 | `test_hwdog.c` | The hardware watchdog's rules: off unless enabled and in range, a kick every quarter of the timeout, across the tick wrap, none from a dead loop, none after a shutdown, halt stops it and panic leaves it |
-| `test_bootlines.c` | The text of the first screen |
+| `test_bootlines.c` | The text of the first screen, with and without the session's notice |
 | `test_maintreg.c` | The maintenance command table: name rules, duplicates and library built-ins refused, sorted order, the 48-command limit; the word splitting with quotes, the word and line limits; joining the channel's words back |
 | `test_service.c` | The service rules with fake services: inits in order, a failure does not stop the next, ticks only for started services, shutdown in reverse order and once, nothing before init, the table limit |
 | `test_privs.c` | Every module's privilege names equal the shared bits of `uos_privs.h`; the `SYSUAF.DAT` names of each bit |
@@ -48,6 +48,7 @@ The tests run from the repository root, so the ones that read the default card o
 | `test_session_sha256.c` | SHA-256: the standard short and long messages, a million `a` streamed, block boundaries, length carry |
 | `test_session_uaf.c` | `SYSUAF.DAT`: layout, every validation check, the hash vectors shared with `mkuaf.py`, verify with equal work, edits, privilege names, the default card's file |
 | `test_session_lockout.c` | The login lockout: counts, the lock time, the tick wrap |
+| `test_session_login.c` | The login rules: the stepped check gives what `uaf_verify()` gives with the same work in every case, an unknown user takes the same steps, no step passes its budget, the password copy and the hashes are wiped, an unfinished check fails; every state and event of the login state machine, ignored events, a direct session; the messages, the lockout fallback to 3 and 30, the idle rule across the wrap, the database notices, the header and welcome text, the marker name word |
 | `test_osk.c` | The on-screen keyboard: both layers, moves with wrap, every key, emitted events, the row text |
 | `test_dev.c` | `DEVICES.CFG`: every key and error, the refused pin masks, the pull-up warning, expander pins, empty and repeated sections with the header's line; commands, pulses, the tick wrap, status lines, the pin record, the default card's file |
 | `test_dev_svc.c` | The device service's rules: debounce, `ARM` last at boot and first at shutdown, the reverse safe order, operations mapped to calls through a fake GPIO layer, expander failures, an expander bus error owed and retried, expander writes skipped on panic, the chip in the pin record, `ARM` held at boot for each kind of output failure and armed by hand with the unreachable count, pulse ends from the tick only, late and across the wrap; the device codes mapped to file system codes for `DEV:` |
@@ -86,6 +87,7 @@ The tests run from the repository root, so the ones that read the default card o
 | `test_console.py` | Reading a line with edit keys, history, cancel and the maximum; a masked read that stays masked after a refused second read; the on-screen keyboard typing a word over both layers and leaving the screen below intact; the pager over each test text; goldens of the open keyboard and the long text's first page; command errors and a second read refused; the exact PL011 echo of a typed and edited line and of a masked one |
 | `test_dev.py` | The device service: the shipped `DEVICES.CFG`, the boot record with `ARM` last, `dev set` for every action, privileges, pulse timing, two pulses, cancel, a stalled loop, sensor debounce, bad files with an empty section, expander pins on QEMU's `pca9554` model: an output that switches and reads back and a sensor on a chip input, a missing chip that leaves its devices unreachable and `ARM` off, a chip at a wrong address left untouched, the expander output safe on reboot and left as it is on panic; the `ARM` rule: an expander output with no `ARM` refused while a Pi device and an expander sensor work, `ARM` on an expander refused, and a panic with an expander output on, then a reboot that sets it to `initial` before `ARM`; no file, no card, the safe state on reboot and panic, the software watchdog reset, the hardware watchdog off by default, and the hardware watchdog setting that resets the board at start. Pulses must end within their length plus 1 tick plus `HOST_ALLOWANCE_TICKS`, 20. |
 | `test_link.py` | The services together. `DEV:` through `fs`: `cat`, `ls`, writes refused and allowed by each device's own mask, a bad word, a sensor. `DEVICES.CFG` through the file system: a folder, a file over 8 KiB, no file. A read over the pager and the pager over a read. A pulse end and a sensor change during a read. A panic with the on-screen keyboard open. The shutdown order on reboot, halt and panic, with every `devsafe` line before the console stops. A reboot during a stepped copy keeps the old file. After a panic and a halt the pin record does not change for 4 s, `STILL_S`, with a pulse running. |
+| `test_login.py` | The session service. Each default user logs in, sees the placeholder and logs out, by BACK and by `sess logout`, twice; the session fields and `state` before and after. A wrong password and an unknown user: the same marker fields, message and steps. The lockout with `retries = 2` and `lockout_s = 3`: input refused, a countdown that only goes down, the end within 3 s plus 1 tick plus `HOST_ALLOWANCE_TICKS`, then a good login. A damaged database, with F4 restarting; a missing one, a short one, no card and no `/UOS`. Ctrl-C and BACK on an empty name, an empty name, Ctrl-C on the password. The masked echo on the PL011. A login with GPIO buttons only, through the test-only `button` command and the on-screen keyboard. `sess login` only in test builds, checked with `nm`. The idle logout with `idle_s = 2`, which a key delays. The whole serial log of a session holds no password and no salt or hash in hex. Each check runs in 8 or 16 steps of under 0.1 s. |
 | `test_env_hygiene.py` | No test copies the host environment |
 
 ### How the tests start UOS
@@ -119,6 +121,12 @@ Measured in QEMU on the test host, two runs per board, 2000 iterations:
 
 The MMU off figures come from a local build with `mmu_enable()` left out. QEMU does not model caches, so the two columns are the same within noise. These figures say nothing about a real Pi, where the caches should matter much more. Nothing is validated on real hardware.
 
+### The login check
+
+`test_login.py -s` prints one line per login, `login board= user= len= steps= ticks= us= maxstep_us=`. The figures are in [session](modules/session.md#qemu-numbers): 7 to 18 ms per check in QEMU, 0.9 ms at most per step. The test asserts the step count, 8 or 16, and a step under `STEP_BOUND_US`, 0.1 s: about 100 times the longest step seen, so a loaded host fits and a check in one step of a real Pi without caches does not.
+
+The tests read the session state with `sess state` and wait for `pending=0` first, so the keys sent through the port have reached the loop.
+
 ### The copy step bound
 
 QEMU refuses a read-only drive as an SD card, and the library's target tests make a read-only volume only with a separate `ROBCO_FS_READONLY` build. So the read-only branch of the file system service is tested on the host only, in `test_vfs_card.c`, with a block device flagged read-only.
@@ -127,4 +135,4 @@ QEMU refuses a read-only drive as an SD card, and the library's target tests mak
 
 ### Goldens and screenshots
 
-`tests/golden/first.txt` holds the first screen as text. It has no sizes, CRCs, times or toolchain text. `ROBCO_UPDATE_GOLDEN=1` rewrites it. `ROBCO_SHOT_DIR=<folder>` keeps the screenshots of `test_first.py`.
+`tests/golden/first.txt` holds the first screen as text, on a card with no user database: the system screen with the missing-database notice. It has no sizes, CRCs, times or toolchain text. `ROBCO_UPDATE_GOLDEN=1` rewrites it. `ROBCO_SHOT_DIR=<folder>` keeps the screenshots of `test_first.py`.

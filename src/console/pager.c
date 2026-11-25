@@ -110,7 +110,17 @@ static int pv_event(uos_screen_t *s, const uos_event_t *ev)
     return 1;
 }
 
-static uos_screen_t pv_screen = { "pager", NULL, NULL, pv_event, pv_draw, NULL };
+/* Popped by another caller: the text is freed and nobody is called back. */
+static void pv_leave(uos_screen_t *s)
+{
+    (void)s;
+    if (pv.active) {
+        release();
+        UOS_MARK("page result=abort");
+    }
+}
+
+static uos_screen_t pv_screen = { "pager", NULL, pv_leave, pv_event, pv_draw, NULL };
 
 int con_page_active(void)
 {

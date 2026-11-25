@@ -38,6 +38,9 @@
 #define UOS_LOGIN_LOCK_MIN      0
 #define UOS_LOGIN_LOCK_MAX      3600
 #define UOS_LOGIN_LOCK_DEF      30
+#define UOS_LOGIN_IDLE_MIN      0       /* 0: a session never ends on idle time */
+#define UOS_LOGIN_IDLE_MAX      86400
+#define UOS_LOGIN_IDLE_DEF      0
 #define UOS_ATTEMPTS_MIN        1
 #define UOS_ATTEMPTS_MAX        9
 #define UOS_ATTEMPTS_DEF        4
@@ -57,6 +60,7 @@ typedef struct {
     int mode;                   /* UOS_MODE_* */
     unsigned login_retries;
     unsigned login_lockout_s;
+    unsigned login_idle_s;      /* seconds without a key before logout, 0 never */
     int hack_enabled;           /* 1 or 0 */
     char hack_user[UOS_USER_MAX + 1];
     unsigned hack_attempts;

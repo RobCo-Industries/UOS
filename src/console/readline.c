@@ -213,7 +213,30 @@ static int rl_event(uos_screen_t *s, const uos_event_t *ev)
     return 1;
 }
 
-static uos_screen_t rl_screen = { "readline", NULL, NULL, rl_event, rl_draw, NULL };
+/*
+ * Popped by another caller, such as a logout that clears the stack: the
+ * read ends with no callback and its text is wiped. finish() clears
+ * rl.active before its own pop, so this does nothing then.
+ */
+static void rl_leave(uos_screen_t *s)
+{
+    (void)s;
+    if (!rl.active) {
+        return;
+    }
+    osk_close(&rl.osk);
+    if (uos.fb_ok) {
+        console_cursor_show(0);
+    }
+    uos_serial_break();
+    rl.active = 0;
+    rl.cb = NULL;
+    rl.ctx = NULL;
+    k_memset(rl.buf, 0, sizeof(rl.buf));
+    UOS_MARK("line result=abort");
+}
+
+static uos_screen_t rl_screen = { "readline", NULL, rl_leave, rl_event, rl_draw, NULL };
 
 int con_line_active(void)
 {

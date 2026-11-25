@@ -71,7 +71,7 @@ void uos_halt(void) __attribute__((noreturn));
 #define UOS_PHASE_PANIC         2   /* stopped by uos_panic() */
 #define UOS_PHASE_HALT          3   /* stopped by uos_halt() */
 
-#define UOS_USER_NAME_MAX       15
+#define UOS_USER_NAME_MAX       16  /* a SYSUAF.DAT name, UAF_NAME_MAX */
 
 typedef struct {
     int phase;                  /* UOS_PHASE_* */
@@ -150,7 +150,25 @@ void uos_maint_idle(void) __attribute__((noreturn));
 
 /* ---- The first screen ------------------------------------------------- */
 
-/* The placeholder screen the session task replaces. */
+/* The first screen: the banner, then the system screen when no login can run. */
 extern uos_screen_t uos_first_screen;
+
+/*
+ * The screen that replaces the first screen after the banner, such as the
+ * login. NULL keeps the first screen. Set it before the loop runs, from a
+ * service init. The ready marker names the screen shown.
+ */
+void uos_first_set_next(uos_screen_t *s);
+
+/*
+ * The two notice rows of the system screen, copied and cut to 79
+ * characters; NULL restores the default text. `reboot_key` non-zero lets
+ * F4 restart the terminal from that screen. Loop or service init.
+ */
+void uos_first_set_notice(const char *row0, const char *row1, int reboot_key);
+
+/* The tick of the last key or character the loop took from the input
+ * layer. Any context. */
+uint32_t uos_last_input(void);
 
 #endif

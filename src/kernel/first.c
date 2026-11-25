@@ -1,14 +1,17 @@
 /*
- * The first screen: the boot banner, then a placeholder that stands in
- * for the login until the session task replaces it. It proves the event
- * loop end to end: a one-shot timer shows the placeholder, a periodic
- * timer refreshes the clock, keys update a line.
+ * The first screen: the boot banner, then either the screen a service
+ * set with uos_first_set_next(), the login, or the system screen when no
+ * login can run. The system screen shows the notice the session service
+ * set: what is missing and what to do. It proves the event loop end to
+ * end: a one-shot timer shows it, a periodic timer refreshes the clock,
+ * keys update a line.
  *
  * Diagnostic keys, documented on docs/ARCHITECTURE.md:
  *   F1  timer probe: a periodic timer of UOS_PROBE_PERIOD ticks that
  *       fires UOS_PROBE_COUNT times, one "ev=timer name=probe" marker each
  *   F2  cancel probe: a one-shot timer that another timer cancels before
  *       it is due, and a witness that reports whether it ever fired
+ *   F4  restarts the terminal, only when the notice allows it
  */
 
 #include <robco/console.h>
@@ -34,6 +37,10 @@ static int shown;               /* the placeholder is on screen */
 static char key_name[8];
 static uos_timer_id_t clock_id;
 static uint32_t banner_t0;      /* tick of enter(), for the ready marker */
+static uos_screen_t *next_screen;
+static char notice[2][UOS_LINE_MAX + 1];
+static int notice_set;
+static int reboot_key;
 
 static unsigned probe_n;
 static uint32_t probe_t0;
@@ -117,12 +124,42 @@ static void on_clock(void *arg)
     }
 }
 
+void uos_first_set_next(uos_screen_t *s)
+{
+    next_screen = s;
+}
+
+void uos_first_set_notice(const char *row0, const char *row1, int reboot)
+{
+    notice_set = row0 != NULL && row1 != NULL;
+    if (notice_set) {
+        k_snprintf(notice[0], sizeof(notice[0]), "%s", row0);
+        k_snprintf(notice[1], sizeof(notice[1]), "%s", row1);
+    }
+    reboot_key = notice_set && reboot;
+    info.notice[0] = notice_set ? notice[0] : NULL;
+    info.notice[1] = notice_set ? notice[1] : NULL;
+    if (shown) {
+        uos_screen_invalidate();
+    }
+}
+
 static void show(void *arg)
 {
     char line[UOS_LINE_MAX + 1];
     unsigned i;
 
     (void)arg;
+    if (next_screen != NULL) {
+        /* The login takes over: its enter() draws it. A screen that took
+         * over during the banner stays. */
+        if (uos_screen_top() == &uos_first_screen) {
+            (void)uos_screen_replace(next_screen);
+        }
+        UOS_MARK("ready screen=%s card=%s rtc=%d banner=%u", next_screen->name,
+                 uos_card_name(uos.card), uos.rtc, (unsigned)(uos_ticks() - banner_t0));
+        return;
+    }
     shown = 1;
     read_clock();
     /* Drawn now, so the screen is complete when "ready" goes out. */
@@ -242,6 +279,8 @@ static int event(uos_screen_t *s, const uos_event_t *ev)
             start_probe();
         } else if (ev->code == INPUT_KEY_F2) {
             start_cancel_probe();
+        } else if (ev->code == INPUT_KEY_F4 && reboot_key && shown) {
+            uos_reboot("user");
         }
     } else if (ev->type == UOS_EV_CHAR) {
         if (ev->code > 0x20 && ev->code < 0x7f) {
