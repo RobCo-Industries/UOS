@@ -3,6 +3,7 @@ leaves the display as it was, cell for cell. Each test dumps the whole text grid
 before the screen opens and after it closes, both with every input event and
 posted call handled."""
 
+import re
 import time
 
 from uos import (TIMEOUT, alone, answer, batch, card, card_tree, dump, events, state, wait_marker,
@@ -11,6 +12,8 @@ from uos import (TIMEOUT, alone, answer, batch, card, card_tree, dump, events, s
 CFG = b"[system]\nname = TEST TERMINAL\n"
 # The lockout's countdown row, ROW_USER in src/session/sesscreen.c.
 ROW_COUNTDOWN = 7
+# The login's message row, ROW_MSG.
+ROW_MSG = 6
 
 
 def settled_rows(vm):
@@ -503,3 +506,185 @@ def test_api_command_under_the_keyboard_and_the_reader(board, hooks_image, need_
         assert stack(vm) == ["shell", "readline"]
         assert sh_fields(vm)["state"] != "running"
         assert not [m for m in events(vm, "osk") if m.get("state") == "closed"]
+
+
+# A screen that paints from a timer paints only through the stack: while it is
+# covered its state moves on, the grid under the covering screen stays, and the
+# stack shows the real state once the cover goes.
+
+def lockout(vm):
+    at_prompt(vm)
+    answer(vm, "type GUEST")
+    wait_marker(vm, "login state=pass", 1)
+    answer(vm, "type nope")
+    wait_marker(vm, "lockout state=start", 1)
+
+
+def sess_fields(vm):
+    return dict(f.split("=", 1) for f in answer(vm, "sess state")[0].split()[1:])
+
+
+def test_countdown_under_the_reader(board, uos_image, need_mtools, tmp_path):
+    """The countdown's timer fires under the reader: no cell of the reader
+    changes. Once the reader closes, the row shows the real time left."""
+    cfg = CFG + b"[login]\nretries = 1\nlockout_s = 120\n"
+    with alone(uos_image, board, card(tmp_path, card_tree({"/UOS/UOS.CFG": cfg}))) as vm:
+        lockout(vm)
+        answer(vm, "holo open")
+        wait_marker(vm, "holo op=scan", 1)
+        before = settled_rows(vm)
+        n = len([m for m in events(vm, "lockout") if "s" in m])
+        vm.wait_for(re.compile(r"(?:@RC stage=uos ev=lockout s=\d+\r?\n[\s\S]*?){%d}" % (n + 2)),
+                    timeout=TIMEOUT)
+        same(before, settled_rows(vm))
+        answer(vm, "key back")
+        wait_marker(vm, "holo op=exit", 1)
+        rows = settled_rows(vm)
+        left = int(sess_fields(vm)["locked_s"])
+        found = [re.search(r"TRY AGAIN IN (\d+) SECOND", r) for r in rows]
+        shown = [int(m.group(1)) for m in found if m]
+        assert len(shown) == 1, rows
+        shown = shown[0]
+        assert left <= shown <= left + 1, (rows, left)
+        assert shown < 120
+
+
+def test_banner_end_under_the_pager(board, uos_image, need_mtools, tmp_path):
+    """With no user database the banner's end shows the first screen. A pager
+    opened during the banner stays whole; the first screen comes back after."""
+    files = card_tree()
+    del files["/UOS/SYSUAF.DAT"]
+    with alone(uos_image, board, card(tmp_path, files)) as vm:
+        wait_marker(vm, "sessdb", 1)
+        deadline = time.monotonic() + TIMEOUT
+        while vm.script("page short", timeout=TIMEOUT).status != "ok":
+            assert time.monotonic() < deadline
+            time.sleep(0.01)
+        wait_marker(vm, "page top=0", 1)
+        wait_ready(vm)
+        assert [m["ev"] for m in vm.markers() if m.get("ev") in ("page", "ready")][0] == \
+            "page", "the pager opened after the banner ended"
+        pager = settled_rows(vm)
+        assert not any("USER DATABASE MISSING" in r for r in pager), pager
+        answer(vm, "key back")
+        wait_marker(vm, "page result=done", 1)
+        rows = settled_rows(vm)
+        assert any("USER DATABASE MISSING" in r for r in rows), rows
+
+
+# A session reset while the reader covers the login or the welcome: the reset
+# ends the reader with every other screen. The stack is then the session's next
+# screen and its read, and keys reach that read.
+
+def logged_in(vm):
+    wait_marker(vm, "session screen=shell", 1)
+    wait_marker(vm, "sh state=prompt kind=cmd", 1)
+    assert stack(vm) == ["shell", "readline"]
+    answer(vm, "type SHOW TIME")
+    wait_marker(vm, "cmd state=end", 1)
+
+
+def back_at_login(vm, n, reader=True):
+    if reader:
+        wait_marker(vm, "holo op=exit", 1)
+    wait_marker(vm, "login state=user", n)
+    assert stack(vm) == ["login", "readline"]
+    assert state(vm)["screen"] == "readline"
+    passes = len([m for m in events(vm, "login") if m.get("state") == "pass"])
+    answer(vm, "type GUEST")
+    wait_marker(vm, "login state=pass", passes + 1)
+
+
+def test_lockout_ends_under_the_reader(board, uos_image, need_mtools, tmp_path):
+    cfg = CFG + b"[login]\nretries = 1\nlockout_s = 3\n"
+    with alone(uos_image, board, card(tmp_path, card_tree({"/UOS/UOS.CFG": cfg}))) as vm:
+        lockout(vm)
+        answer(vm, "holo open")
+        wait_marker(vm, "holo op=scan", 1)
+        assert stack(vm) == ["lockout", "holo"]
+        wait_marker(vm, "lockout state=end", 1)
+        back_at_login(vm, 2)
+
+
+def test_welcome_ends_under_the_reader(board, uos_image, need_mtools, tmp_path):
+    with alone(uos_image, board, card(tmp_path, card_tree())) as vm:
+        at_prompt(vm)
+        answer(vm, "type GUEST")
+        wait_marker(vm, "login state=pass", 1)
+        answer(vm, "type GUEST")
+        wait_marker(vm, "session state=start", 1)
+        answer(vm, "holo open")
+        wait_marker(vm, "holo op=open", 1)
+        wait_marker(vm, "session screen=shell", 1)
+        order = [(m["ev"], m.get("op") or m.get("screen")) for m in vm.markers()
+                 if m.get("ev") == "holo" or (m.get("ev") == "session" and "screen" in m)]
+        assert order.index(("holo", "open")) < order.index(("session", "shell")), order
+        logged_in(vm)
+
+
+def test_idle_logout_under_the_reader(board, hooks_image, need_mtools, tmp_path):
+    cfg = CFG + b"[login]\nidle_s = 2\n"
+    with alone(hooks_image, board, card(tmp_path, card_tree({"/UOS/UOS.CFG": cfg}))) as vm:
+        guest_shell(vm)
+        answer(vm, "holo open")
+        wait_marker(vm, "holo op=scan", 1)
+        assert stack(vm) == ["shell", "readline", "holo"]
+        assert wait_marker(vm, "session state=end", 1)["reason"] == "idle"
+        back_at_login(vm, 2)
+
+
+def test_logout_under_the_reader(board, hooks_image, need_mtools, tmp_path):
+    with alone(hooks_image, board, card(tmp_path, card_tree())) as vm:
+        guest_shell(vm)
+        answer(vm, "holo open")
+        wait_marker(vm, "holo op=scan", 1)
+        answer(vm, "sess logout")
+        assert wait_marker(vm, "session state=end", 1)["reason"] == "maint"
+        back_at_login(vm, 2)
+
+
+def test_logout_under_the_reader_ends_a_held_job(board, hooks_image, need_mtools, tmp_path):
+    """The finding: a logout took the shell away under a job, and the job's next
+    step still ran, printing over the login screen. Now the job takes no step
+    and ends cancelled, and the login screen stays as the stack drew it."""
+    with alone(hooks_image, board, card(tmp_path, card_tree())) as vm:
+        at_prompt(vm)
+        login_rows = settled_rows(vm)
+        answer(vm, "sess login GUEST")
+        at_shell_prompt(vm)
+        answer(vm, "sh hold 1")
+        answer(vm, run_line("DIRECTORY"))
+        wait_marker(vm, "sh held=1", 1)
+        answer(vm, "holo open")
+        wait_marker(vm, "holo op=scan", 1)
+        out = batch(vm, ["sess logout", "sh hold 0"])
+        assert [r[0] for r in out] == ["ok", "ok"], out
+        end = wait_marker(vm, "cmd state=end", 1)
+        assert (end["steps"], end["rc"]) == ("0", "CANCEL"), end
+        wait_marker(vm, "login state=user", 2)
+        rows = settled_rows(vm)
+        assert rows[ROW_MSG] == "SESSION CLOSED.", rows
+        same(login_rows, rows, skip=(ROW_MSG,))
+        back_at_login(vm, 2)
+
+
+def test_logout_during_a_job_takes_no_more_step(board, hooks_image, need_mtools, tmp_path):
+    """The finding: `sess logout` while TYPE runs. The step the job had posted
+    still ran after the shell left, and printed over the login screen. Now the
+    job takes no step once its shell is gone and ends cancelled."""
+    text = b"".join(b"LINE %05d\n" % i for i in range(5000))
+    files = card_tree({"/UOS/HOME/GUEST/LONG.TXT": text})
+    with alone(hooks_image, board, card(tmp_path, files)) as vm:
+        at_prompt(vm)
+        login_rows = settled_rows(vm)
+        answer(vm, "sess login GUEST")
+        at_shell_prompt(vm)
+        answer(vm, run_line("TYPE LONG.TXT"))
+        wait_marker(vm, "cmd state=start", 1)
+        answer(vm, "sess logout")
+        assert wait_marker(vm, "cmd state=end", 1)["rc"] == "CANCEL"
+        wait_marker(vm, "login state=user", 2)
+        rows = settled_rows(vm)
+        assert rows[ROW_MSG] == "SESSION CLOSED.", rows
+        same(login_rows, rows, skip=(ROW_MSG,))
+        back_at_login(vm, 2, reader=False)
