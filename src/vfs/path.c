@@ -856,7 +856,9 @@ int vp_access(const vp_res_t *r, const char *home, uint32_t privs, int op)
         return VP_E_NOPRIV;
     }
     if (k == 1 && !r->is_dir && k_strcmp(r->name, "SYSUAF") == 0 &&
-        k_strcmp(r->type, "DAT") == 0) {
+        (k_strcmp(r->type, "DAT") == 0 || k_strcmp(r->type, "DEF") == 0)) {
+        /* SYSUAF.DEF, the default users, changes for nobody: the
+         * maintenance image restores known defaults from it. */
         if (!reading) {
             return VP_E_PROTECTED;
         }

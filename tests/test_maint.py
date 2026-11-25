@@ -144,3 +144,28 @@ def test_sdimage_ships_the_default_users(build_dir, need_mtools, tmp_path):
     with open(os.path.join(ROOT, "card", "UOS", "SYSUAF.DAT"), "rb") as f:
         fresh = f.read()
     assert got["SYSUAF.DEF"] == got["SYSUAF.DAT"] == fresh
+
+
+def test_default_users_change_for_nobody(board, hooks_image, need_mtools, tmp_path):
+    """SYSUAF.DEF: no write, delete, rename onto or over, copy over or create, even
+    for SYSTEM. Read as SYSUAF.DAT: SYSTEM and SECURITY yes, OPER no."""
+    sd = shell_card(tmp_path)
+    with alone(hooks_image, board, sd) as vm:
+        wait_ready(vm)
+        login(vm, "ADMIN")
+        root = "SD0:[000000]"
+        for line in (f"DELETE {root}SYSUAF.DEF", f"COPY NOTICE.TXT {root}SYSUAF.DEF",
+                     f"RENAME {root}SYSUAF.DEF {root}X.DEF",
+                     f"RENAME {root}UOS.CFG {root}SYSUAF.DEF",
+                     f"COPY {root}SYSUAF.DAT {root}SYSUAF.DEF"):
+            expect(vm, line, "PROTECT", "%UOS-E-PROTECT")
+        expect(vm, f"TYPE {root}SYSUAF.DEF", "NORMAL")
+        expect(vm, "LOGOUT", "NORMAL")
+        wait_marker(vm, "session state=end user=ADMIN reason=user", 1)
+        login(vm, "OPER")
+        expect(vm, f"TYPE {root}SYSUAF.DEF", "NOPRIV")
+    with open(os.path.join(ROOT, "card", "UOS", "SYSUAF.DEF"), "rb") as f:
+        want = f.read()
+    _mtools(sd, "mcopy", "-o", "::/UOS/SYSUAF.DEF", str(tmp_path / "def"))
+    assert (tmp_path / "def").read_bytes() == want
+    assert "UOS.CFG" in card_names(sd, "UOS")

@@ -26,10 +26,7 @@ CFG = b"[system]\nname = TEST TERMINAL\n"
 
 
 def shell_card(tmp_path, extra=None, name="sd.img"):
-    """The default card without SYSUAF.DEF: the root wildcard tests count the
-    files SYSUAF.* and S*.* match, and they test SYSUAF.DAT alone."""
     files = card_tree({"/UOS/UOS.CFG": CFG})
-    del files["/UOS/SYSUAF.DEF"]
     files.update(extra or {})
     return card(tmp_path, files, name=name)
 
@@ -597,14 +594,16 @@ def test_wildcards_count_refused_matches(board, hooks_image, need_mtools, tmp_pa
     with alone(hooks_image, board, sd) as vm:
         wait_ready(vm)
         login(vm, "ADMIN")
-        for line in ("DELETE SD0:[000000]SYSUAF.*", "RENAME SD0:[000000]SYSUAF.* X.*",
-                     "DELETE SD0:[000000]SY*.D%T"):
+        # SYSUAF.* matches SYSUAF.DAT and SYSUAF.DEF, both protected.
+        for line, n in (("DELETE SD0:[000000]SYSUAF.*", "2"),
+                        ("RENAME SD0:[000000]SYSUAF.* X.*", "2"),
+                        ("DELETE SD0:[000000]SY*.D%T", "1")):
             _, end, _ = expect(vm, line, "NOPRIV", "%UOS-E-NOPRIV")
-            assert end["skipped"] == "1", (line, end)
+            assert end["skipped"] == n, (line, end)
         res, end, s = expect(vm, "DELETE SD0:[000000]S*.* /LOG", "DELETED")
         assert res == "%DELETE-S-DELETED, 2 files deleted", res
-        assert (end["files"], end["skipped"]) == ("2", "1"), end
-        assert "%UOS-I-SKIPPED, 1 file skipped: not enough privilege" in out(vm, s), out(vm, s)
+        assert (end["files"], end["skipped"]) == ("2", "2"), end
+        assert "%UOS-I-SKIPPED, 2 files skipped: not enough privilege" in out(vm, s), out(vm, s)
         assert sorted(n for n, _ in files(vm, s, "delete")) == \
             ["SD0:[000000]SPARE.TXT;1", "SD0:[000000]SPARE2.TXT;1"], files(vm, s)
         _, end, _ = expect(vm, "DELETE SD0:[000000]NOPE*.*", "NOFILES", "%UOS-W-NOFILES")
