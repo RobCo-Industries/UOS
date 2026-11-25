@@ -1,0 +1,12 @@
+TYPE file-spec
+
+Shows the text of a file. With wildcards, shows each file in turn.
+
+Qualifiers:
+  /PAGE  shows the text one screen at a time. Keys: UP and DOWN move a
+         line, LEFT and RIGHT a page, Q leaves.
+
+Ctrl-C stops the output.
+
+Example:
+  TYPE NOTICE.TXT /PAGE

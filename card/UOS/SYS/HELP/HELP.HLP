@@ -1,0 +1,13 @@
+HELP [topic]
+
+Shows help on a command. Type HELP and the name of a command, such as
+HELP DIRECTORY. A command name may be shortened, as on the command line.
+
+Commands:
+  DIRECTORY  TYPE      COPY      DELETE    RENAME    CREATE
+  SET        SHOW      HELP      RUN       LOGIN     LOGOUT
+  ROBCO      DEVICE    HOLOTAPE  MAIL      AUTHORIZE
+
+Keys at the prompt: Enter runs the line, Ctrl-C clears it, UP and DOWN
+recall earlier lines. A line that ends with - goes on to the next line.
+Ctrl-C also stops a long command, such as a COPY.

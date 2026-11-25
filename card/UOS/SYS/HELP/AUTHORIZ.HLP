@@ -1,0 +1,18 @@
+AUTHORIZE keyword
+
+Manages the users. Needs SECURITY.
+
+  AUTHORIZE LIST [user]     lists the users, their homes, privileges, flags
+  AUTHORIZE ADD user        adds a user and asks for the password twice
+  AUTHORIZE MODIFY user     changes a user
+  AUTHORIZE REMOVE user     removes a user. You cannot remove yourself.
+
+Qualifiers of ADD and MODIFY:
+  /PASSWORD          asks for a new password twice, hidden as you type
+  /PRIVS=(p,...)     SYSTEM, OPER, SECURITY, READALL; /NOPRIVS for none
+  /HOME=folder       the home folder under SD0:[HOME]
+  /DISABLED          the user cannot log in; /NODISABLED undoes it
+  /NOHACKABLE        the user is never a target of the password game
+
+A password is never typed on the command line. Changes apply at the
+user's next login.

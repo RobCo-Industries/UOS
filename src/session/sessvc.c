@@ -266,6 +266,19 @@ static void load_db(void)
              sess.why[0] != '\0' ? sess.why : "none", bad);
 }
 
+int sess_reload(void)
+{
+    load_db();
+    if (sess.db != LG_DB_OK) {
+        uos_set_error("userdb");
+        return SESS_ERR_DOWN;
+    }
+    if (sess.in) {
+        sess.idx = uaf_find(&sess.uaf, sess.user);
+    }
+    return 0;
+}
+
 static void apply_cfg(void)
 {
     const uos_settings_t *s = uos_settings();

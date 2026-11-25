@@ -255,22 +255,22 @@ int vfs_list_keep(const vp_res_t *dir, const char *fatname, int is_dir, int left
     const char *type;
 
     if (leftover || fatname == NULL || fatname[0] == '~' || fatname[0] == '#') {
-        return 0;
+        return VFS_KEEP_NO;
     }
     if (vfs_entry_res(dir, fatname, is_dir, out) != VFS_OK) {
-        return 0;
+        return VFS_KEEP_NO;
     }
     type = is_dir ? "DIR" : out->type;
     if (!vp_match(pname, ptype, is_dir ? out->dir[out->depth - 1] : out->name, type)) {
-        return 0;
+        return VFS_KEEP_NO;
     }
     if (vp_access(out, home, privs, VP_OP_LIST) != VP_OK) {
-        return 0;
+        return VFS_KEEP_REFUSED;
     }
     if (op != VP_OP_LIST && vp_access(out, home, privs, op) != VP_OK) {
-        return 0;
+        return VFS_KEEP_REFUSED;
     }
-    return 1;
+    return VFS_KEEP_YES;
 }
 
 /* The path module's order. */

@@ -7,6 +7,17 @@ All notable changes to UOS are recorded here. The format follows [Keep a Changel
 ### Changed
 
 - Rebuilt UOS on RobCo-Core. The prototype is gone.
+- `AUTHORIZE`'s `/PASSWORD` takes no value: the command asks for the password, masked.
+- The shell replaces the placeholder screen after login.
+- `/OUTPUT` replaces its file only when the command succeeds. A failure, a warning or Ctrl-C leaves the old file as it was.
+- A wildcard whose matches the access table all refused gives `%UOS-E-NOPRIV`, not `%UOS-W-NOFILES`. Some refused give `%UOS-I-SKIPPED` and `skipped=` in the end marker. `vfs_list_keep()` returns `VFS_KEEP_REFUSED` for them.
+- `sh_program_register()`: `start(args, done, tag)` and `done(tag, status, text)`. A late `done()` from a cancelled run is ignored.
+- Ctrl-C ends a running command as cancelled whatever screen is on top: the `TYPE /PAGE` pager, a `/CONFIRM` question, a password, a `CREATE` line, the on-screen keyboard over a read, and a program's own screen. Before, Ctrl-C in the pager did nothing and at `/CONFIRM` it reported the files done as a success.
+- The pager calls back with `CON_CANCEL` on Ctrl-C; `page` marks `ev=page result=cancel`.
+- A program's `done()` takes `SH_CANCELLED` for Ctrl-C on its screen.
+- `sh_run_line()` refuses an empty or comment-only line with `SH_ERR_ARG` and no callback, and `sh run` refuses it with `rc=-1`. The prompt still shows a new prompt for one.
+- `sh_program_register()` returns `SH_ERR_DOWN` before the shell service started.
+- `TYPE` and `HELP` print 8 display rows a step, wrapped segments of a long line included, so a 1 MiB line no longer holds the loop.
 - `DEVICES.CFG` and `TERMINAL.CFG` read with `ini_parse_sections()`: an empty section is `DV_ERR_EMPTY` or `TUI_E_EMPTY`, a repeated one is a counted error even right after itself, and section errors carry the header's line.
 - A repeated `[device NAME]`, `[expander N]` or `[entry N]` header is refused even when the first section was empty or bad. `TERMINAL.CFG` remembers every entry number, not the first 32.
 - The `ARM` rule: an expander output needs a relay named `ARM` on a Pi pin that is off at reset. Without one, each expander output is refused with `%DEVICE-E-NOARM`, shows ` REFUSED=NOARM` and is never driven.
@@ -51,6 +62,13 @@ All notable changes to UOS are recorded here. The format follows [Keep a Changel
 - File system errors have their own messages: `WRITLCK`, `PROTECT`, `TOOBIG` and `INSFMEM`.
 - Devices: a failed write to an output's safe level is retried every tick and shown as a fault, so the status never says a state the pin does not have.
 - The `fs copy <from> <to> new` maintenance form, which refuses an existing target.
+- The command shell after login: a DCL prompt with continuation lines, prompts for missing parameters, privilege checks and system messages. Commands run in steps and Ctrl-C stops them. `docs/COMMANDS.md` describes every verb.
+- Commands: `DIRECTORY`, `TYPE`, `COPY`, `DELETE`, `RENAME`, `CREATE`, `SET DEFAULT`, `SET TERMINAL`, `SET HALT`, `SET PASSWORD`, every `SHOW` keyword, `HELP`, `RUN`, `LOGIN`, `LOGOUT`, `ROBCO`, `DEVICE` and `AUTHORIZE`. `HOLOTAPE`, `MAIL` and the `RUN` programs say they are not installed.
+- `src/shell/sh.h`: `sh_run_line()` runs a command line for another screen, and `sh_program_register()` adds a program for `RUN`.
+- `SET PASSWORD` and `AUTHORIZE` write `SYSUAF.DAT` with masked password reads, salts from the RNG and an atomic write; `sess_reload()` reads it again.
+- Help files for every verb in `/UOS/SYS/HELP` on the default card.
+- Maintenance: `sh state` and `sh run <line>`; `cmd` and `sh` markers.
+- `docs/USER_MANUAL.md`: a "Using the command line" section.
 
 ### Fixed
 

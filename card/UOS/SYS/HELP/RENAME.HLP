@@ -1,0 +1,11 @@
+RENAME from-spec to-spec
+
+Renames files, or moves them to another folder. The target must not
+exist yet. With wildcards, use * in to-spec for the parts to keep.
+
+Qualifiers:
+  /LOG      names each file renamed
+  /CONFIRM  asks before each file: Y yes, N no, A all, Q quit
+
+Example:
+  RENAME DRAFT.TXT REPORT.TXT

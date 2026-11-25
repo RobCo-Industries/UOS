@@ -10,6 +10,7 @@ UOS reads its files from the `/UOS` folder of the card. This page lists every fo
 | `/UOS/HOME/<user>/TERMINAL.CFG` and other `.CFG` menus | INI | `src/tui/tuicfg.c` | [tui](modules/tui.md#terminalcfg) |
 | `/UOS/WORDS/Wnn.TXT` | text, one word per line | `src/hack/hack.c` | [hack](modules/hack.md#word-list-format) |
 | `/UOS/HOLO/*.HTP` | sealed rimg with an HTXT archive | `src/holo/holofmt.c` | [holo](modules/holo.md#file-layout) |
+| `/UOS/SYS/HELP/*.HLP` | plain text | `src/shell/shcmds.c` | [below](#help-files) |
 
 The INI files use the RobCo-Core INI reader. Comments start with `;` or `#`. LF and CR LF line ends both work. `DEVICES.CFG` and `TERMINAL.CFG` go through `ini_parse_sections()`, which also reports each section header, so a section with no keys or a repeated section is a counted error.
 
@@ -69,7 +70,7 @@ The kernel reads `UOS.CFG` at boot. The session service applies `[login]`, see [
 
 ## SYSUAF.DAT
 
-The user database: a 32-byte header, then one 96-byte record per user, at most 32. A CRC-32 covers the records. Each password is a salted, iterated SHA-256. The session service reads the file once at boot; a missing or damaged file stops every login, see [session](modules/session.md#the-session-service). `tools/mkuaf.py` builds the file from an INI list, `tools/default_users.ini` for the default card. The privilege bits are the ones in `src/kernel/uos_privs.h`: `SYSTEM` bit 0, `OPER` bit 1, `SECURITY` bit 2, `READALL` bit 3. Layout: [session](modules/session.md#sysuafdat-layout).
+The user database: a 32-byte header, then one 96-byte record per user, at most 32. A CRC-32 covers the records. Each password is a salted, iterated SHA-256. The session service reads the file at boot, and again after `SET PASSWORD` or `AUTHORIZE` wrote it whole with an atomic write; a missing or damaged file stops every login, see [session](modules/session.md#the-session-service). `tools/mkuaf.py` builds the file from an INI list, `tools/default_users.ini` for the default card. The privilege bits are the ones in `src/kernel/uos_privs.h`: `SYSTEM` bit 0, `OPER` bit 1, `SECURITY` bit 2, `READALL` bit 3. Layout: [session](modules/session.md#sysuafdat-layout).
 
 ## DEVICES.CFG
 
@@ -89,3 +90,7 @@ A `[terminal]` section with the title and an optional header file, then `[entry 
 ## Holotapes
 
 `/UOS/HOLO/*.HTP`: a sealed rimg of subtype 2, data, with an HTXT archive of up to 32 text files as its payload. `tools/mkholo.py` builds a tape from a folder of text files. The sources of the sample tapes are in `card/UOS/HOLO/SRC`. Layout: [holo](modules/holo.md#file-layout).
+
+## Help files
+
+`/UOS/SYS/HELP/<name>.HLP`, the folder of the logical name `SYS$HELP:`: one plain text file per verb, which `HELP <verb>` prints as it is. LF or CR LF line ends; lines over 80 columns wrap. At most 64 KiB. The command table in `src/dcl/tables.c` names each file, cut to 8.3: `DIRECTOR.HLP` for `DIRECTORY`, `AUTHORIZ.HLP` for `AUTHORIZE`. `HELP` with no topic prints `HELP.HLP`. `test_shell.c` checks that the default card has a file for every verb.

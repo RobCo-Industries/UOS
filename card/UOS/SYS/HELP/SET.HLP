@@ -1,0 +1,13 @@
+SET keyword
+
+  SET DEFAULT folder        changes the current folder: SET DEFAULT [.LOGS],
+                            SET DEFAULT [-] goes up, SET DEFAULT SYS$LOGIN:
+                            goes home
+  SET PASSWORD              changes your password. It asks for the old one,
+                            the new one, and the new one again.
+  SET TERMINAL /SCHEME=c    changes the screen colors: GREEN, AMBER, BLUE
+                            or WHITE
+  SET HALT                  stops the system. Needs OPER.
+  SET HALT RESTART          restarts the system. Needs OPER.
+  /MAINTENANCE              asks for the maintenance image. This build
+                            cannot pass that request on and says so.

@@ -21,7 +21,7 @@ USERNAME: _
 
 Type your user name and press Enter. Then type your password at `PASSWORD:` and press Enter. The password shows as one `*` per character. Case matters in the password, not in the user name.
 
-The terminal then shows `CHECKING CREDENTIALS...` for a moment. After a good login it greets you by name, lists your privileges and opens your session. This build has no shell yet: the session screen says `No shell is installed in this build.` Press BACK to log out. The login screen comes back with `SESSION CLOSED.`
+The terminal then shows `CHECKING CREDENTIALS...` for a moment. After a good login it greets you by name, lists your privileges and opens your session at the command line, see [Using the command line](#using-the-command-line). Type `LOGOUT` to leave. The login screen comes back with `SESSION CLOSED.`
 
 The terminal's owner can set a session to close by itself after some time with no key. Then the login screen comes back the same way.
 
@@ -50,7 +50,7 @@ A new card has three accounts:
 | `OPER` | `OPER-CHANGE-ME` | run the devices |
 | `GUEST` | `GUEST` | read its own files |
 
-This manual prints these passwords, so anyone can read them. Change them before the terminal guards anything. This build cannot change a password at the terminal yet: the owner builds a new `SYSUAF.DAT` with `tools/mkuaf.py` and copies it to the card.
+This manual prints these passwords, so anyone can read them. Change them before the terminal guards anything: log in as each user and type `SET PASSWORD`, see [Changing your password](#changing-your-password).
 
 ### Buttons and the on-screen keyboard
 
@@ -77,3 +77,65 @@ If the terminal cannot log anyone in, it shows the system screen instead, with t
 | `LOGIN IS NOT AVAILABLE: NO /UOS FOLDER.` | The card has no `/UOS` folder | Insert a UOS card |
 
 Then press F4 to restart the terminal.
+
+## Using the command line
+
+After you log in, the terminal shows a line about the shell and the prompt `$`. Type a command and press Enter. `HELP` lists the commands; `HELP DIRECTORY` explains one. [COMMANDS.md](COMMANDS.md) is the full reference.
+
+```
+UOS V0.1.0 command shell. Type HELP for the commands.
+$ DIRECTORY
+Directory SD0:[HOME.GUEST]
+
+NOTICE.TXT
+TERMINAL.CFG
+VISITOR.TXT
+
+Total of 3 files.
+$ TYPE NOTICE.TXT
+```
+
+### Typing commands
+
+- You may shorten a command: `DIR` for `DIRECTORY`, `SH DEF` for `SHOW DEFAULT`. Upper and lower case are the same.
+- Options start with a slash: `DIR /SIZE`. Most take a `/NO` form: `/NOLOG`.
+- UP and DOWN bring back earlier lines. LEFT and RIGHT move in the line. Backspace erases.
+- Ctrl-C clears the line you are typing. While a command runs, Ctrl-C stops it and brings back the prompt, with `%UOS-I-CANCEL`. This works everywhere: in a long copy or listing, in the `TYPE /PAGE` viewer, at a yes or no question, at a password, while you type `CREATE` lines, with the on-screen keyboard open, and in a program. Files already done stay; a file in the middle is not left half-written.
+- A line that ends with `-` goes on: the next prompt is `_$`.
+- If you leave out something a command needs, it asks: `TYPE` alone asks `_File:`. Press Ctrl-C to drop the command.
+- Messages look like `%UOS-E-FNF, file not found`. The letter after the first dash says how it went: `S` done, `I` for your information, `W` a warning, `E` an error.
+
+### Files and folders
+
+Your files are in your home folder, `SD0:[HOME.<you>]`. `SYS$LOGIN:` is a short name for it. `SHOW DEFAULT` says where you are; `SET DEFAULT [.LOGS]` goes into a folder, `SET DEFAULT [-]` goes back up.
+
+| To | Type |
+|---|---|
+| List files | `DIRECTORY`, `DIR *.TXT /SIZE` |
+| Read a file | `TYPE NOTICE.TXT`, or `TYPE NOTICE.TXT /PAGE` to read it a screen at a time |
+| Write a new file | `CREATE NOTE.TXT`, then the lines, then a line with only `.` |
+| Make a folder | `CREATE [.LOGS] /DIRECTORY` |
+| Copy | `COPY NOTE.TXT [.LOGS]` |
+| Rename or move | `RENAME NOTE.TXT OLDNOTE.TXT` |
+| Delete | `DELETE OLDNOTE.TXT`, or `DELETE *.TXT /CONFIRM` to be asked for each file |
+
+`*` in a name matches anything, `%` one character. With `/CONFIRM`, answer `Y` for yes, `N` or Enter for no, `A` for this file and all the rest, `Q` to stop.
+
+You can read and change your own files only. Other homes and the system files are closed to you unless your account has the privileges for them. The user database, `SYSUAF.DAT`, can only change through `SET PASSWORD` and `AUTHORIZE`.
+
+### Changing your password
+
+Type `SET PASSWORD`. The terminal asks for your old password, the new one, and the new one again. Each shows as `*`. A password is 1 to 32 characters. The change works from your next login.
+
+### Devices
+
+`SHOW DEVICES` lists the doors, lights and sensors the terminal controls, with their states. `DEVICE LIGHT1 ON` switches one; `DEVICE DOOR1` shows one. Each device decides who may use it: a refused command says `%UOS-E-NOPRIV`.
+
+### Other commands
+
+- `SHOW SYSTEM`, `SHOW TIME`, `SHOW USERS`, `SHOW TERMINAL`, `SHOW MEMORY` give the terminal's state.
+- `SET TERMINAL /SCHEME=AMBER` changes the colors: `GREEN`, `AMBER`, `BLUE` or `WHITE`, until the next restart.
+- `LOGOUT` ends your session.
+- An operator can type `SET HALT` to stop the terminal, or `SET HALT RESTART` to restart it.
+- A security officer manages the users with `AUTHORIZE`: `AUTHORIZE LIST`, `AUTHORIZE ADD BOB`, `AUTHORIZE MODIFY BOB /DISABLED`, `AUTHORIZE REMOVE BOB`.
+- `RUN`, `HOLOTAPE` and `MAIL` are not part of this build yet: they say so.

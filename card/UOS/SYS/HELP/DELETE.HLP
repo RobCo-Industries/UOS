@@ -1,0 +1,11 @@
+DELETE file-spec
+
+Deletes files. Wildcards are allowed. Each file is checked against your
+rights. The user database cannot be deleted.
+
+Qualifiers:
+  /LOG      names each file deleted
+  /CONFIRM  asks before each file: Y yes, N no, A all, Q quit
+
+Example:
+  DELETE OLD*.TXT /CONFIRM

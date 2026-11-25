@@ -1,0 +1,4 @@
+HOLOTAPE [tape [entry]]
+
+Reads a data holotape from SYS$HOLO:. The reader is a program: when it
+is not part of this build the command says so.

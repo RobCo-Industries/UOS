@@ -159,7 +159,7 @@ def test_panic_with_keyboard_open(board, hooks_image, need_mtools, tmp_path):
         assert answer(vm, "state")
 
 
-SHUTDOWN_ORDER = ["devices", "session", "console", "vfs", "uptime"]
+SHUTDOWN_ORDER = ["devices", "shell", "session", "console", "vfs", "uptime"]
 
 
 def stop_lines(serial):
@@ -179,7 +179,7 @@ def stop_lines(serial):
 def test_shutdown_order(board, hooks_image, need_mtools, tmp_path, how):
     """Services stop in reverse table order: the device service first, with
     every output driven safe, before the console and the file system stop."""
-    assert SERVICES == ["uptime", "vfs", "console", "session", "devices"]
+    assert SERVICES == ["uptime", "vfs", "console", "session", "shell", "devices"]
     with alone(hooks_image, board, boot_card(tmp_path, ALL)) as vm:
         wait_ready(vm)
         start = len(vm.serial)

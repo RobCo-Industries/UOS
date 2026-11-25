@@ -83,6 +83,7 @@ static int pv_event(uos_screen_t *s, const uos_event_t *ev)
     void *ctx;
     unsigned key;
     uint32_t top;
+    int cancel;
 
     (void)s;
     if (ev->type == UOS_EV_KEY) {
@@ -93,13 +94,15 @@ static int pv_event(uos_screen_t *s, const uos_event_t *ev)
         return 0;
     }
     top = pv.pg.top;
-    if (pg_key(&pv.pg, key) == PG_EXIT) {
+    /* Ctrl-C leaves like Q, but the caller hears CON_CANCEL. */
+    cancel = ev->type == UOS_EV_CHAR && ev->code == 3u;
+    if (cancel || pg_key(&pv.pg, key) == PG_EXIT) {
         cb = pv.cb;
         ctx = pv.ctx;
         release();
         (void)uos_screen_pop();
         if (cb != NULL) {
-            cb(CON_OK, ctx);
+            cb(cancel ? CON_CANCEL : CON_OK, ctx);
         }
         return 1;
     }

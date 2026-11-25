@@ -1,0 +1,11 @@
+CREATE file-spec
+
+Makes a new file from the lines you type. End the text with a line that
+holds only a period. Ctrl-C stops without making the file.
+
+Qualifiers:
+  /DIRECTORY  makes a folder instead, such as CREATE [.LOGS] /DIRECTORY
+  /LOG        says what was made
+
+Example:
+  CREATE SHIFT.TXT
