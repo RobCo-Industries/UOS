@@ -19,6 +19,7 @@
  *   panic              calls uos_panic()
  *   halt               calls uos_halt()
  *   bench uaf <n>      times uaf_hash() over n iterations
+ *   hold <key> <n>     a held key: one press, n repeats, then the release
  * Every answer line is complete; the port then says "ok" or "err <why>".
  */
 
@@ -319,6 +320,43 @@ static int cmd_halt(int argc, char **argv)
     return argc != 0 ? uos_maint_fail("unknown command") : test_post(uos_test_halt, NULL);
 }
 
+/* A held key, as the repeat timer would send it. UOS sets no repeat rate,
+ * so the script channel alone cannot send INPUT_REPEAT. */
+static int cmd_hold(int argc, char **argv)
+{
+    input_event_t ev = { .type = INPUT_EV_KEY, .source = INPUT_SRC_SCRIPT,
+                         .value = INPUT_PRESS };
+    unsigned code, i, n = 0;
+    const char *p;
+
+    if (uos.phase != UOS_PHASE_READY || argc != 2) {
+        return uos_maint_fail("usage: hold <key> <repeats>");
+    }
+    for (code = 1; code < INPUT_KEY_COUNT; code++) {
+        if (k_strcmp(input_key_name(code), argv[0]) == 0) {
+            break;
+        }
+    }
+    for (p = argv[1]; *p >= '0' && *p <= '9' && n <= 16u; p++) {
+        n = n * 10u + (unsigned)(*p - '0');
+    }
+    if (code >= INPUT_KEY_COUNT || *p != '\0' || p == argv[1] || n > 16u) {
+        return uos_maint_fail("usage: hold <key> <repeats>");
+    }
+    if (!input_room(n + 2u)) {
+        return uos_maint_fail("full");
+    }
+    ev.code = (uint16_t)code;
+    (void)input_push(&ev);
+    ev.value = INPUT_REPEAT;
+    for (i = 0; i < n; i++) {
+        (void)input_push(&ev);
+    }
+    ev.value = INPUT_RELEASE;
+    (void)input_push(&ev);
+    return 0;
+}
+
 static int cmd_bench(int argc, char **argv)
 {
     uint32_t n = 0;
@@ -360,6 +398,7 @@ static void fill_table(void)
     (void)uos_mt_add(&table, "panic", cmd_panic, "test: calls uos_panic()");
     (void)uos_mt_add(&table, "halt", cmd_halt, "test: calls uos_halt()");
     (void)uos_mt_add(&table, "bench", cmd_bench, "test: bench uaf <iterations>");
+    (void)uos_mt_add(&table, "hold", cmd_hold, "test: hold <key> <repeats>");
 #endif
 }
 
