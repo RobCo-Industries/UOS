@@ -218,9 +218,9 @@ static void pause_leave(uos_screen_t *s)
     }
 }
 
-static uos_screen_t pause_screen = { "pause", NULL, pause_leave, pause_event, pause_draw, NULL, 0, NULL };
+static uos_screen_t pause_screen = { "pause", NULL, pause_leave, pause_event, pause_draw, NULL, 0, NULL, NULL };
 
-int con_pause(const char *text, con_done_fn cb, void *ctx)
+int con_pause(struct uos_screen *owner, const char *text, con_done_fn cb, void *ctx)
 {
     size_t n;
 
@@ -242,7 +242,7 @@ int con_pause(const char *text, con_done_fn cb, void *ctx)
     k_memcpy(pause_st.saved, status, sizeof(status));
     pause_st.cb = cb;
     pause_st.ctx = ctx;
-    if (uos_screen_push(&pause_screen) != 0) {
+    if (uos_screen_push_child(&pause_screen, owner) != 0) {
         return CON_ERR_SCREEN;
     }
     pause_st.active = 1;

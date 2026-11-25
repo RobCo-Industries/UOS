@@ -134,7 +134,8 @@ int sess_prompt_on_top(void)
     if (sess.in || sess.st != LG_S_USER) {
         return 0;
     }
-    return uos_screen_on_top(&sess_login_screen) || (reading_user && con_line_on_top());
+    /* The user name read is the login's child: the unit is on top. */
+    return uos_screen_unit_on_top(&sess_login_screen);
 }
 
 /* Starts the user name read. A posted call and login_uncover() both come
@@ -151,7 +152,7 @@ static void start_user(void *arg)
         return;
     }
     set_cursor(ROW_USER);
-    rc = con_read_line("USERNAME:", CON_RL_NOHIST | CON_RL_ALTKEY, UAF_NAME_MAX, on_user, NULL);
+    rc = con_read_line(&sess_login_screen, "USERNAME:", CON_RL_NOHIST | CON_RL_ALTKEY, UAF_NAME_MAX, on_user, NULL);
     reading_user = rc == 0;
     UOS_MARK("login state=user rc=%d", rc);
 }
@@ -161,7 +162,7 @@ static void start_pass(void)
     int rc;
 
     set_cursor(ROW_PASS);
-    rc = con_read_line("PASSWORD:", CON_RL_MASK | CON_RL_NOHIST, UAF_PASSWORD_MAX, on_pass, NULL);
+    rc = con_read_line(&sess_login_screen, "PASSWORD:", CON_RL_MASK | CON_RL_NOHIST, UAF_PASSWORD_MAX, on_pass, NULL);
     UOS_MARK("login state=pass rc=%d", rc);
 }
 

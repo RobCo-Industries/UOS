@@ -343,7 +343,7 @@ static void act(const hf_action_t *a)
         UOS_MARK("holo op=load file=%s result=refused", hs.tapes[a->tape].file);
         break;
     case HF_ACT_SHOW:
-        rc = con_page_text(a->title, a->text, a->len, pager_done, NULL);
+        rc = con_page_text(&holo_screen, a->title, a->text, a->len, pager_done, NULL);
         UOS_MARK("holo op=show tape=%s entry=%u bytes=%u rc=%d", hs.tapes[hs.open].file,
                  (unsigned)hs.r.sel_entry, (unsigned)a->len, rc);
         if (rc == 0) {

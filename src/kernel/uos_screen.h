@@ -35,6 +35,15 @@
  *            replace before then clears the mark: the screen is covered
  *            again or gone. A screen does here what it owes, such as the
  *            read a posted call could not start while it was covered.
+ *   owner    a child screen, such as a read line or a pager, is pushed
+ *            with the screen that owns it. The owner and its children
+ *            form one unit. uos_ss_unit_on_top() says whether a screen
+ *            or a child it owns is the top. When a pop leaves a child on
+ *            top, the draw calls uncover() for the child, then for each
+ *            owner down the chain, top first, each at most once. The
+ *            chain stops at a screen that is no longer in the unit on
+ *            top, and at one a pop inside the chain marked uncovered
+ *            again: the next draw calls that one.
  * A screen may push, pop or replace from inside its own callbacks.
  */
 #ifndef UOS_SCREEN_H
@@ -53,6 +62,7 @@ struct uos_screen {
     void *ctx;                                              /* the screen's own data */
     int full;               /* 1: draw() clears and paints the whole display */
     void (*uncover)(uos_screen_t *s);                       /* on top again, after the draw */
+    uos_screen_t *owner;    /* set by the stack: the screen this child belongs to, or NULL */
 };
 
 #define UOS_SCREEN_DEPTH        8
@@ -74,6 +84,9 @@ typedef struct {
 
 void uos_ss_init(uos_sstack_t *ss);
 int uos_ss_push(uos_sstack_t *ss, uos_screen_t *s);
+/* Pushes `s` as a child of `owner`, which must be on the stack. A NULL
+ * owner is a plain push. */
+int uos_ss_push_child(uos_sstack_t *ss, uos_screen_t *s, uos_screen_t *owner);
 /* Pops `s`, which must be the top: UOS_SCREEN_ERR_TOP otherwise. */
 int uos_ss_pop(uos_sstack_t *ss, uos_screen_t *s);
 /* Pops every screen above the bottom one. Returns how many. */
@@ -81,6 +94,9 @@ int uos_ss_unwind(uos_sstack_t *ss);
 /* 1 when `s` is the top screen. A screen that is not the top takes no
  * posted action: see docs/ARCHITECTURE.md, the screen stack. */
 int uos_ss_on_top(const uos_sstack_t *ss, const uos_screen_t *s);
+/* 1 when `s` is the top or owns the top through its children: the unit
+ * of `s` is not covered by another screen. */
+int uos_ss_unit_on_top(const uos_sstack_t *ss, const uos_screen_t *s);
 int uos_ss_replace(uos_sstack_t *ss, uos_screen_t *s);
 /* The top screen, or NULL. */
 uos_screen_t *uos_ss_top(const uos_sstack_t *ss);
@@ -96,7 +112,8 @@ void uos_ss_invalidate(uos_sstack_t *ss);
  * such as the read line when its keyboard closes. */
 void uos_ss_expose(uos_sstack_t *ss);
 /* Draws when dirty: the top, or every visible screen when exposed.
- * Then, when a pop left the top uncovered, calls its uncover() once.
+ * Then, when a pop left the top uncovered, calls its uncover() once,
+ * then each owner's in the chain, as above.
  * Returns the number of draw() calls made, 0 when not dirty. */
 int uos_ss_draw(uos_sstack_t *ss);
 

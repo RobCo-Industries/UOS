@@ -129,14 +129,14 @@ static void pv_leave(uos_screen_t *s)
     }
 }
 
-static uos_screen_t pv_screen = { "pager", NULL, pv_leave, pv_event, pv_draw, NULL, 1, NULL };
+static uos_screen_t pv_screen = { "pager", NULL, pv_leave, pv_event, pv_draw, NULL, 1, NULL, NULL };
 
 int con_page_active(void)
 {
     return pv.active;
 }
 
-int con_page_text(const char *title, const char *text, size_t len, con_done_fn cb, void *ctx)
+int con_page_text(struct uos_screen *owner, const char *title, const char *text, size_t len, con_done_fn cb, void *ctx)
 {
     uint32_t cap;
     size_t n;
@@ -173,7 +173,7 @@ int con_page_text(const char *title, const char *text, size_t len, con_done_fn c
     pv.title[n] = 0;
     pv.cb = cb;
     pv.ctx = ctx;
-    if (uos_screen_push(&pv_screen) != 0) {
+    if (uos_screen_push_child(&pv_screen, owner) != 0) {
         release();
         return CON_ERR_SCREEN;
     }

@@ -101,6 +101,16 @@ int uos_screen_push(uos_screen_t *s)
     return uos_ss_push(&ss, s);
 }
 
+int uos_screen_push_child(uos_screen_t *s, uos_screen_t *owner)
+{
+    return uos_ss_push_child(&ss, s, owner);
+}
+
+int uos_screen_unit_on_top(const uos_screen_t *s)
+{
+    return uos_ss_unit_on_top(&ss, s);
+}
+
 int uos_screen_pop(uos_screen_t *s)
 {
     int rc = uos_ss_pop(&ss, s);

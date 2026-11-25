@@ -237,7 +237,7 @@ static void rl_leave(uos_screen_t *s)
     UOS_MARK("line result=abort");
 }
 
-static uos_screen_t rl_screen = { "readline", NULL, rl_leave, rl_event, rl_draw, NULL, 0, NULL };
+static uos_screen_t rl_screen = { "readline", NULL, rl_leave, rl_event, rl_draw, NULL, 0, NULL, NULL };
 
 int con_line_active(void)
 {
@@ -246,7 +246,7 @@ int con_line_active(void)
 
 int con_line_on_top(void)
 {
-    return rl.active && uos_screen_on_top(&rl_screen);
+    return rl.active && uos_screen_unit_on_top(&rl_screen);
 }
 
 int con_line_abort(void)
@@ -308,7 +308,7 @@ void con_osk_state(int *open, unsigned *layer, unsigned *row, unsigned *col,
     *line_row = rl.row;
 }
 
-int con_read_line(const char *prompt, unsigned flags, unsigned max, con_line_fn cb, void *ctx)
+int con_read_line(struct uos_screen *owner, const char *prompt, unsigned flags, unsigned max, con_line_fn cb, void *ctx)
 {
     unsigned col = 0, row = 0, last;
     size_t n;
@@ -358,7 +358,7 @@ int con_read_line(const char *prompt, unsigned flags, unsigned max, con_line_fn 
     }
     rl.want_row = row;
     rl.row = row;
-    if (uos_screen_push(&rl_screen) != 0) {
+    if (uos_screen_push_child(&rl_screen, owner) != 0) {
         return CON_ERR_SCREEN;
     }
     rl.active = 1;

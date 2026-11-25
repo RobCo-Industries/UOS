@@ -183,12 +183,16 @@ static con_line_fn ask_cb;
 static uos_screen_t shell_screen;
 
 /* 1 when the shell is the session's screen and another one covers it.
- * The shell's own `$` read on top does not count: a command the API
- * starts while it waits runs under it, as before. */
+ * The shell's own children, its reads and its pager, are part of it: a
+ * command the API starts while the `$` read waits runs under it. */
 static int covered(void)
 {
-    return sh_job_waits(shp.on, uos_screen_on_top(&shell_screen) ||
-                                    (shp.reading && con_line_on_top()));
+    return sh_job_waits(shp.on, uos_screen_unit_on_top(&shell_screen));
+}
+
+uos_screen_t *sh_screen(void)
+{
+    return &shell_screen;
 }
 
 static const char *const owe_name[] = { "none", "step", "end" };
@@ -215,7 +219,7 @@ static void prompt_start(int kind)
     } else if (kind == K_CONTIN) {
         k_snprintf(shp.prompt, sizeof(shp.prompt), "_$ ");
     }
-    rc = con_read_line(shp.prompt, kind == K_PARAM ? CON_RL_NOHIST : 0u, DCL_LINE_MAX, on_line,
+    rc = con_read_line(&shell_screen, shp.prompt, kind == K_PARAM ? CON_RL_NOHIST : 0u, DCL_LINE_MAX, on_line,
                        NULL);
     if (rc == 0) {
         shp.reading = 1;
@@ -515,7 +519,7 @@ int sh_ask(const char *kind, const char *prompt, unsigned flags, unsigned max, c
 
     ask_kind = kind;
     ask_cb = cb;
-    rc = con_read_line(prompt, flags | CON_RL_NOHIST, max, ask_done, sh_job_tag(&sh_job));
+    rc = con_read_line(&shell_screen, prompt, flags | CON_RL_NOHIST, max, ask_done, sh_job_tag(&sh_job));
     if (rc != 0) {
         ask_kind = NULL;
         ask_cb = NULL;
@@ -857,17 +861,14 @@ static void port_run(void *arg)
     /* The prompt gives way: its read ends quietly, the command runs, and
      * the prompt comes back after it. A shell under another screen, a
      * holotape reader for one, takes no command. */
-    if (shp.reading && !uos_screen_on_top(&shell_screen) && con_line_active() &&
-        ask_kind == NULL) {
-        if (con_line_abort() != 0) {
-            UOS_MARK("sh run=refused why=covered");
-            return;
-        }
-        shp.reading = 0;
-        dcl_line_reset(&shp.ln);
-    } else if (!shp.reading && !sh_job.active && shp.on && !uos_screen_on_top(&shell_screen)) {
+    if (shp.on && !uos_screen_unit_on_top(&shell_screen) && (shp.reading || !sh_job.active)) {
         UOS_MARK("sh run=refused why=covered");
         return;
+    }
+    if (shp.reading && ask_kind == NULL) {
+        (void)con_line_abort();
+        shp.reading = 0;
+        dcl_line_reset(&shp.ln);
     }
     rc = launch(port_line, 0, "port", port_done, NULL, NULL, 0);
     if (rc != 0) {

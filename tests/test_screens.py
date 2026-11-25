@@ -459,3 +459,47 @@ def test_end_under_the_reader_waits(board, hooks_image, need_mtools, tmp_path):
         assert "TEST%20PROGRAM%20RUN%201%20ENDED" in done["result"] or \
             "TEST PROGRAM RUN 1 ENDED" in done["result"], done
         wait_marker(vm, "sh state=prompt kind=cmd", 2)
+
+
+# The shell and its `$` read are one unit: a command the API starts under the
+# read runs, and a step owed while the reader covers the read runs once the
+# reader closes, with no key.
+
+def api_job_under_the_reader(vm, line):
+    answer(vm, "sh hold 1")
+    answer(vm, f'sh api - "{line}"')
+    assert wait_marker(vm, "sh api=call", 1)["rc"] == "0"
+    wait_marker(vm, "sh held=1", 1)
+    answer(vm, "holo open")
+    wait_marker(vm, "holo op=scan", 1)
+    answer(vm, "sh hold 0")
+    assert stack(vm) == ["shell", "readline", "holo"]
+    assert wait_marker(vm, "sh op=wait", 1)["owe"] == "step"
+    close_reader(vm)
+    assert wait_marker(vm, "sh op=resume", 1)["owe"] == "step"
+    assert wait_marker(vm, "cmd state=end", 1)["rc"] == "NORMAL"
+    wait_marker(vm, "sh api=done", 1)
+
+
+def test_api_command_under_the_prompt_and_the_reader(board, hooks_image, need_mtools, tmp_path):
+    """The finding: the step owed under the reader runs when the reader closes
+    over the `$` read, not when the user ends the prompt."""
+    with alone(hooks_image, board, card(tmp_path, card_tree())) as vm:
+        guest_shell(vm)
+        api_job_under_the_reader(vm, "TYPE%20NOTICE.TXT")
+        assert stack(vm) == ["shell", "readline"]
+        assert sh_fields(vm)["state"] != "running"
+
+
+def test_api_command_under_the_keyboard_and_the_reader(board, hooks_image, need_mtools,
+                                                       tmp_path):
+    """The same with the keyboard open on the `$` read: reader over keyboard
+    over read line over shell."""
+    with alone(hooks_image, board, card(tmp_path, card_tree())) as vm:
+        guest_shell(vm)
+        answer(vm, "osk open")
+        wait_marker(vm, "osk state=open", 1)
+        api_job_under_the_reader(vm, "TYPE%20NOTICE.TXT")
+        assert stack(vm) == ["shell", "readline"]
+        assert sh_fields(vm)["state"] != "running"
+        assert not [m for m in events(vm, "osk") if m.get("state") == "closed"]

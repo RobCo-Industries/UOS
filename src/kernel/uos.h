@@ -144,6 +144,9 @@ const uos_timerq_t *uos_timer_table(void);
 
 /* The screen stack. See uos_screen.h for the rules. */
 int uos_screen_push(uos_screen_t *s);
+/* Pushes `s` as a child of `owner`, such as a read line or a pager a
+ * screen opens for itself. NULL is a plain push. See uos_screen.h. */
+int uos_screen_push_child(uos_screen_t *s, uos_screen_t *owner);
 /* Pops `s` only when it is the top. Otherwise a "screen pop=refused"
  * marker and UOS_SCREEN_ERR_TOP; a test build panics. */
 int uos_screen_pop(uos_screen_t *s);
@@ -151,6 +154,10 @@ int uos_screen_pop(uos_screen_t *s);
 int uos_screen_unwind(void);
 /* 1 when `s` is the top screen: the one test for "this screen may act". */
 int uos_screen_on_top(const uos_screen_t *s);
+/* 1 when `s` or a child it owns is the top: "is the unit of `s` covered"
+ * for work it owes. A command that stands in for a key uses
+ * uos_screen_on_top(): the child takes the keys. */
+int uos_screen_unit_on_top(const uos_screen_t *s);
 int uos_screen_replace(uos_screen_t *s);
 uos_screen_t *uos_screen_top(void);
 /* The screen at depth `i`, 0 at the bottom; NULL at or past the depth. */

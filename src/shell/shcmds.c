@@ -418,7 +418,7 @@ static int type_step(sh_job_t *j)
     j->bpos = 0;
     sh_file_mark(j, "type", j->cur, "ok");
     if (on(j, "PAGE")) {
-        rc = con_page_text(j->cur, j->buf, len, type_paged, sh_job_tag(j));
+        rc = con_page_text(sh_screen(), j->cur, j->buf, len, type_paged, sh_job_tag(j));
         vfs_free(j->buf);
         j->buf = NULL;
         if (rc != 0) {
