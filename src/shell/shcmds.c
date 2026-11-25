@@ -321,6 +321,13 @@ static void on_confirm(int result, const char *text, unsigned len, void *ctx)
     if (!j->active) {
         return;
     }
+    if (result != CON_OK) {
+        /* Ctrl-C at the question cancels the command; Q only stops the
+         * loop and reports the files done. */
+        j->cancel = 1;
+        sh_resume(j, SH_MORE);
+        return;
+    }
     switch (what) {
     case SH_DO_ACT:
         j->phase = P_ACT;
@@ -429,8 +436,13 @@ static int type_step(sh_job_t *j)
 
 static void type_paged(int result, void *ctx)
 {
-    (void)result;
     if (!sh_job_live(ctx, "pager")) {
+        return;
+    }
+    if (result != CON_OK) {
+        /* Ctrl-C in the pager cancels the command, like at the prompt. */
+        sh_job.cancel = 1;
+        sh_resume(&sh_job, SH_MORE);
         return;
     }
     sh_job.tally.done++;
@@ -769,6 +781,17 @@ static void prog_done(void *tag, int status, const char *text)
         return;
     }
     j->prog_wait = 0;
+    if (status == SH_CANCELLED) {
+        /* The program's screen took Ctrl-C. */
+        j->cancel = 1;
+        (void)sh_end(j, DCL_SYS_CANCEL, NULL, 0, 1);
+        if (j->prog_in_start) {
+            j->prog_sync = 1;
+            return;
+        }
+        sh_resume(j, SH_DONE);
+        return;
+    }
     if (text != NULL) {
         k_snprintf(j->res_text, sizeof(j->res_text), "%s", text);
     }

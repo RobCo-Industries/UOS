@@ -208,8 +208,10 @@ def test_show_help_and_simple_verbs(board, hooks_image, need_mtools, tmp_path):
         _, _, s = expect(vm, "SHOW TERMINAL", "NORMAL")
         assert "Scheme AMBER" in out(vm, s)
         expect(vm, "SET TERMINAL /SCHEME=RED", "IVKEYW")
-        # A comment-only line from the port is a quiet success.
-        expect(vm, "! nothing", "NORMAL")
+        # A comment-only line from the port is refused like an empty one.
+        n = n_marks(vm, "sh run=refused")
+        answer(vm, "sh run " + quote("! nothing"))
+        assert wait_marker(vm, "sh run=refused", n + 1)["rc"] == "-1"
 
 
 def test_files_and_qualifiers(board, hooks_image, need_mtools, tmp_path):
@@ -665,3 +667,135 @@ def test_type_long_line_in_bounded_steps(board, hooks_image, need_mtools, tmp_pa
         assert rows <= 8 * (int(end["steps"]) - 1), (rows, end)
         bound = MAX_STEP_TICKS.get(board, MAX_STEP_TICKS_DEFAULT)
         assert int(end["maxticks"]) <= bound, end
+
+
+def ctrl_c(vm, c):
+    """Ctrl-C through the console keys; the command must end cancelled."""
+    vm.send("\x03")
+    res, end, start = wait_done(vm, c)
+    assert end["rc"] == "CANCEL" and res == "%UOS-I-CANCEL, operation cancelled", (res, end)
+    assert "%UOS-I-CANCEL, operation cancelled" in out(vm, start), out(vm, start)
+    assert marks(vm, "sh run=done")[-1]["status"] == "3"
+    wait_state(vm, state="prompt", kind="cmd")
+    return end
+
+
+def test_ctrl_c_in_every_screen_over_the_shell(board, hooks_image, need_mtools, tmp_path):
+    """Ctrl-C ends the running command as cancelled whatever screen takes the keys:
+    the pager of TYPE /PAGE, a /CONFIRM question after a first file, a masked
+    password read, a CREATE line with the on-screen keyboard open, and a program
+    whose own screen reports Ctrl-C. Files done before stay done, the rest stay."""
+    with alone(hooks_image, board, shell_card(tmp_path)) as vm:
+        wait_ready(vm)
+        # The console's pager alone: Ctrl-C leaves it with a cancel result.
+        answer(vm, "page short")
+        wait_marker(vm, "page top=0", 1)
+        vm.send("\x03")
+        wait_marker(vm, "page result=cancel", 1)
+        login(vm, "ADMIN")
+        # The pager over the shell.
+        c = send_line(vm, "TYPE NOTICE.TXT /PAGE")
+        dump_until(vm, lambda r: any("line 1 to" in row for row in r))
+        ctrl_c(vm, c)
+        assert marks(vm, "page result=abort") == []
+        # /CONFIRM: Y to the first file, then Ctrl-C at the second question.
+        expect(vm, "CREATE [.T] /DIRECTORY", "CREATED")
+        for name in ("A", "B", "C"):
+            expect(vm, f"COPY NOTICE.TXT [.T]{name}.TXT", "COPIED")
+        q = n_marks(vm, "sh state=prompt kind=confirm")
+        c = send_line(vm, "DELETE [.T]*.TXT /CONFIRM")
+        reply(vm, "confirm", "Y", q + 1)
+        wait_marker(vm, "sh state=prompt kind=confirm", q + 2)
+        wait_state(vm, ask="confirm")
+        ctrl_c(vm, c)
+        _, end, s = expect(vm, "DIR [.T]", "NORMAL")
+        assert end["files"] == "2", (end, out(vm, s))
+        # A masked password read.
+        c = send_line(vm, "SET PASSWORD")
+        wait_state(vm, ask="password")
+        ctrl_c(vm, c)
+        # A CREATE line with the on-screen keyboard open.
+        c = send_line(vm, "CREATE OSK.TXT")
+        wait_state(vm, ask="line")
+        o = n_marks(vm, "osk state=open")
+        answer(vm, "osk open")
+        wait_marker(vm, "osk state=open", o + 1)
+        ctrl_c(vm, c)
+        expect(vm, "TYPE OSK.TXT", "FNF")
+        # A program's screen took Ctrl-C and reports it with SH_CANCELLED.
+        answer(vm, "sh prog reg TERMINAL")
+        assert wait_marker(vm, "sh prog=reg")["rc"] == "0"
+        c = send_line(vm, "RUN TERMINAL")
+        wait_marker(vm, "sh prog=start n=1")
+        answer(vm, "sh prog done 1 3")
+        res, end, _ = wait_done(vm, c)
+        assert end["rc"] == "CANCEL" and res.startswith("%UOS-I-CANCEL"), (res, end)
+        assert marks(vm, "sh run=done")[-1]["status"] == "3"
+
+
+def api(vm, flags, arg=None):
+    """One `sh api` call; returns its rc marker."""
+    n = n_marks(vm, "sh api=call")
+    answer(vm, f"sh api {flags}" + ("" if arg is None else " " + arg))
+    return wait_marker(vm, "sh api=call", n + 1)
+
+
+def test_run_line_api_contract(board, hooks_image, need_mtools, tmp_path):
+    """sh_run_line(): each error with no callback, the empty and comment-only
+    lines refused, one callback per started command with its status, and
+    SH_RUN_QUIET printing nothing. The prompt still takes an empty line."""
+    with alone(hooks_image, board, shell_card(tmp_path)) as vm:
+        wait_ready(vm)
+        assert api(vm, "-", quote("DIR"))["rc"] == "-3"
+        login(vm, "ADMIN")
+        for arg in (None, quote(""), quote("   "), quote("! a comment"), "null", "long"):
+            m = api(vm, "-", arg)
+            assert (m["rc"], m["cbs"]) == ("-1", "0"), (arg, m)
+        # Started commands: one callback each, with the severity class.
+        for line, status in (("SHOW DEFAULT", "0"), ("DIR *.XYZ", "1"),
+                             ("TYPE NOPE.TXT", "2"), ("TYPE", "1"), ("FROB", "1")):
+            n = n_marks(vm, "sh api=done")
+            assert api(vm, "-", quote(line))["rc"] == "0"
+            d = wait_marker(vm, "sh api=done", n + 1)
+            assert (d["n"], d["status"]) == (str(n + 1), status), (line, d)
+        # Busy: a held command refuses an API call, and no callback comes.
+        h = n_marks(vm, "sh held=1")
+        answer(vm, "sh hold 1")
+        c = send_line(vm, "DIR")
+        wait_marker(vm, "sh held=1", h + 1)
+        cbs = n_marks(vm, "sh api=done")
+        m = api(vm, "-", quote("DIR"))
+        assert (m["rc"], m["cbs"]) == ("-2", str(cbs)), m
+        answer(vm, "sh hold 0")
+        wait_done(vm, c)
+        # Quiet: the same listing, nothing on the console.
+        s = len(vm.serial)
+        n = n_marks(vm, "sh api=done")
+        api(vm, "-", quote("SHOW DEFAULT"))
+        wait_marker(vm, "sh api=done", n + 1)
+        assert "SD0:[HOME.ADMIN]" in out(vm, s)
+        s = len(vm.serial)
+        api(vm, "q", quote("SHOW DEFAULT"))
+        d = wait_marker(vm, "sh api=done", n + 2)
+        assert unquote(d["result"]) == "%UOS-S-NORMAL, normal successful completion" or \
+            d["status"] == "0", d
+        api(vm, "q", quote("TYPE NOPE.TXT"))
+        wait_marker(vm, "sh api=done", n + 3)
+        assert [l for l in out(vm, s) if l.strip() and not l.startswith("$")] == [], out(vm, s)
+        # Exactly one callback per started call.
+        assert n_marks(vm, "sh api=done") == n_marks(vm, "sh api=call rc=0")
+        # The prompt takes an empty and a comment-only line: a new prompt.
+        for line in ("", "! nothing"):
+            p = n_marks(vm, "sh state=prompt kind=cmd")
+            st = n_marks(vm, "cmd state=start")
+            vm.send(line + "\r")
+            wait_marker(vm, "sh state=prompt kind=cmd", p + 1)
+            assert n_marks(vm, "cmd state=start") == st
+
+
+def test_run_line_hook_absent_from_shipped_image(board, uos_image, need_mtools, tmp_path):
+    """`sh api` exists in the test build only."""
+    with alone(uos_image, board, shell_card(tmp_path)) as vm:
+        wait_ready(vm)
+        assert vm.script("sh api - DIR", timeout=TIMEOUT).status.startswith("err"), \
+            vm.script("sh api - DIR", timeout=TIMEOUT)

@@ -12,6 +12,12 @@
  *   sh prog reg <NAME>        registers a test program for RUN <NAME>
  *   sh prog done <n> <status> ends the n-th run of a test program, even
  *                             one whose job has ended
+ *   sh api <-|q> [null|long|<line>]
+ *                             calls sh_run_line() with flags 0 or
+ *                             SH_RUN_QUIET on a quoted line, an empty one,
+ *                             NULL, or one byte past DCL_LINE_MAX. Marks
+ *                             "ev=sh api=call rc= cbs=" and, per callback,
+ *                             "ev=sh api=done n= status= result="
  *   sh hold <1|0>             1: the next step of a command waits ("ev=sh
  *                             held=1"); 0: it runs. Ctrl-C still cancels.
  *
@@ -697,8 +703,10 @@ static int launch(const char *line, unsigned flags, const char *src, sh_done_fn 
     j->id = job_seq;
     k_snprintf(j->line, sizeof(j->line), "%s", line);
     rc = dcl_parse(j->line, &dcl_uos_table, &j->cmd);
-    if (rc == DCL_NORMAL && j->cmd.verb == NULL && need != NULL) {
-        return 2;
+    if (rc == DCL_NORMAL && j->cmd.verb == NULL) {
+        /* An empty or comment-only line: the prompt shows a new prompt,
+         * an API caller gets an error and no callback. */
+        return need != NULL ? 2 : SH_ERR_ARG;
     }
     if (rc == DCL_INSFPRM && need != NULL && j->cmd.prompt != NULL) {
         k_snprintf(need, need_size, "%s", j->cmd.prompt);
@@ -719,11 +727,6 @@ static int launch(const char *line, unsigned flags, const char *src, sh_done_fn 
     UOS_MARK("cmd state=start verb=%s src=%s", j->verb, src);
     if (rc != DCL_NORMAL) {
         (void)sh_end(j, rc, j->cmd.token, 0, 1);
-        finish();
-        return 0;
-    }
-    if (j->cmd.verb == NULL) {
-        (void)sh_end(j, DCL_NORMAL, NULL, 0, 0);
         finish();
         return 0;
     }
@@ -755,6 +758,9 @@ int sh_busy(void)
 
 int sh_program_register(const char *name, sh_prog_start_fn start)
 {
+    if (!sh_up) {
+        return SH_ERR_DOWN;
+    }
     switch (sh_prog_add(&sh_progs, name, start)) {
     case 0:                 return 0;
     case SH_PROG_ERR_DUP:   return SH_ERR_DUP;
@@ -861,6 +867,71 @@ static int tp_num(const char *s)
     return v;
 }
 
+/* sh api: one sh_run_line() call as another service makes it. */
+static char api_line[DCL_LINE_MAX + 2];
+static int api_kind;            /* 0 the line, 1 NULL, 2 one byte too long */
+static unsigned api_flags;
+static unsigned api_cbs;        /* callbacks so far, for exactly-once checks */
+
+static void api_done(int status, const char *result, void *ctx)
+{
+    char q[DCL_MSG_SIZE + 8];
+
+    (void)ctx;
+    api_cbs++;
+    (void)cv_quote(q, sizeof(q), result, k_strlen(result), 120);
+    UOS_MARK("sh api=done n=%u status=%d result=%s", api_cbs, status, q);
+}
+
+static void api_run(void *arg)
+{
+    const char *line = api_line;
+    int rc;
+
+    (void)arg;
+    port_pending = 0;
+    if (api_kind == 1) {
+        line = NULL;
+    } else if (api_kind == 2) {
+        k_memset(api_line, 'A', DCL_LINE_MAX + 1u);
+        api_line[DCL_LINE_MAX + 1u] = '\0';
+    }
+    rc = sh_run_line(line, api_flags, api_done, NULL);
+    UOS_MARK("sh api=call rc=%d cbs=%u", rc, api_cbs);
+}
+
+static int test_api_cmd(int argc, char **argv)
+{
+    const char *f = argv[0];
+
+    if (port_pending) {
+        return uos_maint_fail("busy");
+    }
+    if (k_strcmp(f, "q") == 0) {
+        api_flags = SH_RUN_QUIET;
+    } else if (k_strcmp(f, "-") == 0) {
+        api_flags = 0;
+    } else {
+        return uos_maint_fail("usage sh api <-|q> null|long|<line>");
+    }
+    api_kind = 0;
+    if (argc < 2) {
+        api_line[0] = '\0';
+    } else if (argc == 2 && k_strcmp(argv[1], "null") == 0) {
+        api_kind = 1;
+    } else if (argc == 2 && k_strcmp(argv[1], "long") == 0) {
+        api_kind = 2;
+    } else if (sh_unquote(uos_mt_rejoin(argv[1], argv[argc - 1]), api_line,
+                          sizeof(api_line)) < 0) {
+        return uos_maint_fail("bad line");
+    }
+    if (uos_post(api_run, NULL) != 0) {
+        return uos_maint_fail("full");
+    }
+    port_pending = 1;
+    return 0;
+}
+
 static void test_release(void *arg)
 {
     (void)arg;
@@ -922,6 +993,9 @@ static int cmd_sh(int argc, char **argv)
 #if defined(UOS_TEST_HOOKS) && UOS_TEST_HOOKS
     if (argc >= 3 && k_strcmp(argv[0], "prog") == 0) {
         return test_prog_cmd(argc - 1, argv + 1);
+    }
+    if (argc >= 2 && k_strcmp(argv[0], "api") == 0) {
+        return test_api_cmd(argc - 1, argv + 1);
     }
     if (argc == 2 && k_strcmp(argv[0], "hold") == 0) {
         if (k_strcmp(argv[1], "1") == 0) {

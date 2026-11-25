@@ -8,7 +8,8 @@
  *            ev=line result=<ok|cancel> len=<n> text=<"quoted"|masked>,
  *            the quoted text with blanks, quotes and % as %XX
  *   page <short|long|empty|big>
- *            shows a built-in test text; ev=page result=done when left
+ *            shows a built-in test text; ev=page result=done when left,
+ *            result=cancel when left with Ctrl-C
  *   osk <open|close|state>
  *            the keyboard of the active read
  * Test builds only (UOS_TEST_HOOKS=1):
@@ -156,9 +157,8 @@ static void make_long(void)
 
 static void on_page(int result, void *ctx)
 {
-    (void)result;
     (void)ctx;
-    UOS_MARK("page result=done");
+    UOS_MARK("page result=%s", result == CON_CANCEL ? "cancel" : "done");
 }
 
 static void start_page(void *arg)
