@@ -1,6 +1,6 @@
 /*
- * The session's screens: login, lockout, welcome and the placeholder that
- * runs after a login until a shell registers itself. Thin: every decision
+ * The session's screens: login, lockout and welcome. After the welcome the
+ * screen of sess_set_next() takes over. Thin: every decision
  * comes from login.c. The state machine is lg_next(); sess_go() applies an
  * event and shows the screen of the new state.
  *
@@ -439,50 +439,6 @@ static uos_screen_t lock_screen = {
     .full = 1,
 };
 
-/* ---- The placeholder after a login ---- */
-
-static void nosh_draw(uos_screen_t *s)
-{
-    char line[UOS_LINE_MAX + 1];
-    char privs[UAF_PRIVS_TEXT_MAX];
-
-    (void)s;
-    header(0);
-    if (uaf_privs_format(sess.privs, privs, sizeof(privs)) != UAF_OK || privs[0] == '\0') {
-        k_snprintf(privs, sizeof(privs), "%s", "NONE");
-    }
-    k_snprintf(line, sizeof(line), "USER: %s    PRIVILEGES: %s", sess.user, privs);
-    put_row(ROW_MSG, line, CONSOLE_ATTR_BRIGHT);
-    put_row(ROW_USER, "No shell is installed in this build.", CONSOLE_ATTR_NORMAL);
-    put_row(ROW_PASS, "PRESS BACK TO LOG OUT.", CONSOLE_ATTR_DIM);
-    con_status_redraw();
-}
-
-static void nosh_enter(uos_screen_t *s)
-{
-    (void)s;
-    sess_serial("No shell is installed in this build.");
-    sess_serial("PRESS BACK TO LOG OUT.");
-}
-
-static int nosh_event(uos_screen_t *s, const uos_event_t *ev)
-{
-    (void)s;
-    if (uos_ev_fresh_key(ev) && ev->code == INPUT_KEY_BACK) {
-        (void)sess_logout(SESS_END_USER);
-        return 1;
-    }
-    return ev->type == UOS_EV_KEY || ev->type == UOS_EV_CHAR;
-}
-
-static uos_screen_t nosh_screen = {
-    .name = "noshell",
-    .enter = nosh_enter,
-    .event = nosh_event,
-    .draw = nosh_draw,
-    .full = 1,
-};
-
 /* ---- The welcome ---- */
 
 static uos_timer_id_t welcome_timer;
@@ -513,7 +469,10 @@ static void welcome_done(void *arg)
         next = sess.next();
     }
     if (next == NULL) {
-        next = &nosh_screen;
+        /* No service registered a screen: no session without a screen. */
+        UOS_MARK("session screen=none");
+        (void)sess_logout(SESS_END_SHELL);
+        return;
     }
     sess.st = lg_next(sess.st, LG_E_WELCOME_DONE).next;
     sess_show_only(next);

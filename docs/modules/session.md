@@ -238,7 +238,7 @@ In every state but `ok` the first screen stays, with a second row that says what
 
 `sess_logout()` clears every session field and `uos.user`, prints the end marker, removes every screen above the bottom one and shows the login. A read, a pager or a pause on the stack ends without calling back: the console screens have a `leave` that does this when another caller pops them. The read's text is wiped.
 
-`sess_set_next(fn)` takes a function that returns the screen to show after the welcome. The shell service registers it at its init, see [The shell](../ARCHITECTURE.md#the-shell). Without a registration the placeholder `noshell` runs: the user, its privileges, the line `No shell is installed in this build.`, and BACK logs out.
+`sess_set_next(fn)` takes a function that returns the screen to show after the welcome. The shell service registers it at its init, see [The shell](../ARCHITECTURE.md#the-shell). Without a registration, or when the function returns NULL, the session ends with `SESS_END_SHELL` and the marker `session screen=none`. The placeholder screen of earlier builds is gone.
 
 ### The login screen
 

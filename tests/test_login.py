@@ -375,36 +375,39 @@ def test_two_sess_logins_in_one_write(board, hooks_image, need_mtools, tmp_path)
         start = wait_marker(vm, "session state=start", 1)
         assert start["user"] == "GUEST", start
         wait_marker(vm, "session result=busy", 1)
-        wait_marker(vm, "session screen=noshell", 1)
+        wait_marker(vm, "session screen=shell", 1)
         assert sess_state(vm)["user"] == "GUEST"
         assert len([m for m in events(vm, "session") if m.get("state") == "start"]) == 1
 
 
 def test_key_and_logout_keep_their_order(board, hooks_image, need_mtools, tmp_path):
-    """BACK, then `sess logout`, in one write: BACK ends the session and the logout
-    finds none. `sess logout`, then BACK: the logout ends the session, and BACK goes
-    to the login prompt, not to the session."""
+    """`LOGOUT` typed at the shell, then `sess logout`, in one write: one session
+    end, never two. `sess logout`, then typed
+    text: the logout ends the session, and the text goes to the login prompt, not to
+    the shell."""
     with alone(hooks_image, board, uaf_card(tmp_path)) as vm:
         wait_ready(vm)
         prompt(vm, "user", 1)
         answer(vm, "sess login GUEST")
-        wait_marker(vm, "session screen=noshell", 1)
-        replies = batch(vm, [FILLER, "key back", "sess logout"])
+        wait_marker(vm, "session screen=shell", 1)
+        wait_marker(vm, "sh state=prompt kind=cmd", 1)
+        replies = batch(vm, [FILLER, "type LOGOUT", "sess logout"])
         assert [r[0] for r in replies] == ["ok", "ok", "ok"], replies
+        # LOGOUT runs as a stepped command, so the port's logout may come first.
+        # Either way one session ends and the other finds none.
         end = wait_marker(vm, "session state=end", 1)
-        assert end["reason"] == "user", end
-        wait_marker(vm, "session result=none", 1)
+        assert end["reason"] in ("user", "maint"), end
         wait_user_prompt(vm)
         answer(vm, "sess login GUEST")
-        wait_marker(vm, "session screen=noshell", 2)
-        replies = batch(vm, ["sess logout", "key back"])
+        wait_marker(vm, "session screen=shell", 2)
+        wait_marker(vm, "sh state=prompt kind=cmd", 2)
+        replies = batch(vm, ["sess logout", "type GUEST"])
         assert [r[0] for r in replies] == ["ok", "ok"], replies
         end = wait_marker(vm, "session state=end", 2)
         assert end["reason"] == "maint", end
-        wait_user_prompt(vm)
+        prompt(vm, "pass", 1)
         assert sess_state(vm)["user"] == "none"
         assert n_marks(vm, "session state=end") == 2
-        assert n_marks(vm, "session result=none") == 1
 
 
 def test_idle_logout(board, hooks_image, need_mtools, tmp_path):

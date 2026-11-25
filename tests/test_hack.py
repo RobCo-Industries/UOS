@@ -176,7 +176,7 @@ def test_won_game_starts_a_guest_session(board, hooks_image, need_mtools, tmp_pa
         assert wait_marker(vm, "hack op=end", 1)["result"] == "won"
         s = wait_marker(vm, "session state=start", 1)
         assert (s["user"], s["how"], s["privs"]) == ("GUEST", "hack", "0"), s
-        wait_marker(vm, "session screen=noshell", 1)
+        wait_marker(vm, "session screen=shell", 1)
         st = dict(x.split("=", 1) for x in answer(vm, "sess state")[0].split()[1:])
         assert (st["state"], st["user"]) == ("session", "GUEST"), st
         assert state(vm).f["state"] == "off"
@@ -440,7 +440,7 @@ def test_refusals(board, hooks_image, need_mtools, tmp_path):
         wait_ready(vm)
         at_login(vm)
         answer(vm, "sess login GUEST")
-        wait_marker(vm, "session screen=noshell", 1)
+        wait_marker(vm, "session screen=shell", 1)
         answer(vm, "hack start")
         m = wait_marker(vm, "hack op=start", 1)
         assert (m["result"], m["why"]) == ("refused", "busy"), m
@@ -546,7 +546,7 @@ def test_logout_with_the_reader_and_the_refusal_open(board, hooks_image, need_mt
         at_login(vm)
         for n, end in ((1, "maint"), (2, "idle")):
             answer(vm, "sess login GUEST")
-            wait_marker(vm, "session screen=noshell", n)
+            wait_marker(vm, "session screen=shell", n)
             answer(vm, "holo open")
             wait_marker(vm, "holo op=scan", n)
             answer(vm, "hack start")

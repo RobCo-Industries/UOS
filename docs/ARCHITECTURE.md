@@ -423,7 +423,7 @@ Maintenance commands, for tests and operators:
 
 The `session` service, `src/session/sessvc.c` and `sesscreen.c`, loads the user database, runs the login screen and holds the session. Its rules are pure, in `login.c`. Other services and screens call `src/session/sess.h`, prefix `sess_`. The [session page](modules/session.md#the-session-service) has the details: the database states, the markers, the `sess` command and the secrets rules.
 
-Its screens are on the kernel's stack. While nobody is logged in the bottom screen is `login` or `lockout`. After a login it is `welcome`, then the registered next screen or the placeholder `noshell`. A logout pops every screen above the bottom one, then shows `login`.
+Its screens are on the kernel's stack. While nobody is logged in the bottom screen is `login` or `lockout`. After a login it is `welcome`, then the screen of `sess_set_next()`: the shell. A logout pops every screen above the bottom one, then shows `login`.
 
 ```mermaid
 stateDiagram-v2
@@ -440,10 +440,10 @@ stateDiagram-v2
     lockout --> login: lockout_s passed
     login --> welcome: good login
     welcome --> next: 1.5 s or a key
-    next --> login: logout, BACK, sess logout, idle time
+    next --> login: LOGOUT, sess logout, idle time
 ```
 
-`next` is the screen of `sess_set_next()`, or `noshell`.
+`next` is the screen of `sess_set_next()`, the `shell`. With no screen registered the session ends at once with `session screen=none`. The shell service always registers one, so a build with the shell never shows this.
 
 | Call | Context | For |
 |---|---|---|

@@ -75,16 +75,15 @@ const char *sess_end_name(int reason);
 /*
  * The screen that starts after a good login and its welcome. Called once
  * per login from the loop; it returns the screen to show, which replaces
- * the welcome at the bottom of the stack. NULL from the function shows the
- * placeholder.
+ * the welcome at the bottom of the stack. With no function, or NULL from
+ * it, the session ends with SESS_END_SHELL and the marker
+ * "session screen=none".
  */
 typedef uos_screen_t *(*sess_next_fn)(void);
 
 /*
  * loop: registers the next screen. Once per boot: a second call returns
- * SESS_ERR_SET and keeps the first. Until then the placeholder screen runs:
- * the user, "No shell is installed in this build." and logout on BACK.
- * Call it from a service init that starts after the session service.
+ * SESS_ERR_SET and keeps the first. The shell service calls it. Call it from a service init that starts after the session service.
  */
 int sess_set_next(sess_next_fn fn);
 

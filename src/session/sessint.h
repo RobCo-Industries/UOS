@@ -1,7 +1,7 @@
 /*
  * Shared state of the session service's two thin files: sessvc.c (the
  * service, the session fields, the maintenance command) and sesscreen.c
- * (the login, lockout, welcome and placeholder screens). Not for other
+ * (the login, lockout and welcome screens). Not for other
  * modules: they use sess.h.
  */
 #ifndef UOS_SESSINT_H

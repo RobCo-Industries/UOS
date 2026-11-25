@@ -333,7 +333,7 @@ def test_reader_with_a_session(board, hooks_image, need_mtools, tmp_path):
         wait_ready(vm)
         wait_marker(vm, "login state=user", 1)
         answer(vm, "sess login GUEST")
-        wait_marker(vm, "session screen=noshell", 1)
+        wait_marker(vm, "session screen=shell", 1)
         scan = open_reader(vm)
         assert (scan["result"], scan["kept"]) == ("list", "3"), scan
         answer(vm, "holo open")
@@ -343,7 +343,7 @@ def test_reader_with_a_session(board, hooks_image, need_mtools, tmp_path):
         key(vm, "back")
         key(vm, "back")
         wait_marker(vm, "holo op=exit", 1)
-        rows = dump_until(vm, lambda r: "No shell is installed in this build." in r)
+        rows = dump_until(vm, lambda r: any("command shell" in x for x in r))
         assert rows
 
 

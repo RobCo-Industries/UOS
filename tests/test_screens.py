@@ -17,11 +17,11 @@ def settled_rows(vm):
     session, the reader and the console know of."""
     deadline = time.monotonic() + TIMEOUT
     while True:
-        out = batch(vm, ["sess state", "holo state"])
-        assert [status for status, _ in out] == ["ok", "ok"], out
+        out = batch(vm, ["sess state", "holo state", "sh state"])
+        assert [status for status, _ in out] == ["ok", "ok", "ok"], out
         pending = [dict(f.split("=", 1) for f in data[0].split()[1:])["pending"]
                    for _, data in out]
-        if pending == ["0", "0"]:
+        if pending == ["0", "0", "0"]:
             break
         assert time.monotonic() < deadline, out
         time.sleep(0.05)
@@ -39,6 +39,12 @@ def same(before, after, skip=()):
 def at_prompt(vm):
     wait_ready(vm)
     wait_marker(vm, "login state=user", 1)
+
+
+def at_shell_prompt(vm):
+    """After `sess login`: the shell's `$` read waits for a command."""
+    wait_marker(vm, "session screen=shell", 1)
+    wait_marker(vm, "sh state=prompt kind=cmd", 1)
 
 
 def reader_open_back(vm, n=1):
@@ -152,8 +158,32 @@ def test_reader_over_a_session(board, hooks_image, need_mtools, tmp_path):
     with alone(hooks_image, board, card(tmp_path, card_tree())) as vm:
         at_prompt(vm)
         answer(vm, "sess login GUEST")
-        wait_marker(vm, "session screen=noshell", 1)
+        at_shell_prompt(vm)
         before = settled_rows(vm)
-        assert any("No shell is installed" in r for r in before), before
+        assert any("command shell" in r for r in before), before
         reader_open_back(vm)
+        same(before, settled_rows(vm))
+
+
+def test_pager_and_keyboard_over_the_shell(board, hooks_image, need_mtools, tmp_path):
+    """The shell's screen after the TYPE /PAGE pager and after the on-screen keyboard
+    over its `$` read: the display comes back as it was."""
+    with alone(hooks_image, board, card(tmp_path, card_tree())) as vm:
+        at_prompt(vm)
+        answer(vm, "sess login GUEST")
+        at_shell_prompt(vm)
+        before = settled_rows(vm)
+        assert any("command shell" in r for r in before), before
+        answer(vm, "osk open")
+        wait_marker(vm, "osk state=open", 1)
+        assert settled_rows(vm) != before
+        answer(vm, "osk close")
+        wait_marker(vm, "osk state=closed", 1)
+        same(before, settled_rows(vm))
+        answer(vm, "sh run \"TYPE%20NOTICE.TXT%20/PAGE\"")
+        wait_marker(vm, "page top=0", 1)
+        assert settled_rows(vm) != before
+        answer(vm, "key back")
+        wait_marker(vm, "sh run=done", 1)
+        wait_marker(vm, "sh state=prompt kind=cmd", 2)
         same(before, settled_rows(vm))

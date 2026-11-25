@@ -367,6 +367,7 @@ static uos_screen_t shell_screen = {
     .leave = shell_leave,
     .event = shell_event,
     .draw = shell_draw,
+    .full = 1,
 };
 
 static uos_screen_t *shell_next(void)
