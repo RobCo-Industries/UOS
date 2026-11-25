@@ -37,7 +37,7 @@ The modules below are pure too. The image links them, but no kernel code calls t
 
 ## Modules
 
-Each module has a reference page in `docs/modules/`. The on-card formats are gathered in [FORMATS.md](FORMATS.md). The services of [Services](#services) use `dcl`, `vfs path`, `osk`, `dev` and the pager of `tui`. No login, shell or screen uses a module yet.
+Each module has a reference page in `docs/modules/`. The on-card formats are gathered in [FORMATS.md](FORMATS.md). The services of [Services](#services) use `dcl`, `vfs path`, `osk`, `dev`, `session` and the pager of `tui`. No shell or menu screen uses a module yet.
 
 Every module that tests privileges uses the bits of `src/kernel/uos_privs.h`: `SYSTEM` bit 0, `OPER` bit 1, `SECURITY` bit 2, `READALL` bit 3. Each module keeps its own names, such as `DCL_PRIV_OPER` or `UAF_PRIV_OPER`, as aliases, and static asserts check them.
 
@@ -45,7 +45,7 @@ Every module that tests privileges uses the bits of `src/kernel/uos_privs.h`: `S
 
 [vfs path](modules/vfs-path.md): file specifications such as `SD0:[HOME.ADMIN]A.TXT;1`. It turns them into FAT paths and back, expands logical names and wildcards, and decides file access. Pure file: `src/vfs/path.c`. Public header: `src/vfs/path.h`, prefix `vp_`.
 
-[session](modules/session.md): users and login. It holds SHA-256, the `SYSUAF.DAT` user database with its iterated password hash, and the login lockout. Pure files: `src/session/sha256.c`, `uaf.c`, `lockout.c`. Public headers: `sha256.h`, `uaf.h`, `lockout.h`, prefixes `sha_`, `uaf_`, `lk_`.
+[session](modules/session.md): users and login. It holds SHA-256, the `SYSUAF.DAT` user database with its iterated password hash, the login lockout and the login rules. Pure files: `src/session/sha256.c`, `uaf.c`, `lockout.c`, `login.c`. Public headers: `sha256.h`, `uaf.h`, `lockout.h`, `login.h`, prefixes `sha_`, `uaf_`, `lk_`, `lg_`. The session service's header is `sess.h`, see [Session](#session).
 
 [osk](modules/osk.md): the on-screen keyboard for text entry with buttons only. It keeps the highlight and the layer and emits key events for the line editor. Pure file: `src/osk/osk.c`. Public header: `src/osk/osk.h`, prefix `osk_`.
 
@@ -78,7 +78,7 @@ Each step prints one marker, `@RC stage=uos ev=<name> ...`, in this order:
 | `config` | `UOS.CFG`: `result=ok`, `syntax`, `missing`, `skipped` or `bad`, with every setting and the counts |
 | `rtc` | I2C and a DS1307 or DS3231 clock, if one answers |
 | `service` | One line per service, in table order: `name`, `rc`. See [Services](#services). |
-| `ready` | The first screen is drawn |
+| `ready` | The first screen is drawn, or the login replaced it: `screen=first` or `screen=login` |
 
 When there is no card or no `/UOS` folder, UOS still reaches the first screen. The screen says what is missing, `state` reports it and the maintenance port works.
 
@@ -124,7 +124,10 @@ A screen is a struct of `enter`, `leave`, `event` and `draw` callbacks and a `ct
 
 ## The first screen
 
-`first.c` shows the banner from `bootlines.c`, then after half a second a placeholder: the system name, "login is not built yet", the card state, the settings state, the clock if a clock chip answered, and the last key. A periodic one-second timer refreshes the clock. The session task replaces this screen.
+`first.c` shows the banner from `bootlines.c` for half a second. Then one of two things happens:
+
+- When the session service loaded the user database, it called `uos_first_set_next()` at its init. The login screen replaces the first screen and `ready` says `screen=login`.
+- Otherwise the first screen stays as the system screen: the system name, two notice rows the session service set with `uos_first_set_notice()`, the card state, the settings state, the clock if a clock chip answered, and the last key. The notice says what is missing and what to do. F4 then restarts the terminal through `uos_reboot("user")`. A periodic one-second timer refreshes the clock.
 
 Two keys test the timers. F1 starts a periodic timer of 10 ticks that fires 10 times, with an `ev=timer name=probe` marker each time. F2 starts a one-shot timer that a second timer cancels before it is due, and a third timer reports whether it fired. While a probe runs, its key is ignored, repeats included.
 
@@ -199,9 +202,12 @@ Test builds put a service named `testfail` first, whose init returns -5, so the 
 | 1 | `uptime` | none | nothing |
 | 2 | `vfs` | `src/vfs/vfs.h` | the card the kernel mounted |
 | 3 | `console` | `src/console/con.h` | the screen stack |
-| 4 | `devices` | `src/dev/devs.h` | `vfs` for `DEVICES.CFG` and `DEV:` |
+| 4 | `session` | `src/session/sess.h` | `vfs` for `SYSUAF.DAT`, `console` for the prompts, the first screen |
+| 5 | `devices` | `src/dev/devs.h` | `vfs` for `DEVICES.CFG` and `DEV:` |
 
-Shutdown runs in reverse: `devices`, `console`, `vfs`, `uptime`. So on a reboot, a halt and a panic the device service drives every output safe before anything else stops. Its `devsafe` lines and `devdown` come right after `ev=shutdown name=devices` and before `ev=shutdown name=console`. `test_link.py` checks this order for all three causes.
+The session comes after the file system and the console, which it uses. It comes before the devices so that the devices stay last: they stop first. Nothing in the device service uses the session; a device command gets its caller's privileges as an argument.
+
+Shutdown runs in reverse: `devices`, `session`, `console`, `vfs`, `uptime`. So on a reboot, a halt and a panic the device service drives every output safe before anything else stops. Its `devsafe` lines and `devdown` come right after `ev=shutdown name=devices` and before `ev=shutdown name=console`. `test_link.py` checks this order for all three causes.
 
 A file write cannot be cut by a reboot. `vfs_write_all()` runs in one loop pass, and the `reboot` command waits for the next one. A stepped copy can be cut between two steps. Its new content sits in a work file, and the target keeps its whole old content. The next call that looks at the target removes the work file. `test_link.py` reboots during a 1 MiB copy over a file and checks both. A power cut during a write is not tested: the library's atomic write states that guarantee.
 
@@ -226,6 +232,9 @@ Every command each service registers. The `fs`, `readline`, `page` and `osk` com
 | `osk <open\|close\|state>` | `console` | The on-screen keyboard of the active read |
 | `dev list\|set\|rec` | `devices` | Devices, commands, the pin record, see [Devices](#devices) |
 | `dev sense`, `dev hang`, `dev stall` | `devices` | Test builds only |
+| `sess state\|logout` | `session` | The login state and the session, see [Session](#session) |
+| `sess login <user>` | `session` | Test builds only: a session with no password |
+| `button <key>` | `console` | Test builds only: a key from the GPIO source, which opens the on-screen keyboard during a read |
 
 ### How to add a service
 
@@ -335,6 +344,42 @@ Maintenance commands, for tests and operators:
 | `page <short\|long\|empty\|big>` | A built-in test text. `ev=page top=<n> shown=<n> lines=<n>` on show and on each move, `ev=page result=done` when left. `err busy` while a pager runs. |
 | `osk <open\|close\|state>` | `open` and `close` act on the active read, else `err no line`. `state` answers `osk open= layer= row= col= line= reading=`. The keyboard marks `ev=osk state=open` and `ev=osk state=closed`. |
 
+### Session
+
+The `session` service, `src/session/sessvc.c` and `sesscreen.c`, loads the user database, runs the login screen and holds the session. Its rules are pure, in `login.c`. Other services and screens call `src/session/sess.h`, prefix `sess_`. The [session page](modules/session.md#the-session-service) has the details: the database states, the markers, the `sess` command and the secrets rules.
+
+Its screens are on the kernel's stack. While nobody is logged in the bottom screen is `login` or `lockout`. After a login it is `welcome`, then the registered next screen or the placeholder `noshell`. A logout pops every screen above the bottom one, then shows `login`.
+
+```mermaid
+stateDiagram-v2
+    [*] --> first: boot
+    first --> system: database not ok
+    first --> login: database ok, after the banner
+    system --> [*]: F4 restarts
+    login --> login: wrong login, Ctrl-C, empty name
+    login --> lockout: retries failed logins
+    lockout --> login: lockout_s passed
+    login --> welcome: good login
+    welcome --> next: 1.5 s or a key
+    next --> login: logout, BACK, sess logout, idle time
+```
+
+`next` is the screen of `sess_set_next()`, or `noshell`.
+
+| Call | Context | For |
+|---|---|---|
+| `sess_logged_in()`, `sess_user()`, `sess_privs()`, `sess_flags()`, `sess_home()` | any | Who is logged in. Privileges use the bits of `uos_privs.h`. |
+| `sess_vp_ctx(ctx)` | any | A file system context with the user's home as the default |
+| `sess_logout(reason)` | loop | End the session: `SESS_END_USER`, `MAINT`, `IDLE` or `SHELL` |
+| `sess_set_next(fn)` | loop | The screen after login, once per boot. The shell or the terminal menu sets it. |
+| `sess_db()`, `sess_find(name)` | any | The user records, read only: the minigame and an `AUTHORIZE`-style listing |
+
+The password check costs 2000 to 3999 SHA-256 compressions. It runs at most 256 per loop pass, posted to the loop, so time, input and the device watchdog run between steps. One check took 7 to 18 ms in QEMU on the four boards, in 8 or 16 steps of at most 0.9 ms. These are QEMU numbers; QEMU does not model caches. The MMU and the caches are on, see [Memory](#memory).
+
+The console's read, pager and pause screens have a `leave` callback: when another caller pops them, they end without calling back, and the read wipes its text. A logout uses this.
+
+`UOS_USER_NAME_MAX` is 16, the longest `SYSUAF.DAT` name, so `state` shows a whole name.
+
 ### Devices
 
 The `devices` service, in `src/dev/devglue.c`, applies `/UOS/DEVICES.CFG` to the GPIO pins. Its rules are pure, in `devcfg.c`, `devstate.c` and `devsplan.c`. Other services call `src/dev/devs.h`, prefix `devs_`. Nothing here is validated on real hardware.
@@ -422,7 +467,7 @@ The MMU is on from the `mmu` step. `mmu_init()` builds the library's identity ma
 
 The step runs before the screen and before IRQs are enabled, as RobCo-Core's `memory.md` asks. The reboot path turns the MMU off first, see [Reboot and halt](#reboot-and-halt).
 
-QEMU does not model caches, so the MMU change cannot show a speed-up there. A real Pi should run the login hash and screen copies several times faster with the caches on. That is not measured: nothing is validated on real hardware.
+QEMU does not model caches, so the MMU change cannot show a speed-up there. A real Pi should run the login hash and screen copies several times faster with the caches on. That is not measured: nothing is validated on real hardware. The login measures its check in QEMU, see [Session](#session).
 
 The pure files allocate nothing. The kernel base does not allocate yet; the heap is ready for the services that need it.
 

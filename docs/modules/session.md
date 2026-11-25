@@ -1,6 +1,6 @@
 # Session: users and login
 
-The session module holds the user database, the password hash and the login lockout. The pure files are `src/session/sha256.c`, `src/session/uaf.c` and `src/session/lockout.c`. They do no file access and keep no global state. Nothing here is validated on real hardware.
+The session module holds the user database, the password hash, the login lockout and the login rules. The pure files are `src/session/sha256.c`, `src/session/uaf.c`, `src/session/lockout.c` and `src/session/login.c`. They do no file access and keep no global state. The session service runs them: see [The session service](#the-session-service). Nothing here is validated on real hardware.
 
 ## Files
 
@@ -9,6 +9,8 @@ The session module holds the user database, the password hash and the login lock
 | `sha256.h` | `sha_` | SHA-256, FIPS 180-4, streaming |
 | `uaf.h` | `uaf_` | `SYSUAF.DAT` check, load, write, lookup, hash, login check, user edits, privilege names |
 | `lockout.h` | `lk_` | login failure count and lockout timer |
+| `login.h` | `lg_` | the stepped password check, the login screen's states and messages, the idle rule |
+| `sess.h` | `sess_` | the session service's public calls |
 | `tools/mkuaf.py` | | builds and checks `SYSUAF.DAT` |
 
 ## SYSUAF.DAT layout
@@ -58,7 +60,9 @@ The salt is 16 bytes. The password is 1 to 32 printable ASCII characters, 0x20 t
 
 A round hashes `32 + 16 + n` bytes for a password of `n` characters. That fits one 64-byte block for `n` up to 7 and takes two blocks from 8. At 2000 iterations one check takes 2000 compressions for short passwords and 3999 for passwords of 8 or more characters. The host test `worst_case_login_count` checks both numbers.
 
-Estimate for an ARM1176 at 700 MHz, unverified. The cross GCC at `-O2` builds the compression loop as 47 instructions per round for rounds 0 to 15 and 66 for rounds 16 to 63, plus about 280 for loading and storing state. That is about 4200 instructions per compression. Buffer copies and padding add about 1000 instructions per hash. The worst case is about 19 million instructions. With caches on, at about 1.3 cycles per instruction, that is about 35 ms. With caches off, every fetch and load goes to SDRAM; at an assumed 15 to 25 cycles per instruction it is 0.4 to 0.7 s. The default stays 2000 because the estimate is not clearly over half a second. The image should turn on at least the instruction cache. Nobody has measured this in QEMU or on a board yet.
+The login runs the check in steps, see [The stepped check](#the-stepped-check). Measured in QEMU, see [QEMU numbers](#qemu-numbers).
+
+Estimate for an ARM1176 at 700 MHz, unverified. The cross GCC at `-O2` builds the compression loop as 47 instructions per round for rounds 0 to 15 and 66 for rounds 16 to 63, plus about 280 for loading and storing state. That is about 4200 instructions per compression. Buffer copies and padding add about 1000 instructions per hash. The worst case is about 19 million instructions. With caches on, at about 1.3 cycles per instruction, that is about 35 ms. With caches off, every fetch and load goes to SDRAM; at an assumed 15 to 25 cycles per instruction it is 0.4 to 0.7 s. The default stays 2000 because the estimate is not clearly over half a second. The image turns the MMU and both caches on at boot, `mmu_enable()`, and the `ev=mmu result=on` marker shows it. `test_login.py` checks that marker in the login image. Nobody has measured this on a board.
 
 ## Privileges and flags
 
@@ -93,7 +97,9 @@ Estimate for an ARM1176 at 700 MHz, unverified. The cross GCC at `-O2` builds th
 
 `lk_init` takes `retries`, 1 to 9, and `lockout_s`, 0 to 3600, from `UOS.CFG [login]`. Each failed login adds one to the count. When the count reaches `retries`, the login locks for `lockout_s` seconds and the count resets. A failure while locked is ignored. A success clears the count. With `lockout_s = 0` nothing locks. `lk_remaining_s` gives the whole seconds left, rounded up, for the screen.
 
-Ticks are milliseconds in a `uint32_t`, which wraps every 2^32 ms, about 49.7 days. The code only uses `now - start` in 32 bits, so a lock that spans the wrap works. The caller must call an `lk_` function at least once per wrap period while locked. The login screen does that on every tick.
+Ticks are milliseconds in a `uint32_t`, which wraps every 2^32 ms, about 49.7 days. The code only uses `now - start` in 32 bits, so a lock that spans the wrap works. The caller must call an `lk_` function at least once per wrap period while locked. The session service does that on every tick.
+
+The lockout lives in RAM. A reboot clears it. The minigame task can reuse `lk_t` for its own lockout. A later option can keep the lock across a reboot by storing `locked_at` and the count on the card.
 
 ## mkuaf.py
 
@@ -122,6 +128,148 @@ The shared vectors in `tests/vectors/uaf.json` come from `vectors`. The C test r
 
 Change these passwords before you use a terminal. Anyone who reads this page knows them.
 
+## The stepped check
+
+`lg_check_begin()` copies what a check needs: the user's salt and hash, or zeros for an unknown user, and the password, or 32 dots when it breaks the rules. These are the rules of `uaf_verify()`. The caller may wipe its own copy of the password at once.
+
+`lg_check_step(c, budget)` runs `lg_rounds_per_step()` rounds: the budget divided by the compressions per round, 1 for a password up to 7 characters and 2 from 8, and at least 1. The service passes `LG_STEP_BLOCKS`, 256. A check of 2000 iterations takes 8 steps for a short password and 16 for a long one. An unknown user takes the same steps as a known one with the same password length.
+
+`lg_check_end()` compares the 32 bytes with `uaf_hash_equal()`, which never stops early, then clears the whole struct with volatile writes. It returns what `uaf_verify()` returns. A check that has not run every round never passes. `test_session_login.c` checks the results and the work against `uaf_verify()` for every case.
+
+## The login rules
+
+`lg_next(state, event)` is the login screen's state machine. Every screen change of the session service goes through it.
+
+```mermaid
+stateDiagram-v2
+    [*] --> off
+    off --> user: START
+    off --> locked: START_LOCKED
+    user --> pass: USER_OK
+    user --> user: USER_EMPTY, USER_CANCEL
+    pass --> check: PASS_OK
+    pass --> user: PASS_CANCEL / LOGIN CANCELLED
+    check --> welcome: GOOD
+    check --> user: BAD / ACCESS DENIED
+    check --> locked: BAD_LOCKED
+    locked --> user: LOCK_END / TERMINAL UNLOCKED
+    welcome --> session: WELCOME_DONE
+    welcome --> user: LOGOUT
+    session --> user: LOGOUT / SESSION CLOSED
+    off --> welcome: DIRECT
+    user --> welcome: DIRECT
+    pass --> welcome: DIRECT
+    locked --> welcome: DIRECT
+```
+
+`DIRECT` is the test-only `sess login`. Any other event leaves the state as it is: input while locked, a second start, a logout with nobody logged in.
+
+Other rules in `login.c`:
+
+- `lg_denied_line()`: the one message after a failed login, `ACCESS DENIED. 2 ATTEMPTS LEFT.`, for an unknown user and a wrong password alike.
+- `lg_lockout_apply()`: `[login] retries` and `lockout_s` through `lk_init()`; when it refuses them, 3 and 30, and the caller marks a warning. The settings reader already clamps both, so this is a second guard.
+- `lg_idle_expired()`: the idle rule, see [Idle time](#idle-time).
+- `lg_db_notice()`: what the system screen says for each database state.
+- `lg_name_word()`: the typed user name as one marker word.
+- `lg_header_line()`, `lg_welcome_line()`, `lg_locked_line()`: screen text.
+
+## The session service
+
+The service `session`, `src/session/sessvc.c` and `sesscreen.c`, starts after `console` and before `devices`. See [Services](../ARCHITECTURE.md#services).
+
+At start it reads `[login]` and `/UOS/SYSUAF.DAT` with `vfs_sys_read_all()`, at most 3104 bytes, and loads it with `uaf_load()`. It wipes the file buffer before it frees it. The database state:
+
+| State | When | System screen |
+|---|---|---|
+| `ok` | The file loads | The login replaces the first screen after the banner |
+| `nocard` | No card | `LOGIN IS NOT AVAILABLE WITHOUT A UOS CARD.` |
+| `notree` | A card without `/UOS` | `LOGIN IS NOT AVAILABLE: NO /UOS FOLDER.` |
+| `missing` | No `SYSUAF.DAT` | `USER DATABASE MISSING. NO ONE CAN LOG IN.` |
+| `damaged` | A read error or a failed `uaf_load()` | `USER DATABASE DAMAGED (<WHY>). NO ONE CAN LOG IN.`, and `state` shows `error=userdb` |
+
+In every state but `ok` the first screen stays, with a second row that says what to do, and F4 restarts the terminal. No login runs. The diagnostic keys of the first screen still work; they change nothing.
+
+### Context rules
+
+| Call | Context | Does |
+|---|---|---|
+| `sess_logged_in()` | any | Non-zero while a user is logged in |
+| `sess_user()` | any | The name, upper-case, at most 16 characters, or `""` |
+| `sess_privs()` | any | The privilege bits of `uos_privs.h`, or 0 |
+| `sess_flags()` | any | `UAF_FLAG_NOHACK` and the others, or 0 |
+| `sess_home()` | any | The home folder under `/UOS/HOME`, as `vp_ctx_t.home` takes it, or `""` |
+| `sess_vp_ctx(ctx)` | any | A file system context for the user, by `vp_ctx_init()` |
+| `sess_logout(reason)` | loop | Ends the session, see below |
+| `sess_end_name(reason)` | any | `user`, `maint`, `idle`, `shell` |
+| `sess_set_next(fn)` | loop | Registers the screen after login, once per boot |
+| `sess_db()` | any | The database, read only, or NULL |
+| `sess_find(name)` | any | One record, read only, or NULL |
+
+"Any" calls read state and change nothing, so they are safe from a maintenance command, an IRQ or the panic path. "Loop" calls run from a screen callback, a timer, a posted call or a service init.
+
+`sess_logout()` clears every session field and `uos.user`, prints the end marker, removes every screen above the bottom one and shows the login. A read, a pager or a pause on the stack ends without calling back: the console screens have a `leave` that does this when another caller pops them. The read's text is wiped.
+
+`sess_set_next(fn)` takes a function that returns the screen to show after the welcome. The shell task or the terminal menu task registers it from its service init. Until then the placeholder `noshell` runs: the user, its privileges, the line `No shell is installed in this build.`, and BACK logs out.
+
+### The login screen
+
+The screen shows a header, then `USERNAME:` and `PASSWORD:` read by `con_read_line()`. The user name is at most 16 characters with no history. The password is at most 32 characters, masked, with no history. Both work from the serial console and from the on-screen keyboard, which a GPIO button opens.
+
+- Ctrl-C or an empty line at `USERNAME:` brings the prompt back. BACK on an empty line does nothing. Nothing counts.
+- Ctrl-C at `PASSWORD:` shows `LOGIN CANCELLED.` and goes back to `USERNAME:`. Nothing counts.
+- After the password the screen shows `CHECKING CREDENTIALS...`. The check runs one step per loop pass, posted to the loop, so the tick, the input layer and the device watchdog run between two steps. Keys during the check are dropped.
+- A failed check counts once with `lk_fail()` and shows `ACCESS DENIED. N ATTEMPTS LEFT.`. A disabled account with a right password counts and shows the same: the screen never says that the password was right.
+- When the count reaches `retries`, the lockout screen replaces the login. It shows `TERMINAL LOCKED: TOO MANY FAILED LOGINS.` and `TRY AGAIN IN N SECONDS.`, which a 1 second timer updates. Every key is refused. The tick ends the lock on time, then the login comes back with `TERMINAL UNLOCKED. YOU MAY TRY AGAIN.`.
+- A good login clears the count. The welcome shows the name and the privileges for 1.5 s or until a key, then the registered screen. `SYSUAF.DAT` stores no last login, so the welcome shows none.
+
+### Secrets
+
+- The password goes from the console's buffer to the check's copy. The console wipes its buffer after the callback. The check clears its copy, the hashes and the salt when it ends.
+- Hashes compare in constant time.
+- An unknown user takes the same steps and the same marker as a wrong password.
+- No marker, no port answer and no panic text holds a password, a salt or a hash. The PL011 echo of the password is one `*` per character. `test_login.py` greps the whole serial log of a session for each password and for every salt and hash in hex.
+- The user name is not secret: the screen and the markers show it.
+
+### Idle time
+
+`[login] idle_s`, 0 to 86400, default 0. 0 means a session never ends on idle time. Otherwise the service's `tick` ends the session with reason `idle` once `idle_s` seconds pass with no key or character from the input layer since the later of the last key and the login. The loop records the tick of every key it takes, `uos_last_input()`.
+
+### Markers
+
+| Marker | When |
+|---|---|
+| `sessdb result=<state> users= iterations= why= rec=` | At start |
+| `sesscfg result=<ok\|fallback> retries= lockout_s= idle_s=` | At start |
+| `sesswarn why=lockout count=` | The `[login]` values were refused |
+| `login state=<user\|pass\|check>` | A prompt or the check starts. `rc=` is the result of `con_read_line()` |
+| `login user=<NAME> result=<ok\|bad> left= steps= ticks= us= maxstep_us=` | A check ended. `left` is the tries left. `us` is from the check's start to its end, `maxstep_us` the longest step |
+| `lockout state=start s= t=`, `lockout s=`, `lockout state=end t=` | The lock starts, each second of the countdown, the lock ends. `t` is the tick |
+| `session state=start user= privs= how=<login\|test>` | A session starts |
+| `session screen=<name>` | The screen after the welcome |
+| `session state=end user= reason=<user\|maint\|idle\|shell>` | A session ends |
+| `session result=<none\|busy\|nouser>` | `sess logout` or `sess login` did nothing |
+
+### Maintenance commands
+
+| Command | Answer |
+|---|---|
+| `sess state` | `sess state= db= user= privs= flags= home= tries= locked_s= idle_s= pending=`. `pending` counts input events the loop has not taken yet: a test waits for 0 before it reads the state. |
+| `sess logout` | Posts `sess_logout(SESS_END_MAINT)`. A `session state=end` or `session result=none` marker follows. |
+| `sess login <user>` | Test builds only. Starts a session with no password, through the welcome, so later tasks test their screens without the hash cost. The shipped image does not contain it: `test_login.py` checks with `nm`. |
+
+### QEMU numbers
+
+One check of 2000 iterations in QEMU, from `test_login.py -s`, two logins per user on each board. These are QEMU numbers on the test host. QEMU does not model caches, and they say nothing about a real Pi.
+
+| Board | `ADMIN`, 15 characters, 3999 compressions | `GUEST`, 5 characters, 2000 compressions | Longest step |
+|---|---|---|---|
+| `raspi0` | 9.5 to 10.2 ms | 7.3 to 7.4 ms | 0.8 ms |
+| `raspi1ap` | 9.2 to 10.0 ms | 6.7 to 6.9 ms | 0.8 ms |
+| `raspi2b` | 8.9 to 17.5 ms | 6.7 to 6.9 ms | 0.9 ms |
+| `raspi3b` | 12.5 to 13.7 ms | 8.5 to 10.5 ms | 0.9 ms |
+
+The check takes 16 steps for `ADMIN` and `OPER` and 8 for `GUEST`, 0 to 2 ticks in all. On an ARM1176 with caches the estimate above gives about 35 ms for the worst case, about 2.2 ms per step.
+
 ## Tests
 
-`make test-host` runs `test_session_sha256`, `test_session_uaf` and `test_session_lockout`. It first generates `build/host/gen/uaf_vectors.h` from `tests/vectors/uaf.json` with `tools/mkuaf.py vectors-h`. `make test-tools` runs `tests/tools/test_mkuaf.py`. See [TESTING.md](../TESTING.md).
+`make test-host` runs `test_session_sha256`, `test_session_uaf`, `test_session_lockout` and `test_session_login`. It first generates `build/host/gen/uaf_vectors.h` from `tests/vectors/uaf.json` with `tools/mkuaf.py vectors-h`. `make test-tools` runs `tests/tools/test_mkuaf.py`. `test_login.py` runs the service in QEMU. See [TESTING.md](../TESTING.md).

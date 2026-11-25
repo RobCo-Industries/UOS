@@ -26,6 +26,7 @@ mode = shell
 [login]
 retries = 3
 lockout_s = 30
+idle_s = 0
 
 [hack]
 enabled = yes
@@ -42,6 +43,7 @@ lockout_s = 60
 | `system` | `mode` | `shell` or `terminal` | `shell` |
 | `login` | `retries` | 1 to 9 | 3 |
 | `login` | `lockout_s` | 0 to 3600 | 30 |
+| `login` | `idle_s` | 0 to 86400 seconds with no key before a session ends, 0 for never | 0 |
 | `hack` | `enabled` | `yes`, `on`, `true`, `1` or `no`, `off`, `false`, `0` | yes |
 | `hack` | `user` | 1 to 15 of `A-Z 0-9 $ _`, stored upper-case | `GUEST` |
 | `hack` | `attempts` | 1 to 9 | 4 |
@@ -57,11 +59,11 @@ Rules:
 - When a key repeats, the last one wins.
 - A line that does not parse stops the reader. The keys before it apply.
 
-The kernel reads `UOS.CFG` at boot. No module reads the `[login]` or `[hack]` values yet: the login and the minigame are not wired.
+The kernel reads `UOS.CFG` at boot. The session service applies `[login]`, see [session](modules/session.md#the-session-service). No module reads the `[hack]` values yet: the minigame is not wired.
 
 ## SYSUAF.DAT
 
-The user database: a 32-byte header, then one 96-byte record per user, at most 32. A CRC-32 covers the records. Each password is a salted, iterated SHA-256. `tools/mkuaf.py` builds the file from an INI list, `tools/default_users.ini` for the default card. The privilege bits are the ones in `src/kernel/uos_privs.h`: `SYSTEM` bit 0, `OPER` bit 1, `SECURITY` bit 2, `READALL` bit 3. Layout: [session](modules/session.md#sysuafdat-layout).
+The user database: a 32-byte header, then one 96-byte record per user, at most 32. A CRC-32 covers the records. Each password is a salted, iterated SHA-256. The session service reads the file once at boot; a missing or damaged file stops every login, see [session](modules/session.md#the-session-service). `tools/mkuaf.py` builds the file from an INI list, `tools/default_users.ini` for the default card. The privilege bits are the ones in `src/kernel/uos_privs.h`: `SYSTEM` bit 0, `OPER` bit 1, `SECURITY` bit 2, `READALL` bit 3. Layout: [session](modules/session.md#sysuafdat-layout).
 
 ## DEVICES.CFG
 
