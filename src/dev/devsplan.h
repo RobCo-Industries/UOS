@@ -14,10 +14,11 @@
 #include "dev.h"
 
 /* Codes of the service, beside the DV_* codes of dev.h. */
-#define DEVS_ERR_NOEXP      (-40)   /* expander pin: no driver in this build */
+#define DEVS_ERR_NOEXP      (-40)   /* expander pin: the chip did not answer at boot */
 #define DEVS_ERR_IO         (-41)   /* the GPIO layer refused the call */
 #define DEVS_ERR_DOWN       (-42)   /* the service has no device table */
 #define DEVS_ERR_FAULT      (-43)   /* a write to the safe level is owed */
+#define DEVS_ERR_SKIP       (-44)   /* panic: an expander write is not started */
 
 /* Tries of each safe-state write at shutdown before the next device. */
 #define DEVS_SAFE_TRIES     3u
@@ -107,7 +108,8 @@ int devs_read(const devs_io_t *io, const dv_set_t *set, unsigned idx);
  * owed, devs_tick() retries it every tick until it succeeds, and every
  * command to the device is refused with DEVS_ERR_FAULT. The safe level is
  * the `initial` level, and off for ARM. DEVS_ERR_NOEXP never starts a
- * fault: with no expander driver the pin was never driven.
+ * fault: a chip that did not answer at boot was never driven.
+ * DEVS_ERR_SKIP never starts one either: the pin was not touched.
  */
 
 /* The pin level device `idx` rests at when safe. */
@@ -183,6 +185,9 @@ int devs_boot_run(dv_set_t *set, const devs_io_t *io, dv_rec_t *rec, uint32_t ti
 /*
  * Shutdown: devs_down_plan() applied, each write tried up to
  * DEVS_SAFE_TRIES times, then the next device, whatever the result. A
+ * write the io table answers with DEVS_ERR_SKIP is not tried again: its
+ * event has tries 0 and the device keeps its state. The panic path's io
+ * table skips every expander pin that way. A
  * write that succeeds sets the state and ends any fault; one that fails
  * leaves the state and the device in fault. Clears every pending pulse.
  * `ops` and `ev` (DV_MAX_DEVICES entries each) get the plan and one SAFE

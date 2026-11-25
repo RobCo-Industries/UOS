@@ -12,6 +12,9 @@ All notable changes to UOS are recorded here. The format follows [Keep a Changel
 
 ### Added
 
+- Expander pins work: the device service drives PCA9554 chips through the library's `gpiox.h`. A chip that does not answer at boot leaves its devices unreachable and `ARM` off. On panic and from the software watchdog no I2C transfer starts. The pin record names the chip.
+- An optional hardware watchdog, `UOS.CFG [watchdog]`, off by default. The loop's tick kicks it; a panic resets the board after the outputs went safe; a halt stops it. `dev hwdog` shows it.
+
 - The build: `UOS.SYS`, a sealed rimg linked at `0x00400000`, with host and QEMU tests and CI on four boards.
 - The kernel entry with the trust rule and one marker per bring-up step.
 - The panic path for `uos_panic()` and CPU exceptions.

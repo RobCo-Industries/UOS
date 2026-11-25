@@ -33,6 +33,10 @@ user = GUEST
 attempts = 4
 difficulty = advanced
 lockout_s = 60
+
+[watchdog]
+enabled = off
+timeout_ms = 8000
 ```
 
 | Section | Key | Value | Default |
@@ -47,6 +51,8 @@ lockout_s = 60
 | `hack` | `attempts` | 1 to 9 | 4 |
 | `hack` | `difficulty` | `novice`, `advanced`, `expert` or `master` | `advanced` |
 | `hack` | `lockout_s` | 0 to 3600 | 60 |
+| `watchdog` | `enabled` | as `hack` `enabled`. Turns the hardware watchdog on. Keep it off in QEMU, which resets at once when it starts | off |
+| `watchdog` | `timeout_ms` | 1000 to 15000: the time without a loop tick before the board resets | 8000 |
 
 Rules:
 
@@ -57,7 +63,7 @@ Rules:
 - When a key repeats, the last one wins.
 - A line that does not parse stops the reader. The keys before it apply.
 
-The kernel reads `UOS.CFG` at boot. No module reads the `[login]` or `[hack]` values yet: the login and the minigame are not wired.
+The kernel reads `UOS.CFG` at boot. The device service reads `[watchdog]`, see [The watchdogs](ARCHITECTURE.md#the-watchdogs). No module reads the `[login]` or `[hack]` values yet: the login and the minigame are not wired.
 
 ## SYSUAF.DAT
 

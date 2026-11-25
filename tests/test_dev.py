@@ -94,7 +94,12 @@ def record(vm):
     head = dict(f.split("=", 1) for f in lines[0].split()[1:])
     rows = [dict(f.split("=", 1) for f in line.split()) for line in lines[1:]]
     assert int(head["count"]) == len(rows), lines
-    return [(int(r["pin"]), int(r["level"]), int(r["tick"])) for r in rows]
+    return [(pin_of(r["pin"]), int(r["level"]), int(r["tick"])) for r in rows]
+
+
+def pin_of(text):
+    """12 for a Pi pin, "X0.3" for an expander pin."""
+    return text if text.startswith("X") else int(text)
 
 
 def pins(rows):
@@ -188,7 +193,7 @@ def test_set_every_action(board, uos_image, need_mtools, tmp_path):
         assert vm.script("dev", timeout=TIMEOUT).status.startswith("err usage")
         # The shipped image has no `dev fail`.
         assert vm.script("dev fail DOOR1 1", timeout=TIMEOUT).status == \
-            "err usage: dev list|set|rec"
+            "err usage: dev list|set|rec|hwdog"
         assert marks(vm, "dev", name="DOOR1", state="OPEN", by="maint")
 
 
@@ -317,6 +322,7 @@ gpio = 4
 [device BTN]
 type = light
 gpio = 26
+[device NONE]
 """
 
 
@@ -325,13 +331,27 @@ def test_bad_file(board, uos_image, need_mtools, tmp_path):
         wait_ready(vm)
         cfg = one(vm, "devcfg")
         assert (cfg["result"], cfg["loaded"], cfg["skipped"], cfg["warnings"]) == \
-            ("ok", "2", "4", "1"), cfg
+            ("ok", "2", "5", "1"), cfg
         errs = [(m["name"], m["line"], m["why"]) for m in events(vm, "deverr")]
-        assert errs == [("RX", "4", "PINUSED"), ("D2", "9", "PINSHARED"),
-                        ("ODD", "12", "BADTYPE"), ("BTN", "19", "PINUSED")], errs
+        # A section error carries the header's line, a key error the key's.
+        assert errs == [("RX", "4", "PINUSED"), ("D2", "8", "PINSHARED"),
+                        ("ODD", "12", "BADTYPE"), ("BTN", "19", "PINUSED"),
+                        ("NONE", "20", "EMPTY")], errs
         warns = [(m["name"], m["line"], m["why"]) for m in events(vm, "devwarn")]
-        assert warns == [("HOT", "15", "PULLUP")], warns
+        assert warns == [("HOT", "14", "PULLUP")], warns
         assert list(dev_list(vm)) == ["D1", "HOT"]
+
+
+# QEMU's pca9554 model on the BSC1 bus, as in RobCo-Core's test_gpiox.py.
+# qom-get of pinN gives the configuration bit OR the output bit: "high" for
+# an input, the output level for an output.
+def pca9554(addr, ident="gx0"):
+    return ["-device", f"pca9554,bus=i2c-bus.1,address={addr:#x},id={ident}"]
+
+
+def chip_pins(vm, ident="gx0"):
+    return sum((vm.qmp.execute("qom-get", path=f"/machine/peripheral/{ident}",
+                               property=f"pin{p}") == "high") << p for p in range(8))
 
 
 EXP_FILE = b"""
@@ -344,26 +364,11 @@ label = Store lamp
 [device DOOR1]
 type = door
 gpio = 12
+[device HATCH]
+type = sensor
+gpio = X0.5
+active = low
 """
-
-
-def test_expander(board, uos_image, need_mtools, tmp_path):
-    msg = "err %DEVICE-E-NOEXPDRV, expander not available in this build"
-    with alone(uos_image, board, boot_card(tmp_path, EXP_FILE)) as vm:
-        wait_ready(vm)
-        assert one(vm, "devcfg")["loaded"] == "2"
-        fail = one(vm, "devfail")
-        assert (fail["name"], fail["op"], fail["why"]) == ("LAMP", "config", "NOEXPDRV"), fail
-        rows = dev_list(vm)
-        assert rows["LAMP"].endswith("X0.3 UNREACHABLE") and " OFF " in rows["LAMP"], rows
-        assert pins(record(vm)) == [(12, 0)]
-        for action in ("ON", "OFF", "TOGGLE"):
-            assert dev_set(vm, "LAMP", action).status == msg
-        assert " OFF " in dev_list(vm)["LAMP"]
-        assert len(marks(vm, "devfail", name="LAMP", op="write")) == 3
-        assert pins(record(vm)) == [(12, 0)]
-        assert dev_set(vm, "DOOR1", "OPEN").status == "ok"
-
 
 EXP_ARM = EXP_FILE + b"""
 [device ARM]
@@ -373,25 +378,139 @@ initial = on
 """
 
 
-def test_expander_holds_arm(board, uos_image, need_mtools, tmp_path):
-    """An expander output never reaches its level: ARM stays off at boot,
-    the status says why, and arming by hand says the output is unreachable."""
+def test_expander_switches(board, uos_image, need_mtools, tmp_path):
+    """An expander output follows commands on the chip, the record names its
+    chip, and an expander sensor reads the chip's input pin."""
+    with alone(uos_image, board, boot_card(tmp_path, EXP_ARM), extra_args=pca9554(0x20),
+               qtest=True) as vm:
+        wait_ready(vm)
+        att = one(vm, "devexp")
+        assert (att["chip"], att["addr"], att["result"], att["rc"]) == \
+            ("0", "0x20", "ok", "0"), att
+        assert not events(vm, "devfail") and not events(vm, "devarm"), vm.serial
+        # LAMP off at boot, HATCH an input, ARM on last.
+        assert pins(record(vm)) == [("X0.3", 0), (12, 0), (13, 1)], vm.serial
+        assert chip_pins(vm) & 0x28 == 0x20, hex(chip_pins(vm))
+        rows = dev_list(vm)
+        assert rows["LAMP"].endswith("X0.3") and " OFF " in rows["LAMP"], rows
+        assert rows["ARM"].endswith("GPIO 13"), rows
+        assert answer(vm, "dev set LAMP ON") == ["dev name=LAMP state=ON"]
+        assert chip_pins(vm) >> 3 & 1 == 1
+        assert pins(record(vm))[-1] == ("X0.3", 1)
+        assert " ON " in dev_list(vm)["LAMP"]
+        assert answer(vm, "dev set LAMP OFF") == ["dev name=LAMP state=OFF"]
+        assert chip_pins(vm) >> 3 & 1 == 0
+        # The sensor: pull X0.5 low, active low, so it trips.
+        assert " CLEAR " in dev_list(vm)["HATCH"]
+        vm.qmp.set_irq_in("/machine/peripheral/gx0", 5, 0)
+        wait_mark(vm, "dev name=HATCH state=TRIPPED by=sensor")
+        vm.qmp.set_irq_in("/machine/peripheral/gx0", 5, 1)
+        wait_mark(vm, "dev name=HATCH state=CLEAR by=sensor")
+
+
+def test_expander_missing_chip(board, uos_image, need_mtools, tmp_path):
+    """No chip answers: its devices are unreachable, ARM stays off, the boot
+    goes on, and arming by hand says the outputs are unreachable."""
+    msg = "err %DEVICE-E-EXPABSENT, expander chip did not answer at boot"
     with alone(uos_image, board, boot_card(tmp_path, EXP_ARM)) as vm:
         wait_ready(vm)
+        att = one(vm, "devexp")
+        assert (att["chip"], att["result"], att["rc"]) == ("0", "absent", "-32"), att
+        assert one(vm, "devcfg")["loaded"] == "4"
+        fails = [(m["name"], m["why"]) for m in marks(vm, "devfail", op="config")]
+        assert fails == [("LAMP", "EXPABSENT"), ("HATCH", "EXPABSENT")], fails
+        assert [m["name"] for m in marks(vm, "devfail", op="read")] == ["HATCH"]
         held = one(vm, "devarm")
         assert (held["name"], held["result"], held["why"], held["count"]) == \
             ("ARM", "held", "unreachable", "1"), held
         # ARM's pin is written off, never on.
         assert pins(record(vm)) == [(12, 0), (13, 0)], vm.serial
         rows = dev_list(vm)
+        assert rows["LAMP"].endswith("X0.3 UNREACHABLE") and " OFF " in rows["LAMP"], rows
         assert " OFF " in rows["ARM"] and rows["ARM"].endswith("GPIO 13 UNREACH=1"), rows
-        assert rows["LAMP"].endswith("X0.3 UNREACHABLE"), rows
-        # The operator may still arm by hand; the answer says why to care.
+        for action in ("ON", "OFF", "TOGGLE"):
+            assert dev_set(vm, "LAMP", action).status == msg
+        assert " OFF " in dev_list(vm)["LAMP"]
+        assert len(marks(vm, "devfail", name="LAMP", op="write")) == 3
+        assert dev_set(vm, "DOOR1", "OPEN").status == "ok"
         assert answer(vm, "dev set ARM ON") == ["dev name=ARM state=ON, 1 outputs unreachable"]
         on = marks(vm, "devarm", result="on")
         assert len(on) == 1 and (on[0]["why"], on[0]["count"]) == ("unreachable", "1"), on
-        assert pins(record(vm))[-1] == (13, 1)
-        assert " ON " in dev_list(vm)["ARM"]
+
+
+def test_expander_wrong_address(board, uos_image, need_mtools, tmp_path):
+    """DEVICES.CFG names 0x20, the chip sits at 0x21: nothing answers at 0x20,
+    ARM stays off, and the chip at 0x21 is never written."""
+    with alone(uos_image, board, boot_card(tmp_path, EXP_ARM), extra_args=pca9554(0x21)) as vm:
+        wait_ready(vm)
+        att = one(vm, "devexp")
+        assert (att["addr"], att["result"]) == ("0x20", "absent"), att
+        assert one(vm, "devarm")["result"] == "held"
+        assert dev_list(vm)["LAMP"].endswith("X0.3 UNREACHABLE")
+        # Power-on state of the chip: every pin an input.
+        assert chip_pins(vm) == 0xFF
+
+
+def test_expander_safe_on_reboot_skipped_on_panic(board, hooks_image, need_mtools, tmp_path):
+    """Reboot drives the expander output safe through the chip. Panic starts no
+    I2C transfer: the pin keeps its level, ARM still goes off first."""
+    with alone(hooks_image, board, boot_card(tmp_path, EXP_ARM), extra_args=pca9554(0x20)) as vm:
+        wait_ready(vm)
+        assert answer(vm, "dev set LAMP ON") == ["dev name=LAMP state=ON"]
+        vm.send("reboot\n", port=1)
+        vm.wait_for(READY_TWICE, timeout=TIMEOUT)
+        vm.wait_for(re.compile(r"(@RC stage=uos ev=wdog result=on[^\n]*\n[\s\S]*){2}"),
+                    timeout=TIMEOUT)
+        safe = safe_writes(vm)
+        assert [(p, lv, rc) for p, lv, _, rc in safe] == \
+            [(13, 0, "0"), (12, 0, "0"), ("X0.3", 0, "0")], vm.serial
+        assert chip_pins(vm) >> 3 & 1 == 0
+        assert answer(vm, "dev set LAMP ON") == ["dev name=LAMP state=ON"]
+        answer(vm, "panic")
+        vm.wait_for(IDLE, timeout=TIMEOUT)
+        down = [m for m in events(vm, "devsafe")][3:]
+        assert [(m["pin"], m["rc"], m["tries"]) for m in down] == \
+            [("13", "0", "1"), ("12", "0", "1"), ("X0.3", "-44", "0")], vm.serial
+        assert events(vm, "devdown")[-1]["why"] == "panic"
+        # The lamp's pin is still high, and the status says so.
+        assert chip_pins(vm) >> 3 & 1 == 1
+        assert " ON " in dev_list(vm)["LAMP"]
+
+
+def test_hwdog_off_by_default(board, uos_image, need_mtools, tmp_path):
+    """No [watchdog] section: the hardware watchdog never starts."""
+    with alone(uos_image, board, boot_card(tmp_path)) as vm:
+        wait_ready(vm)
+        cfg = one(vm, "config")
+        assert (cfg["hwdog"], cfg["hwdog_ms"]) == ("0", "8000"), cfg
+        off = one(vm, "hwdog")
+        assert (off["result"], off["why"]) == ("off", "setting"), off
+        assert answer(vm, "dev hwdog") == \
+            ["hwdog running=0 timeout_ms=0 remaining_ms=0 held=0"]
+
+
+HWDOG_CFG = b"[system]\nname = TEST TERMINAL\n[watchdog]\nenabled = on\ntimeout_ms = 4000\n"
+HWDOG_START_TWICE = re.compile(
+    r"(@RC stage=uos ev=hwdog result=start timeout_ms=4000\r?\n[\s\S]*){2}")
+
+
+def test_hwdog_on_resets_at_start(board, uos_image, need_mtools, tmp_path):
+    """QEMU 10.1 does not count the PM watchdog: wdog_start() resets the board
+    at once. With the setting on, UOS boots, starts its services, starts the
+    watchdog on the first loop tick in the ready phase and boots again. The
+    reset repeats for good, so the test stops at the second start and the
+    harness kills QEMU: it never waits on the loop."""
+    sd = uos_card(tmp_path, cfg=HWDOG_CFG, extra={CFG: ALL})
+    with alone(uos_image, board, sd) as vm:
+        vm.wait_for(HWDOG_START_TWICE, timeout=TIMEOUT)
+        cfg = events(vm, "config")[0]
+        assert (cfg["hwdog"], cfg["hwdog_ms"]) == ("1", "4000"), cfg
+        evs = [m["ev"] for m in vm.markers()]
+        first = evs.index("hwdog")
+        # The start comes after every service is up, then a new boot.
+        assert evs[:first].count("service") == 4, evs
+        assert marks(vm, "service", name="devices", rc="0")
+        assert "boot" in evs[first:], evs
 
 
 def test_no_devices(board, uos_image, need_mtools, tmp_path):
@@ -419,7 +538,7 @@ def test_no_card(board, uos_image, tmp_path):
 
 
 def safe_writes(vm):
-    return [(int(m["pin"]), int(m["level"]), m["name"], m["rc"]) for m in events(vm, "devsafe")]
+    return [(pin_of(m["pin"]), int(m["level"]), m["name"], m["rc"]) for m in events(vm, "devsafe")]
 
 
 def test_reboot_drives_safe(board, uos_image, need_mtools, tmp_path):

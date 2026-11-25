@@ -305,7 +305,93 @@ TEST(cmd_expander_fails_and_keeps_state)
     CHECK_EQ(g_set.st[0].on, 0);
     CHECK_EQ(g_log[0].kind, 'W');
     CHECK_STR(devs_strerror(DEVS_ERR_NOEXP),
-              "%DEVICE-E-NOEXPDRV, expander not available in this build");
+              "%DEVICE-E-EXPABSENT, expander chip did not answer at boot");
+}
+
+/* The record names the chip of an expander write, so X0.3 is not GPIO 3. */
+TEST(apply_expander_records_chip)
+{
+    dv_op_t ops[DV_MAX_DEVICES];
+    char line[48];
+
+    CHECK_EQ(load(with_exp), DV_OK);
+    CHECK_EQ(devs_boot_plan(&g_set, ops, DV_MAX_DEVICES), 2);
+    g_exp_rc = 0;
+    CHECK_EQ(devs_apply(&fake, &g_set, &ops[0], &g_rec, 7), 0);
+    CHECK_EQ(g_rec.count, 1);
+    CHECK(dv_rec_format(&g_rec, 0, line, sizeof(line)) > 0);
+    CHECK_STR(line, "pin=X0.3 level=0 tick=7");
+    dv_rec_add(&g_rec, 3, 1, 8);
+    CHECK(dv_rec_format(&g_rec, 1, line, sizeof(line)) > 0);
+    CHECK_STR(line, "pin=3 level=1 tick=8");
+}
+
+/* An expander write to the safe level that fails on the bus is owed and
+ * retried every tick, as a Pi pin's is. */
+TEST(fault_expander_bus_error_owed_and_retried)
+{
+    devs_ev_t ev[DV_MAX_DEVICES];
+
+    CHECK_EQ(load(with_exp), DV_OK);
+    g_exp_rc = 0;
+    CHECK_EQ(devs_cmd(&g_set, &fake, 0, DV_ACT_ON, DV_PRIV_SYSTEM, 0, &g_rec, 0), 0);
+    CHECK_EQ(g_set.st[0].on, 1);
+    g_exp_rc = DEVS_ERR_IO;
+    CHECK_EQ(devs_cmd(&g_set, &fake, 0, DV_ACT_OFF, DV_PRIV_SYSTEM, 0, &g_rec, 1),
+             DEVS_ERR_FAULT);
+    CHECK_EQ(g_set.st[0].on, 1);
+    CHECK_EQ(g_set.st[0].fault, 1);
+    g_n = 0;
+    CHECK_EQ(devs_tick(&g_set, &fake, 10, &g_rec, 1, ev), 0);
+    CHECK_EQ(g_n, 1);
+    CHECK_EQ(g_log[0].kind, 'W');
+    CHECK_EQ(g_set.st[0].fails, 2);
+    g_exp_rc = 0;
+    g_n = 0;
+    CHECK_EQ(devs_tick(&g_set, &fake, 20, &g_rec, 2, ev), 1);
+    CHECK_EQ(ev[0].kind, DEVS_EV_CLEARED);
+    CHECK_EQ(g_log[0].kind, 'W');
+    CHECK_EQ(g_log[0].arg, 0);
+    CHECK_EQ(g_set.st[0].on, 0);
+    CHECK_EQ(g_set.st[0].fault, 0);
+}
+
+/* The panic path's io table answers DEVS_ERR_SKIP for expander pins: one
+ * call, no retry, no fault, the state kept; Pi pins still go safe. */
+TEST(down_run_skip_not_retried)
+{
+    static const char *mixed =
+        "[expander 0]\naddr = 0x20\n"
+        "[device LAMP]\ntype = light\ngpio = X0.3\n"
+        "[device ARM]\ntype = relay\ngpio = 13\ninitial = on\n"
+        "[device DOOR1]\ntype = door\ngpio = 12\n";
+    dv_op_t ops[DV_MAX_DEVICES];
+    devs_ev_t ev[DV_MAX_DEVICES];
+
+    CHECK_EQ(load(mixed), DV_OK);
+    g_exp_rc = 0;
+    CHECK_EQ(devs_cmd(&g_set, &fake, 0, DV_ACT_ON, DV_PRIV_SYSTEM, 0, &g_rec, 0), 0);
+    CHECK_EQ(devs_cmd(&g_set, &fake, 1, DV_ACT_ON, DV_PRIV_SYSTEM, 0, &g_rec, 0), 0);
+    reset_fake();
+    g_exp_rc = DEVS_ERR_SKIP;
+    CHECK_EQ(devs_down_run(&g_set, &fake, &g_rec, 5, ops, ev), 3);
+    /* ARM off, DOOR1, then LAMP: one call each. */
+    CHECK_EQ(g_n, 3);
+    CHECK_EQ(g_log[0].pin, 13);
+    CHECK_EQ(g_log[1].pin, 12);
+    CHECK_EQ(g_log[2].kind, 'C');
+    CHECK_EQ(ev[0].rc, 0);
+    CHECK_EQ(ev[2].dev, 0);
+    CHECK_EQ(ev[2].rc, DEVS_ERR_SKIP);
+    CHECK_EQ(ev[2].tries, 0);
+    /* The lamp's pin was not touched: the model still says ON, no fault. */
+    CHECK_EQ(g_set.st[0].on, 1);
+    CHECK_EQ(g_set.st[0].fault, 0);
+    CHECK_EQ(g_set.st[1].on, 0);
+    CHECK_EQ(g_rec.count, 2);
+    CHECK_EQ(devs_vfs_code(DEVS_ERR_SKIP), VFS_E_WRITE);
+    CHECK_STR(devs_strerror(DEVS_ERR_SKIP),
+              "%DEVICE-W-NOTWRITTEN, expander pin not written on panic");
 }
 
 TEST(cmd_pulse_end_only_from_tick)
@@ -802,9 +888,9 @@ TEST(messages_and_idents)
     CHECK_STR(devs_strerror(DV_ERR_NOPRIV), "%DEVICE-W-NOPRIV, insufficient privilege");
     CHECK_EQ(devs_msg_ident(devs_strerror(DV_WARN_PULLUP), w, sizeof(w)), 6);
     CHECK_STR(w, "PULLUP");
-    CHECK_EQ(devs_msg_ident(devs_strerror(DEVS_ERR_NOEXP), w, sizeof(w)), 8);
-    CHECK_STR(w, "NOEXPDRV");
-    CHECK_EQ(devs_msg_ident(devs_strerror(DEVS_ERR_NOEXP), w, 8), DV_ERR_SPACE);
+    CHECK_EQ(devs_msg_ident(devs_strerror(DEVS_ERR_NOEXP), w, sizeof(w)), 9);
+    CHECK_STR(w, "EXPABSENT");
+    CHECK_EQ(devs_msg_ident(devs_strerror(DEVS_ERR_NOEXP), w, 9), DV_ERR_SPACE);
     CHECK_STR(w, "");
     CHECK_EQ(devs_msg_ident(NULL, w, sizeof(w)), DV_ERR_ARG);
 }

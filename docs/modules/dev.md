@@ -1,6 +1,6 @@
 # Module dev: device control
 
-`src/dev/` holds the pure parts of device control. `devcfg.c` reads `DEVICES.CFG`. `devstate.c` keeps each device's state, turns commands into pin operations and formats status lines. The GPIO glue applies the operations. Nothing here is validated on real hardware.
+`src/dev/` holds the pure parts of device control. `devcfg.c` reads `DEVICES.CFG`. `devstate.c` keeps each device's state, turns commands into pin operations and formats status lines. The glue in `devglue.c`, the device service, applies the operations to the Pi's GPIO pins and to the expander chips. Nothing here is validated on real hardware.
 
 ## File format
 
@@ -46,7 +46,7 @@ Keys are lower-case. Rules:
 
 ## Expander pins
 
-An `[expander N]` section declares I2C expander chip N, 0 to 3. Its one key, `addr`, is the chip's 7-bit address: 0x20 to 0x27 or 0x38 to 0x3F, decimal or `0x` hex. A device names an expander pin as `gpio = X<chip>.<pin>`, any case.
+An `[expander N]` section declares I2C expander chip N, 0 to 3, a PCA9554 or PCA9554A on the I2C bus at GPIO 2 and 3. Its one key, `addr`, is the chip's 7-bit address: 0x20 to 0x27 for a PCA9554 or 0x38 to 0x3F for a PCA9554A, decimal or `0x` hex. The parser checks it with the library's `gpiox_addr_valid()`. A device names an expander pin as `gpio = X<chip>.<pin>`, any case.
 
 ```
 [expander 0]
@@ -76,7 +76,9 @@ Rules:
 - Two devices may not share one expander pin. The same pin number on another chip, or on the Pi, is fine.
 - Refused pins and the pull-up warning apply to Pi pins only.
 
-Each device and each pin operation has a `chip` field: `DV_CHIP_PI` for a Pi pin, or 0 to 3. `dv_set_t.exp[chip]` holds the chip's address. The status line shows `X1.0` in place of `GPIO n`. The glue in `src/dev/devglue.c` routes expander operations to `exp_write()`, `exp_config()` and `exp_read()`. Until the library's expander driver is pinned, these refuse every operation with `DEVS_ERR_NOEXP`, `%DEVICE-E-NOEXPDRV`. The pin record ring keeps the pin number only.
+Each device and each pin operation has a `chip` field: `DV_CHIP_PI` for a Pi pin, or 0 to 3. `dv_set_t.exp[chip]` holds the chip's address. The status line shows `X1.0` in place of `GPIO n`. The glue in `src/dev/devglue.c` routes expander operations to `exp_write()`, `exp_config()` and `exp_read()`, which call the library's `gpiox.h` driver with chip N as its table index. The pin record ring keeps the chip and the pin, and prints an expander write as `pin=X1.0`.
+
+The device service attaches each declared chip once, at init, before the boot writes. `gpiox_attach()` reads the chip and writes only its polarity register, and only when that is not 0. A chip that does not answer stays detached and is not tried again until the next boot. Its pins answer `DEVS_ERR_NOEXP`, `%DEVICE-E-EXPABSENT, expander chip did not answer at boot`, with no bus transfer: their outputs are unreached and `ARM` stays off. A bus error on an attached chip is `DEVS_ERR_IO`, so a failed write to the safe level is owed and retried every tick, as on a Pi pin. A PCA9554 input has a fixed pull-up, so `DV_PULL_*` does not apply to an expander sensor.
 
 ## Refused pins
 
@@ -140,7 +142,7 @@ DOOR1    DOOR   Workshop door                   CLOSED   GPIO 12
 
 ## Pin faults
 
-The device service keeps a fault per device in `dv_dstate_t`: `fault`, the `owed` level, the `owed_kind` of operation and the `fails` count. The rule: after a failed write, the model never says a state the pin does not have. A failed write toward the safe level leaves the state as last written and owes the write. `devs_tick()` retries it every tick until it succeeds. A device in fault refuses commands with `DEVS_ERR_FAULT`. A failed write away from the safe level only returns its code. `unreached` marks an output whose boot write failed without a fault, such as `NOEXPDRV`. Any successful write to it clears the mark. `ARM` is switched on at boot only if every other output was written to its initial level. The rule for each write site is in `docs/ARCHITECTURE.md`, "Pin faults".
+The device service keeps a fault per device in `dv_dstate_t`: `fault`, the `owed` level, the `owed_kind` of operation and the `fails` count. The rule: after a failed write, the model never says a state the pin does not have. A failed write toward the safe level leaves the state as last written and owes the write. `devs_tick()` retries it every tick until it succeeds. A device in fault refuses commands with `DEVS_ERR_FAULT`. A failed write away from the safe level only returns its code. `unreached` marks an output whose boot write failed without a fault, such as `EXPABSENT`. Any successful write to it clears the mark. `ARM` is switched on at boot only if every other output was written to its initial level. The rule for each write site is in `docs/ARCHITECTURE.md`, "Pin faults".
 
 ```
 VAULT    LOCK   Vault bolt                      UNLOCKED GPIO 20 FAULT=3
@@ -162,4 +164,4 @@ The configuration errors use the `E` severity, for example `%DEVICE-E-PINUSED, p
 
 ## Pin record
 
-`dv_rec_t` keeps the last 64 pin writes as pin, level and tick. The glue adds each write. `dv_rec_format()` prints entry `i`, oldest first, as `pin=4 level=1 tick=1500` for the maintenance port.
+`dv_rec_t` keeps the last 64 pin writes as chip, pin, level and tick. The glue adds each write. `dv_rec_add()` adds a Pi pin, `dv_rec_add_chip()` any pin. `dv_rec_format()` prints entry `i`, oldest first, as `pin=4 level=1 tick=1500`, or `pin=X0.3 level=1 tick=1500` for an expander pin, for the maintenance port.

@@ -160,7 +160,7 @@ int devs_apply(const devs_io_t *io, const dv_set_t *set, const dv_op_t *op, dv_r
         }
     }
     if (rec != NULL && op->kind != DV_OP_CONFIG_INPUT) {
-        dv_rec_add(rec, op->pin, op->level, tick);
+        dv_rec_add_chip(rec, op->chip, op->pin, op->level, tick);
     }
     return 0;
 }
@@ -208,7 +208,7 @@ static int fault_start(dv_set_t *set, const dv_op_t *op, int rc)
 {
     dv_dstate_t *s = &set->st[op->dev];
 
-    if (rc == DEVS_ERR_NOEXP) {
+    if (rc == DEVS_ERR_NOEXP || rc == DEVS_ERR_SKIP) {
         return 0;
     }
     s->pending = 0;
@@ -435,7 +435,7 @@ int devs_down_run(dv_set_t *set, const devs_io_t *io, dv_rec_t *rec, uint32_t ti
 
         for (t = 1; t <= DEVS_SAFE_TRIES; t++) {
             rc = devs_apply(io, set, &ops[i], rec, tick);
-            if (rc == 0) {
+            if (rc == 0 || rc == DEVS_ERR_SKIP) {
                 break;
             }
         }
@@ -450,7 +450,7 @@ int devs_down_run(dv_set_t *set, const devs_io_t *io, dv_rec_t *rec, uint32_t ti
             (void)fault_start(set, &ops[i], rc);
         }
         ev_put(ev, &k, d, DEVS_EV_SAFE, &ops[i], rc);
-        ev[k - 1].tries = (uint8_t)(rc == 0 ? t : DEVS_SAFE_TRIES);
+        ev[k - 1].tries = (uint8_t)(rc == 0 ? t : rc == DEVS_ERR_SKIP ? 0 : DEVS_SAFE_TRIES);
     }
     for (i = 0; i < set->count; i++) {
         set->st[i].pending = 0;
@@ -473,6 +473,7 @@ int devs_vfs_code(int code)
     case DEVS_ERR_IO:
     case DEVS_ERR_NOEXP:
     case DEVS_ERR_FAULT:
+    case DEVS_ERR_SKIP:
         return VFS_E_WRITE;
     default:
         return code >= 0 ? code : VFS_E_ARG;
@@ -483,7 +484,9 @@ const char *devs_strerror(int code)
 {
     switch (code) {
     case DEVS_ERR_NOEXP:
-        return "%DEVICE-E-NOEXPDRV, expander not available in this build";
+        return "%DEVICE-E-EXPABSENT, expander chip did not answer at boot";
+    case DEVS_ERR_SKIP:
+        return "%DEVICE-W-NOTWRITTEN, expander pin not written on panic";
     case DEVS_ERR_IO:
         return "%DEVICE-E-IOERR, the GPIO layer refused the operation";
     case DEVS_ERR_DOWN:

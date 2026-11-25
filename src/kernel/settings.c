@@ -211,6 +211,14 @@ static int on_key(const char *section, const char *key, const char *value, unsig
         } else {
             c->r->unknown++;
         }
+    } else if (same(section, "watchdog")) {
+        if (same(key, "enabled")) {
+            set_bool(c, value, &s->hwdog_enabled);
+        } else if (same(key, "timeout_ms")) {
+            set_range(c, value, &s->hwdog_timeout_ms, UOS_HWDOG_MS_MIN, UOS_HWDOG_MS_MAX);
+        } else {
+            c->r->unknown++;
+        }
     } else {
         c->r->unknown++;
     }
@@ -233,6 +241,8 @@ void uos_settings_default(uos_settings_t *s)
     s->hack_attempts = UOS_ATTEMPTS_DEF;
     s->hack_difficulty = UOS_DIFF_ADVANCED;
     s->hack_lockout_s = UOS_HACK_LOCK_DEF;
+    s->hwdog_enabled = 0;
+    s->hwdog_timeout_ms = UOS_HWDOG_MS_DEF;
 }
 
 int uos_settings_parse(const char *text, size_t len, uos_settings_t *s,

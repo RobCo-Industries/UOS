@@ -44,6 +44,9 @@
 #define UOS_HACK_LOCK_MIN       0
 #define UOS_HACK_LOCK_MAX       3600
 #define UOS_HACK_LOCK_DEF       60
+#define UOS_HWDOG_MS_MIN        1000    /* [watchdog] timeout_ms */
+#define UOS_HWDOG_MS_MAX        15000
+#define UOS_HWDOG_MS_DEF        8000
 
 /* scheme when UOS.CFG does not set it. */
 #define UOS_SCHEME_UNSET        (-1)
@@ -59,6 +62,8 @@ typedef struct {
     unsigned hack_attempts;
     int hack_difficulty;        /* UOS_DIFF_* */
     unsigned hack_lockout_s;
+    int hwdog_enabled;          /* [watchdog] enabled: 1 or 0, off by default */
+    unsigned hwdog_timeout_ms;  /* [watchdog] timeout_ms */
 } uos_settings_t;
 
 /* Parse results. */

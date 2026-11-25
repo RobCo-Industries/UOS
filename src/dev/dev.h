@@ -188,8 +188,8 @@ typedef enum {
 /*
  * A pin operation names a Pi pin (chip DV_CHIP_PI, pin = BCM number) or an
  * expander pin (chip 0 to 3, pin 0 to 7; the chip's address is in
- * dv_set_t.exp[chip]). gpio.h takes Pi pins only: the expander glue is
- * not written yet.
+ * dv_set_t.exp[chip]). The device service sends Pi pins to gpio.h and
+ * expander pins to the library's gpiox.h driver.
  */
 typedef struct {
     uint8_t kind;           /* dv_op_kind_t */
@@ -300,6 +300,7 @@ const char *dv_strerror(int code);
 /* ---- record ring, for the glue's maintenance port ---- */
 
 typedef struct {
+    uint8_t chip;           /* DV_CHIP_PI, or expander 0 to 3 */
     uint8_t pin;
     uint8_t level;
     uint32_t tick;
@@ -313,10 +314,15 @@ typedef struct {
 } dv_rec_t;
 
 void dv_rec_init(dv_rec_t *r);
+/* Adds a write to Pi pin `pin`. */
 void dv_rec_add(dv_rec_t *r, unsigned pin, int level, uint32_t tick);
 
+/* Adds a write to `pin` of `chip`: DV_CHIP_PI or an expander 0 to 3. */
+void dv_rec_add_chip(dv_rec_t *r, unsigned chip, unsigned pin, int level, uint32_t tick);
+
 /*
- * Formats entry `i` (0 = oldest held) as "pin=N level=N tick=N".
+ * Formats entry `i` (0 = oldest held) as "pin=N level=N tick=N", or
+ * "pin=X<chip>.<pin> level=N tick=N" for an expander pin.
  * DV_ERR_ARG if i >= count, DV_ERR_SPACE if it does not fit.
  */
 int dv_rec_format(const dv_rec_t *r, unsigned i, char *buf, size_t size);

@@ -394,9 +394,15 @@ void dv_rec_init(dv_rec_t *r)
 
 void dv_rec_add(dv_rec_t *r, unsigned pin, int level, uint32_t tick)
 {
+    dv_rec_add_chip(r, DV_CHIP_PI, pin, level, tick);
+}
+
+void dv_rec_add_chip(dv_rec_t *r, unsigned chip, unsigned pin, int level, uint32_t tick)
+{
     if (r == NULL) {
         return;
     }
+    r->e[r->head].chip = (uint8_t)chip;
     r->e[r->head].pin = (uint8_t)pin;
     r->e[r->head].level = (uint8_t)(level != 0);
     r->e[r->head].tick = tick;
@@ -415,6 +421,11 @@ int dv_rec_format(const dv_rec_t *r, unsigned i, char *buf, size_t size)
         return DV_ERR_ARG;
     }
     e = &r->e[(r->head + DV_REC_SIZE - r->count + i) % DV_REC_SIZE];
+    if (e->chip != DV_CHIP_PI) {
+        return dv_fit(k_snprintf(buf, size, "pin=X%u.%u level=%u tick=%u", (unsigned)e->chip,
+                                 (unsigned)e->pin, (unsigned)e->level, (unsigned)e->tick),
+                      buf, size);
+    }
     return dv_fit(k_snprintf(buf, size, "pin=%u level=%u tick=%u",
                              (unsigned)e->pin, (unsigned)e->level, (unsigned)e->tick),
                   buf, size);

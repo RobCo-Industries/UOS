@@ -46,6 +46,7 @@ PURE_NAMED := src/console/conview.c \
 PURE_KERNEL := \
               src/kernel/bootlines.c \
               src/kernel/event.c \
+              src/kernel/hwdog.c \
               src/kernel/maintreg.c \
               src/kernel/screen.c \
               src/kernel/service.c \
