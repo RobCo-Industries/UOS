@@ -53,8 +53,27 @@ def wait_marker(vm, prefix, n=1):
         found = marks(vm, prefix)
         if len(found) >= n:
             return found[n - 1]
-        assert time.monotonic() < deadline, (prefix, n, vm.serial[-3000:])
+        if time.monotonic() >= deadline:
+            raise AssertionError(timeout_report(vm, prefix, n, len(found)))
         time.sleep(0.02)
+
+
+def timeout_report(vm, prefix, n, got):
+    """What a marker timeout needs to tell a test race from a stuck shell or a stopped
+    guest: the whole serial since the last command began, the count of each marker
+    kind the helpers wait on, and a state query sent now."""
+    counts = {k: n_marks(vm, k) for k in
+              ("sh run=done", "cmd state=end", "sh state=prompt kind=cmd",
+               "sh state=prompt kind=password", "sh state=prompt kind=confirm",
+               "sh state=prompt kind=line")}
+    try:
+        state = vm.script("sh state", timeout=5).lines
+    except Exception as exc:  # the port itself may be what stopped
+        state = f"no answer: {exc!r}"
+    start = getattr(vm, "cmd_start", 0)
+    return (f"waited for marker #{n} of {prefix!r}, found {got}\n"
+            f"marker counts: {counts}\nasked so far: {getattr(vm, 'asked', None)}\n"
+            f"sh state now: {state}\nserial since the last command:\n{vm.serial[start:]}")
 
 
 def sh_state(vm):
@@ -102,7 +121,7 @@ def run(vm, line):
     offset of the serial text)."""
     n = n_marks(vm, "sh run=done")
     e = n_marks(vm, "cmd state=end")
-    start = len(vm.serial)
+    start = vm.cmd_start = len(vm.serial)
     answer(vm, "sh run " + quote(line))
     done = wait_marker(vm, "sh run=done", n + 1)
     end = wait_marker(vm, "cmd state=end", e + 1)
@@ -121,8 +140,13 @@ def files(vm, start, op=None):
 
 
 def send_line(vm, line):
-    """Starts `sh run` without waiting for the end; returns the counts to wait on."""
+    """Starts `sh run` without waiting for the end; returns the counts to wait on. It
+    also records how many reads of each kind were asked before the line: `reply`
+    counts its prompts from there, never from what has arrived when it is called."""
     counts = (n_marks(vm, "sh run=done"), n_marks(vm, "cmd state=end"), len(vm.serial))
+    vm.cmd_start = counts[2]
+    vm.asked = {k: n_marks(vm, f"sh state=prompt kind={k}")
+                for k in ("password", "confirm", "line")}
     answer(vm, "sh run " + quote(line))
     return counts
 
@@ -134,9 +158,13 @@ def wait_done(vm, counts):
 
 
 def reply(vm, kind, text, n=None):
-    """Waits for the next read of `kind` a command asks, then types `text`."""
+    """Waits for the next read of `kind` the command sent by `send_line` asks, then
+    types `text`. The index comes from the count `send_line` took plus the reads
+    already answered: a count taken now would skip a prompt that came up while the
+    previous answer was still in flight, and wait for one that never comes."""
     if n is None:
-        n = n_marks(vm, f"sh state=prompt kind={kind}") + 1
+        n = vm.asked[kind] + 1
+    vm.asked[kind] = n
     wait_marker(vm, f"sh state=prompt kind={kind}", n)
     wait_state(vm, ask=kind)
     answer(vm, f"type {text}")
