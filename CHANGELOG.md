@@ -7,18 +7,31 @@ All notable changes to UOS are recorded here. The format follows [Keep a Changel
 ### Changed
 
 - Rebuilt UOS on RobCo-Core. The prototype is gone.
+- `AUTHORIZE`'s `/PASSWORD` takes no value: the command asks for the password, masked.
+- The shell replaces the placeholder screen after login.
+- `/OUTPUT` replaces its file only when the command succeeds. A failure, a warning or Ctrl-C leaves the old file as it was.
+- A wildcard whose matches the access table all refused gives `%UOS-E-NOPRIV`, not `%UOS-W-NOFILES`. Some refused give `%UOS-I-SKIPPED` and `skipped=` in the end marker. `vfs_list_keep()` returns `VFS_KEEP_REFUSED` for them.
+- `sh_program_register()`: `start(args, done, tag)` and `done(tag, status, text)`. A late `done()` from a cancelled run is ignored.
+- Ctrl-C ends a running command as cancelled whatever screen is on top: the `TYPE /PAGE` pager, a `/CONFIRM` question, a password, a `CREATE` line, the on-screen keyboard over a read, and a program's own screen. Before, Ctrl-C in the pager did nothing and at `/CONFIRM` it reported the files done as a success.
+- The pager calls back with `CON_CANCEL` on Ctrl-C; `page` marks `ev=page result=cancel`.
+- A program's `done()` takes `SH_CANCELLED` for Ctrl-C on its screen.
+- `sh_run_line()` refuses an empty or comment-only line with `SH_ERR_ARG` and no callback, and `sh run` refuses it with `rc=-1`. The prompt still shows a new prompt for one.
+- `sh_program_register()` returns `SH_ERR_DOWN` before the shell service started.
+- `TYPE` and `HELP` print 8 display rows a step, wrapped segments of a long line included, so a 1 MiB line no longer holds the loop.
+- `DEVICES.CFG` and `TERMINAL.CFG` read with `ini_parse_sections()`: an empty section is `DV_ERR_EMPTY` or `TUI_E_EMPTY`, a repeated one is a counted error even right after itself, and section errors carry the header's line.
+- A repeated `[device NAME]`, `[expander N]` or `[entry N]` header is refused even when the first section was empty or bad. `TERMINAL.CFG` remembers every entry number, not the first 32.
+- The `ARM` rule: an expander output needs a relay named `ARM` on a Pi pin that is off at reset. Without one, each expander output is refused with `%DEVICE-E-NOARM`, shows ` REFUSED=NOARM` and is never driven.
+- RobCo-Core moved to `4249632`. The library's two-pass `test-host-gccwarn` and its `make ci-local` replace UOS's own `test-host-gccwarn-ci` and `tools/ci_local.sh`.
 
 ### Added
 
 - Held keys follow one rule on every screen: movement and typed characters repeat, an action that confirms, cancels, loads or leaves takes only the press. `uos_ev_fresh_key()` holds the rule, and the screen stack drops the repeats of a key whose press changed the stack. Before, a held BACK in the holotape reader left it, a held SELECT could start a second action, and a held BACK on the session placeholder, the pager, the welcome or a pause ran on into the next screen. The test-only `hold` command sends a press, repeats and a release.
 - A won password game clears the count of failed logins, as a right password does. Before, failures from before the game carried over to the next login. `lk_success()` is now `lk_session_start()`, called by `sess_begin()`. `docs/modules/session.md` has the table of every lockout event.
-
 - The screen stack redraws what a closing screen uncovers. A pop, a replace or `uos_screen_expose()` draws every visible screen bottom-up from the highest full screen. BACK from the holotape reader or a pager over the login prompt now gives the whole login screen back.
-
 - The password game plays only from the login prompt. `hack start` over another screen refuses with `covered`, and BACK gives that screen back as it was.
-
 - Arrival order on the maintenance port: a call that a command posts goes through the input queue, so it runs after the keys received before it and before later ones. `hack seed` now posts too. Port calls count in `pending=` until they run.
-
+- Expander pins work: the device service drives PCA9554 chips through the library's `gpiox.h`. A chip that does not answer at boot leaves its devices unreachable and `ARM` off. On panic and from the software watchdog no I2C transfer starts. The pin record names the chip.
+- An optional hardware watchdog, `UOS.CFG [watchdog]`, off by default. The loop's tick kicks it; a panic resets the board after the outputs went safe; a halt stops it. `dev hwdog` shows it.
 - The build: `UOS.SYS`, a sealed rimg linked at `0x00400000`, with host and QEMU tests and CI on four boards.
 - The kernel entry with the trust rule and one marker per bring-up step.
 - The panic path for `uos_panic()` and CPU exceptions.
@@ -58,6 +71,13 @@ All notable changes to UOS are recorded here. The format follows [Keep a Changel
 - `holo pick`, `hack move`, `hack select` and `hack back` carry their arguments and the screen they were meant for in the posted call. A call for a closed screen marks `result=gone` and does nothing.
 - The session service: `sess_hack_check()`, `sess_hack_begin()`, `sess_hack_lock()`, `sess_set_hack_entry()` and `sess_resume()`; `lk_lock()` for a lock of a given length; the `lockout` markers say what locked.
 - `CON_RL_ALTKEY` for `con_read_line()`: F2 on an empty line ends the read with `CON_ALT`.
+- The command shell after login: a DCL prompt with continuation lines, prompts for missing parameters, privilege checks and system messages. Commands run in steps and Ctrl-C stops them. `docs/COMMANDS.md` describes every verb.
+- Commands: `DIRECTORY`, `TYPE`, `COPY`, `DELETE`, `RENAME`, `CREATE`, `SET DEFAULT`, `SET TERMINAL`, `SET HALT`, `SET PASSWORD`, every `SHOW` keyword, `HELP`, `RUN`, `LOGIN`, `LOGOUT`, `ROBCO`, `DEVICE` and `AUTHORIZE`. `HOLOTAPE`, `MAIL` and the `RUN` programs say they are not installed.
+- `src/shell/sh.h`: `sh_run_line()` runs a command line for another screen, and `sh_program_register()` adds a program for `RUN`.
+- `SET PASSWORD` and `AUTHORIZE` write `SYSUAF.DAT` with masked password reads, salts from the RNG and an atomic write; `sess_reload()` reads it again.
+- Help files for every verb in `/UOS/SYS/HELP` on the default card.
+- Maintenance: `sh state` and `sh run <line>`; `cmd` and `sh` markers.
+- `docs/USER_MANUAL.md`: a "Using the command line" section.
 
 ### Fixed
 

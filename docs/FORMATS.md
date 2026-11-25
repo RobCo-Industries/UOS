@@ -10,8 +10,9 @@ UOS reads its files from the `/UOS` folder of the card. This page lists every fo
 | `/UOS/HOME/<user>/TERMINAL.CFG` and other `.CFG` menus | INI | `src/tui/tuicfg.c` | [tui](modules/tui.md#terminalcfg) |
 | `/UOS/WORDS/Wnn.TXT` | text, one word per line | `src/hack/hack.c` | [hack](modules/hack.md#word-list-format) |
 | `/UOS/HOLO/*.HTP` | sealed rimg with an HTXT archive | `src/holo/holofmt.c` | [holo](modules/holo.md#file-layout) |
+| `/UOS/SYS/HELP/*.HLP` | plain text | `src/shell/shcmds.c` | [below](#help-files) |
 
-The INI files use the RobCo-Core INI reader. Comments start with `;` or `#`. LF and CR LF line ends both work. The reader reports keys only, so a section with no keys is never seen. See [Pending library features](ARCHITECTURE.md#pending-library-features).
+The INI files use the RobCo-Core INI reader. Comments start with `;` or `#`. LF and CR LF line ends both work. `DEVICES.CFG` and `TERMINAL.CFG` go through `ini_parse_sections()`, which also reports each section header, so a section with no keys or a repeated section is a counted error.
 
 ## UOS.CFG
 
@@ -34,6 +35,10 @@ user = GUEST
 attempts = 4
 difficulty = advanced
 lockout_s = 60
+
+[watchdog]
+enabled = off
+timeout_ms = 8000
 ```
 
 | Section | Key | Value | Default |
@@ -49,6 +54,8 @@ lockout_s = 60
 | `hack` | `attempts` | 1 to 9 | 4 |
 | `hack` | `difficulty` | `novice`, `advanced`, `expert` or `master` | `advanced` |
 | `hack` | `lockout_s` | 0 to 3600 | 60 |
+| `watchdog` | `enabled` | as `hack` `enabled`. Turns the hardware watchdog on. Keep it off in QEMU, which resets at once when it starts | off |
+| `watchdog` | `timeout_ms` | 1000 to 15000: the time without a loop tick before the board resets | 8000 |
 
 Rules:
 
@@ -59,7 +66,7 @@ Rules:
 - When a key repeats, the last one wins.
 - A line that does not parse stops the reader. The keys before it apply.
 
-The kernel reads `UOS.CFG` at boot. The session service applies `[login]`, see [session](modules/session.md#the-session-service). The password game reads `[hack]` each time it starts, see [hack](modules/hack.md#the-screen):
+The kernel reads `UOS.CFG` at boot. The session service applies `[login]`, see [session](modules/session.md#the-session-service). The device service reads `[watchdog]`, see [The watchdogs](ARCHITECTURE.md#the-watchdogs). The password game reads `[hack]` each time it starts, see [hack](modules/hack.md#the-screen):
 
 - `enabled = no` refuses the game.
 - `user` is the account a won game logs in. The game refuses an account that does not exist, is disabled or has the `NOHACK` flag. The shipped default is `GUEST`, the account with no privilege. `ADMIN` and `OPER` carry `NOHACK` on the default card.
@@ -69,11 +76,14 @@ The kernel reads `UOS.CFG` at boot. The session service applies `[login]`, see [
 
 ## SYSUAF.DAT
 
-The user database: a 32-byte header, then one 96-byte record per user, at most 32. A CRC-32 covers the records. Each password is a salted, iterated SHA-256. The session service reads the file once at boot; a missing or damaged file stops every login, see [session](modules/session.md#the-session-service). `tools/mkuaf.py` builds the file from an INI list, `tools/default_users.ini` for the default card. The privilege bits are the ones in `src/kernel/uos_privs.h`: `SYSTEM` bit 0, `OPER` bit 1, `SECURITY` bit 2, `READALL` bit 3. Layout: [session](modules/session.md#sysuafdat-layout).
+The user database: a 32-byte header, then one 96-byte record per user, at most 32. A CRC-32 covers the records. Each password is a salted, iterated SHA-256. The session service reads the file at boot, and again after `SET PASSWORD` or `AUTHORIZE` wrote it whole with an atomic write; a missing or damaged file stops every login, see [session](modules/session.md#the-session-service). `tools/mkuaf.py` builds the file from an INI list, `tools/default_users.ini` for the default card. The privilege bits are the ones in `src/kernel/uos_privs.h`: `SYSTEM` bit 0, `OPER` bit 1, `SECURITY` bit 2, `READALL` bit 3. Layout: [session](modules/session.md#sysuafdat-layout).
 
 ## DEVICES.CFG
 
 One `[device NAME]` section per device, up to 24, and one `[expander N]` section per I2C expander chip, up to 4. `gpio = <n>` names a Pi pin. `gpio = X<chip>.<pin>` names an expander pin. Layout and rules: [dev](modules/dev.md#file-format).
+
+- A repeated `[device NAME]` or `[expander N]` header is refused, even when the first section was empty or bad. The first one wins.
+- An expander output needs a relay named `ARM` on a Pi pin that is off at reset, such as `gpio = 25` with `active = high`. Without one, every expander output is refused with `NOARM` and never driven. Expander inputs still work.
 
 ## TERMINAL.CFG
 
@@ -86,3 +96,7 @@ A `[terminal]` section with the title and an optional header file, then `[entry 
 ## Holotapes
 
 `/UOS/HOLO/*.HTP`: a sealed rimg of subtype 2, data, with an HTXT archive of up to 32 text files as its payload. `tools/mkholo.py` builds a tape from a folder of text files. The sources of the sample tapes are in `card/UOS/HOLO/SRC`. Layout: [holo](modules/holo.md#file-layout).
+
+## Help files
+
+`/UOS/SYS/HELP/<name>.HLP`, the folder of the logical name `SYS$HELP:`: one plain text file per verb, which `HELP <verb>` prints as it is. LF or CR LF line ends; lines over 80 columns wrap. At most 64 KiB. The command table in `src/dcl/tables.c` names each file, cut to 8.3: `DIRECTOR.HLP` for `DIRECTORY`, `AUTHORIZ.HLP` for `AUTHORIZE`. `HELP` with no topic prints `HELP.HLP`. `test_shell.c` checks that the default card has a file for every verb.

@@ -1,0 +1,11 @@
+SHOW keyword [/OUTPUT=file]
+
+  SHOW DEFAULT    the current folder
+  SHOW USERS      who is logged in
+  SHOW SYSTEM     the system name, version, uptime and card
+  SHOW TIME       the date and time, or the uptime with no clock chip
+  SHOW DEVICES    the devices and their states; SHOW DEVICES DOOR1 for one
+  SHOW TERMINAL   the screen size and colors
+  SHOW MEMORY     the memory in use and free
+
+/OUTPUT=file writes the text to a file instead of the screen.

@@ -140,13 +140,23 @@ void sess_resume(void);
 
 /*
  * any: the user database, read only. NULL when no database loaded. For
- * the minigame and an AUTHORIZE-style listing. Nothing writes SYSUAF.DAT
- * yet. Never print a salt or a hash from it.
+ * the minigame and an AUTHORIZE-style listing. The shell's AUTHORIZE and
+ * SET PASSWORD write SYSUAF.DAT, then call sess_reload(). Never print a
+ * salt or a hash from it.
  */
 const uaf_db_t *sess_db(void);
 
 /* any: the record of `name`, compared case-insensitively, or NULL. Read
  * only, as sess_db(). */
 const uaf_rec_t *sess_find(const char *name);
+
+/*
+ * loop: reads /UOS/SYSUAF.DAT again, after AUTHORIZE or SET PASSWORD
+ * wrote it. The session goes on with the privileges it started with; a
+ * change applies at the next login. Prints the sessdb marker again.
+ * 0, or SESS_ERR_DOWN when the file no longer loads: then no
+ * one can log in after this session, as at boot.
+ */
+int sess_reload(void);
 
 #endif

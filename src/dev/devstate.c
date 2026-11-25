@@ -104,7 +104,7 @@ dv_action_t dv_action_parse(const char *word)
 
 int dv_boot_ops(dv_set_t *set, dv_op_t *ops, unsigned max)
 {
-    unsigned i;
+    unsigned i, n = 0;
 
     if (set == NULL || ops == NULL || set->count > DV_MAX_DEVICES) {
         return DV_ERR_ARG;
@@ -115,13 +115,20 @@ int dv_boot_ops(dv_set_t *set, dv_op_t *ops, unsigned max)
     for (i = 0; i < set->count; i++) {
         const dv_device_t *d = &set->dev[i];
         dv_dstate_t *s = &set->st[i];
-        dv_op_t *o = &ops[i];
+        dv_op_t *o = &ops[n];
 
+        s->pending = 0;
+        if (d->refused != 0) {
+            /* Never configured: off, at the inactive level. */
+            s->on = 0;
+            s->level = dv_level(d, 0);
+            continue;
+        }
+        n++;
         k_memset(o, 0, sizeof(*o));
         o->chip = d->chip;
         o->pin = d->pin;
         o->dev = (uint8_t)i;
-        s->pending = 0;
         if (d->type == DV_TYPE_SENSOR) {
             o->kind = DV_OP_CONFIG_INPUT;
             o->pull = d->active_high ? DV_PULL_DOWN : DV_PULL_UP;
@@ -134,7 +141,7 @@ int dv_boot_ops(dv_set_t *set, dv_op_t *ops, unsigned max)
             o->level = s->level;
         }
     }
-    return (int)set->count;
+    return (int)n;
 }
 
 /* -1: not valid for the type; else 0 off, 1 on, 2 toggle, 3 pulse. */
@@ -180,6 +187,9 @@ int dv_command(dv_set_t *set, unsigned idx, dv_action_t act, uint32_t privs,
     }
     d = &set->dev[idx];
     s = &set->st[idx];
+    if (d->refused != 0) {
+        return d->refused;
+    }
     if (d->type == DV_TYPE_SENSOR) {
         return DV_ERR_READONLY;
     }
@@ -320,6 +330,10 @@ int dv_status_line(const dv_set_t *set, unsigned idx, char *buf, size_t size)
         m = k_snprintf(buf + n, size - (size_t)n, " FAULT=%u", (unsigned)set->st[idx].fails);
         n = m < 0 ? m : n + m;
     }
+    if (n >= 0 && (size_t)n < size && d->refused == DV_ERR_NOARM) {
+        m = k_snprintf(buf + n, size - (size_t)n, " REFUSED=NOARM");
+        n = m < 0 ? m : n + m;
+    }
     if (n >= 0 && (size_t)n < size && set->st[idx].unreached) {
         m = k_snprintf(buf + n, size - (size_t)n, " UNREACHABLE");
         n = m < 0 ? m : n + m;
@@ -376,6 +390,10 @@ const char *dv_strerror(int code)
         return "%DEVICE-E-BADADDR, expander addr must be 0x20 to 0x27 or 0x38 to 0x3F, once";
     case DV_ERR_NOCHIP:
         return "%DEVICE-E-NOCHIP, expander pin on an undeclared chip";
+    case DV_ERR_EMPTY:
+        return "%DEVICE-E-EMPTY, section has no keys";
+    case DV_ERR_NOARM:
+        return "%DEVICE-E-NOARM, expander output needs an ARM relay on a Pi pin off at reset";
     case DV_WARN_PULLUP:
         return "%DEVICE-W-PULLUP, active-high output on a pin pulled up at reset";
     default:
@@ -392,9 +410,15 @@ void dv_rec_init(dv_rec_t *r)
 
 void dv_rec_add(dv_rec_t *r, unsigned pin, int level, uint32_t tick)
 {
+    dv_rec_add_chip(r, DV_CHIP_PI, pin, level, tick);
+}
+
+void dv_rec_add_chip(dv_rec_t *r, unsigned chip, unsigned pin, int level, uint32_t tick)
+{
     if (r == NULL) {
         return;
     }
+    r->e[r->head].chip = (uint8_t)chip;
     r->e[r->head].pin = (uint8_t)pin;
     r->e[r->head].level = (uint8_t)(level != 0);
     r->e[r->head].tick = tick;
@@ -413,6 +437,11 @@ int dv_rec_format(const dv_rec_t *r, unsigned i, char *buf, size_t size)
         return DV_ERR_ARG;
     }
     e = &r->e[(r->head + DV_REC_SIZE - r->count + i) % DV_REC_SIZE];
+    if (e->chip != DV_CHIP_PI) {
+        return dv_fit(k_snprintf(buf, size, "pin=X%u.%u level=%u tick=%u", (unsigned)e->chip,
+                                 (unsigned)e->pin, (unsigned)e->level, (unsigned)e->tick),
+                      buf, size);
+    }
     return dv_fit(k_snprintf(buf, size, "pin=%u level=%u tick=%u",
                              (unsigned)e->pin, (unsigned)e->level, (unsigned)e->tick),
                   buf, size);

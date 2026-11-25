@@ -1,0 +1,4 @@
+LOGIN
+
+Ends this session and shows the login prompt, so another user can log
+in. A user name typed after LOGIN is not used: give it at the prompt.

@@ -232,12 +232,13 @@ In every state but `ok` the first screen stays, with a second row that says what
 | `sess_set_next(fn)` | loop | Registers the screen after login, once per boot |
 | `sess_db()` | any | The database, read only, or NULL |
 | `sess_find(name)` | any | One record, read only, or NULL |
+| `sess_reload()` | loop | Reads `SYSUAF.DAT` again after the shell wrote it. The session keeps its privileges until the next login. |
 
 "Any" calls read state and change nothing, so they are safe from a maintenance command, an IRQ or the panic path. "Loop" calls run from a screen callback, a timer, a posted call or a service init.
 
 `sess_logout()` clears every session field and `uos.user`, prints the end marker, removes every screen above the bottom one and shows the login. A read, a pager or a pause on the stack ends without calling back: the console screens have a `leave` that does this when another caller pops them. The read's text is wiped.
 
-`sess_set_next(fn)` takes a function that returns the screen to show after the welcome. The shell task or the terminal menu task registers it from its service init. Until then the placeholder `noshell` runs: the user, its privileges, the line `No shell is installed in this build.`, and BACK logs out.
+`sess_set_next(fn)` takes a function that returns the screen to show after the welcome. The shell service registers it at its init, see [The shell](../ARCHITECTURE.md#the-shell). Without a registration the placeholder `noshell` runs: the user, its privileges, the line `No shell is installed in this build.`, and BACK logs out.
 
 ### The login screen
 

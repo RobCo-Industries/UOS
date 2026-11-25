@@ -156,6 +156,7 @@ Shape: `%FACILITY-S-IDENT, text`. Severity is `S`, `I`, `W`, `E` or `F`. In the 
 | `DCL_SYS_PROTECT` | `%UOS-E-PROTECT, file is protected` |
 | `DCL_SYS_TOOBIG` | `%UOS-E-TOOBIG, file is too large` |
 | `DCL_SYS_INSFMEM` | `%UOS-E-INSFMEM, not enough memory for this operation` |
+| `DCL_SYS_SKIPPED` | `%UOS-I-SKIPPED, !N file!P skipped: not enough privilege` |
 
 ## The UOS command table
 
@@ -214,7 +215,7 @@ The "Shortest" column is informative. The test finds every verb's shortest prefi
 | `REMOVE` | 1: Username (text) | |
 | `LIST` | 0 required: Username (text) | |
 
-User qualifiers: `/PASSWORD=text`, `/PRIVS=` one value or a list from `SYSTEM`, `OPER`, `SECURITY`, `READALL` (neg: `/NOPRIVS` clears them), `/HOME=text`, `/DISABLED` neg (flag bit 0), `/HACKABLE` neg (`/NOHACKABLE` sets flag bit 1).
+User qualifiers: `/PASSWORD`, no value: the shell asks for the password, masked, so it never sits on the command line; `/PRIVS=` one value or a list from `SYSTEM`, `OPER`, `SECURITY`, `READALL` (neg: `/NOPRIVS` clears them), `/HOME=text`, `/DISABLED` neg (flag bit 0), `/HACKABLE` neg (`/NOHACKABLE` sets flag bit 1).
 
 ## Tests
 

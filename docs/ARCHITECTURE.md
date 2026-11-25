@@ -9,7 +9,8 @@ src/kernel/   entry, panic, event loop, timers, screens, settings, maintenance p
               the shared privilege bits, the service table
 src/dcl/ src/vfs/ src/session/ src/osk/ src/dev/ src/tui/ src/hack/ src/holo/
               the pure modules, one folder each
-card/         the default card: /UOS/UOS.CFG, SYSUAF.DAT, DEVICES.CFG, HOME/, WORDS/, HOLO/
+src/shell/    the command shell and its commands
+card/         the default card: /UOS/UOS.CFG, SYSUAF.DAT, DEVICES.CFG, HOME/, WORDS/, HOLO/, SYS/HELP/
 tools/        card tools: mkuaf.py, mkwords.py, mkholo.py
 tests/host/   host tests of the pure files, and host tools such as holocheck.c
 tests/tools/  pytest tests of the card tools
@@ -37,7 +38,7 @@ The modules below are pure too. The image links them, but no kernel code calls t
 
 ## Modules
 
-Each module has a reference page in `docs/modules/`. The on-card formats are gathered in [FORMATS.md](FORMATS.md). The services of [Services](#services) use `dcl`, `vfs path`, `osk`, `dev`, `session`, `hack`, `holo` and the pager of `tui`. No shell or menu screen exists yet.
+Each module has a reference page in `docs/modules/`. The on-card formats are gathered in [FORMATS.md](FORMATS.md). The services of [Services](#services) use `dcl`, `vfs path`, `osk`, `dev`, `session`, `hack`, `holo` and the pager of `tui`. The shell uses `dcl` for every command line. No menu screen uses a module yet.
 
 Every module that tests privileges uses the bits of `src/kernel/uos_privs.h`: `SYSTEM` bit 0, `OPER` bit 1, `SECURITY` bit 2, `READALL` bit 3. Each module keeps its own names, such as `DCL_PRIV_OPER` or `UAF_PRIV_OPER`, as aliases, and static asserts check them.
 
@@ -188,13 +189,15 @@ The rule: from the moment a panic is possible, the maintenance port answers. The
 
 A panic before the `service` markers has no service to shut down, so it prints no `ev=shutdown` marker.
 
+When `UOS.CFG` turns the hardware watchdog on, the panic leaves it running with no kicks, so the board resets once its timeout ends, after the outputs went safe. See [The watchdogs](#the-watchdogs).
+
 When the MMU is on, it stays on in the panic path. The vectors, the stacks and the framebuffer stay mapped, so the screen and the port keep working.
 
 ## Reboot and halt
 
 `uos_reboot(source)` shuts the services down with `why=reboot`, prints `ev=reboot source=<source>`, turns the MMU and the data cache off with `mmu_disable()`, which cleans every dirty line to memory, and resets the board through the watchdog.
 
-`uos_halt()` masks IRQs, shuts the services down with `why=halt`, sets the phase to `halt`, prints `ev=halt`, then `ev=idle`, and polls the maintenance port for good, as the panic path does.
+`uos_halt()` masks IRQs, shuts the services down with `why=halt`, sets the phase to `halt`, prints `ev=halt`, then `ev=idle`, and polls the maintenance port for good, as the panic path does. The device service's shutdown stops a running hardware watchdog on halt, so the terminal stays halted.
 
 ## The maintenance port
 
@@ -263,13 +266,14 @@ Test builds put a service named `testfail` first, whose init returns -5, so the 
 | 2 | `vfs` | `src/vfs/vfs.h` | the card the kernel mounted |
 | 3 | `console` | `src/console/con.h` | the screen stack |
 | 4 | `session` | `src/session/sess.h` | `vfs` for `SYSUAF.DAT`, `console` for the prompts, the first screen |
-| 5 | `devices` | `src/dev/devs.h` | `vfs` for `DEVICES.CFG` and `DEV:` |
-| 6 | `holo` | `src/holo/holoscr.h` | `vfs` for the tapes, `console` for the pager, `session` for the user's rights |
-| 7 | `hack` | `src/hack/hackscr.h` | `vfs` for the word lists, `session` for its rules, the lock and the session |
+| 5 | `shell` | `src/shell/sh.h` | `session` for the user and the next screen, `vfs`, `console`, `DEV:` |
+| 6 | `devices` | `src/dev/devs.h` | `vfs` for `DEVICES.CFG` and `DEV:` |
+| 7 | `holo` | `src/holo/holoscr.h` | `vfs` for the tapes, `console` for the pager, `session` for the user's rights |
+| 8 | `hack` | `src/hack/hackscr.h` | `vfs` for the word lists, `session` for its rules, the lock and the session |
 
-The session comes after the file system and the console, which it uses. It comes before the devices so that the devices stay last: they stop first. Nothing in the device service uses the session; a device command gets its caller's privileges as an argument.
+The session comes after the file system and the console, which it uses. The shell comes after the session, whose `sess_set_next()` it calls at init. Both come before the devices so that the devices stay last: they stop first. Nothing in the device service uses the session; a device command gets its caller's privileges as an argument.
 
-Shutdown runs in reverse: `hack`, `holo`, `devices`, `session`, `console`, `vfs`, `uptime`. The two screen services have no shutdown work: they hold memory only. So on a reboot, a halt and a panic the device service is the first service with work, and it drives every output safe before anything else stops. Its `devsafe` lines and `devdown` come right after `ev=shutdown name=devices` and before `ev=shutdown name=console`. `test_link.py` checks this order for all three causes.
+Shutdown runs in reverse: `hack`, `holo`, `devices`, `shell`, `session`, `console`, `vfs`, `uptime`. The two screen services have no shutdown work: they hold memory only. The shell has no `shutdown`. So on a reboot, a halt and a panic the device service is the first service with work, and it drives every output safe before anything else stops. Its `devsafe` lines and `devdown` come right after `ev=shutdown name=devices` and before `ev=shutdown name=console`. `test_link.py` checks this order for all three causes.
 
 A file write cannot be cut by a reboot. `vfs_write_all()` runs in one loop pass, and the `reboot` command waits for the next one. A stepped copy can be cut between two steps. Its new content sits in a work file, and the target keeps its whole old content. The next call that looks at the target removes the work file. `test_link.py` reboots during a 1 MiB copy over a file and checks both. A power cut during a write is not tested: the library's atomic write states that guarantee.
 
@@ -295,6 +299,8 @@ Every command each service registers. The `fs`, `readline`, `page` and `osk` com
 | `dev list\|set\|rec` | `devices` | Devices, commands, the pin record, see [Devices](#devices) |
 | `dev sense`, `dev hang`, `dev stall` | `devices` | Test builds only |
 | `sess state\|logout` | `session` | The login state and the session, see [Session](#session) |
+| `sh state\|run` | `shell` | The prompt state; a command line run as the session, see [The shell](#the-shell) |
+| `sh hold`, `sh prog` | `shell` | Test builds only: hold a command between two steps; register and end a test program for `RUN` |
 | `sess login <user>` | `session` | Test builds only: a session with no password |
 | `button <key>` | `console` | Test builds only: a key from the GPIO source, which opens the on-screen keyboard during a read |
 | `holo open\|list\|pick <n>\|state` | `holo` | The holotape reader, see [Holotape reader](#holotape-reader) |
@@ -306,8 +312,8 @@ Every command each service registers. The `fs`, `readline`, `page` and `osk` com
 
 1. Write the service in its own file, for example `src/mail/svc.c`, ending with `const uos_service_t uos_svc_mail = { "mail", mail_init, NULL, mail_shutdown };`.
 2. In `src/kernel/services.c`, add one line `extern const uos_service_t uos_svc_mail;` under the comment "One extern per service".
-3. In the same file, add one line `&uos_svc_mail,` in the `services[]` array between `/* BEGIN SERVICES */` and `/* END SERVICES */`. Put it after every service it uses: the order is the start order.
-4. Add the name to `SERVICES` in `tests/uos.py`, so the boot order tests expect its marker.
+3. In the same file, add one line `&uos_svc_mail,` in the `services[]` array between `/* BEGIN SERVICES */` and `/* END SERVICES */`. Put it after every service it uses: the order is the start order. Keep `&uos_svc_devices,` last, so the outputs go safe before any other service stops.
+4. Add the name to `SERVICES` in `tests/uos.py`, so the boot order tests expect its marker, and its commands to `SERVICE_COMMANDS`, so the `help` test expects them.
 
 ### How to add a maintenance command
 
@@ -346,7 +352,8 @@ Every call that touches the card runs from the loop only. The service reads `uos
 - A read-only card keeps its work files. `settle()` then finds the name that holds the content, by the library's recovery table, and reads it. Reads, `stat` and listings work and show the real name. Every write, delete, rename, copy or folder creation fails with `VFS_E_READONLY`.
 - Listings never show work files. A work file that holds a file's content after recovery is listed under the file's name. A listing changes nothing on the card. `DEV:` names are never touched.
 - `vfs_list()` returns the first `max` entries in the path module's order, and the total. It hides work files, names that are not 8.3 and entries the access table hides from the caller. Dates are FAT dates, shown as `DD-MMM-YYYY HH:MM:SS`.
-- `vfs_iter_begin()` resolves a wildcard to at most 128 files and checks access per file. DELETE, RENAME and COPY use it.
+- `vfs_iter_begin()` resolves a wildcard to at most 128 files and checks access per file. DELETE, RENAME and COPY use it. `skipped` counts every refused match, from the listing filter and from the check for the operation. With no match left, `VFS_E_NOFILES` and `skipped > 0` mean every match was refused.
+- `vfs_list_keep()` tells a refused match, `VFS_KEEP_REFUSED`, from no match, `VFS_KEEP_NO`. `vfs_last_refused()` gives the refused entries of the last `vfs_list()`.
 - `vfs_copy_begin()` and `vfs_copy_step()` copy in steps of 16 KiB. The new file is written as `~NAME` and moved into place through `#NAME`, the library's recovery names. `vfs_copy()` runs every step in one call, for small files.
 - `vfs_dev_register()` takes the device service's `read`, `write` and `list` hooks for `DEV:` names. Without hooks, `DEV:` calls return `VFS_E_NODEV`. A `list` hook that fails on index 0 makes the listing `VFS_E_NODEV` too.
 - `vfs_sys_read_all()` and `vfs_sys_write_all()` skip the access check, for system files such as `/UOS/SYSUAF.DAT`.
@@ -409,7 +416,7 @@ Maintenance commands, for tests and operators:
 | Command | Answer |
 |---|---|
 | `readline <flags> <max> [prompt]` | `ok`, then `ev=line state=reading` and, when the read ends, `ev=line result=<ok\|cancel> len=<n> text=<"text"\|masked>`. Flags are `-`, or `m` for masked and `h` for no history. The text shows a blank, a quote and `%` as `%XX`, and stops at 160 characters with `cut=1`. `err busy` while a read runs, and the refused command leaves the running read's flags alone. |
-| `page <short\|long\|empty\|big>` | A built-in test text. `ev=page top=<n> shown=<n> lines=<n>` on show and on each move, `ev=page result=done` when left. `err busy` while a pager runs. |
+| `page <short\|long\|empty\|big>` | A built-in test text. `ev=page top=<n> shown=<n> lines=<n>` on show and on each move, `ev=page result=done` when left, `ev=page result=cancel` when left with Ctrl-C. `err busy` while a pager runs. |
 | `osk <open\|close\|state>` | `open` and `close` act on the active read, else `err no line`. `state` answers `osk open= layer= row= col= line= reading=`. The keyboard marks `ev=osk state=open` and `ev=osk state=closed`. |
 
 ### Session
@@ -456,6 +463,129 @@ The password check costs 2000 to 3999 SHA-256 compressions. It runs at most 256 
 The console's read, pager and pause screens have a `leave` callback: when another caller pops them, they end without calling back, and the read wipes its text. A logout uses this.
 
 `UOS_USER_NAME_MAX` is 16, the longest `SYSUAF.DAT` name, so `state` shows a whole name.
+
+### The shell
+
+The `shell` service, `src/shell/`, is the screen after login: a DCL prompt in the style of a RobCo terminal, and the one executor that runs a command line for every caller. [COMMANDS.md](COMMANDS.md) is the reference of every verb.
+
+| File | Role |
+|---|---|
+| `shrules.c` | Pure, prefix `sh_`: the error map, the `/CONFIRM` answers and steps, the file loop counts and their final message, the `HELP` file lookup, the program registry, text and number formats, the marker quoting. Host tests in `test_shell.c`. |
+| `shell.c` | The screen, the prompt, the executor, the service and the `sh` command |
+| `shcmds.c` | The commands on files, `SET`, `SHOW`, `HELP`, `RUN`, `DEVICE` and the session verbs |
+| `shuaf.c` | `AUTHORIZE` and `SET PASSWORD`, the commands that write `SYSUAF.DAT` |
+
+#### The screen and the prompt
+
+Its init calls `sess_set_next()`, so the welcome screen hands over to the `shell` screen. The prompt is `$ `, read with `con_read_line()` and its history. The line goes to `dcl_line_add()`:
+
+- `DCL_CONTIN`: the line ends with `-`; the shell reads more at `_$ `.
+- A complete line goes to `dcl_parse()` with `dcl_uos_table`. `DCL_INSFPRM` asks `_<prompt>: `, such as `_File: `, appends the answer and parses again. An empty answer asks again. Ctrl-C at any prompt drops the line.
+- `dcl_check_privs()` checks the parsed command against the session's mask before anything runs.
+
+Output goes through `con_print()`, so it scrolls in the console's text rows and also reaches the PL011. The shell keeps the last 40 rows it printed and repaints them when it becomes the top screen again, after the pager or the on-screen keyboard. `TYPE /PAGE` uses `con_page_text()`.
+
+#### The executor
+
+One command runs at a time, for the prompt and every other caller together. Other screens call `src/shell/sh.h`:
+
+| Call | Context | Does |
+|---|---|---|
+| `sh_run_line(line, flags, cb, ctx)` | loop | Runs one line as the logged-in user, with the shell's current folder. `SH_RUN_QUIET` keeps the output off the console. The callback gets a status, `SH_OK`, `SH_WARN`, `SH_FAIL` or `SH_CANCELLED`, and the final message's first line. A missing parameter or a bad line runs as a command that fails: only the prompt asks for a parameter. Returns 0 and calls `cb` exactly once, maybe before it returns; `cb` may be NULL. Or returns `SH_ERR_DOWN`, `SH_ERR_ARG` for NULL, an empty or comment-only line or one over `DCL_LINE_MAX`, `SH_ERR_BUSY` or `SH_ERR_NOUSER`, checked in that order, and never calls `cb`. `SH_RUN_QUIET` keeps output and messages off the console; a question still shows. |
+| `sh_busy()` | any | Non-zero while a command runs |
+| `sh_program_register(name, start)` | loop | A program for `RUN`. `start(args, done, tag)` pushes its screen, returns 0, and calls `done(tag, status, text)` once, with the tag it got. Status 0 is success, `SH_CANCELLED` is Ctrl-C, anything else a failure. Its screen owns the keys, so it must end the run with `SH_CANCELLED` on Ctrl-C. Returns `SH_ERR_DOWN` before the shell service started. A name with no entry answers `%UOS-W-NOTINST, <NAME> is not installed in this build`. At most 8 programs. |
+
+The terminal menu runs its `COMMAND` entries through `sh_run_line()`. Questions a command asks, such as `/CONFIRM` or a password, are read with `con_read_line()` on top of the caller's screen.
+
+#### The command state machine
+
+A command is a table entry of `start`, `step` and `stop` functions. `start` and `step` return one of three values, and the executor drives them:
+
+```mermaid
+stateDiagram-v2
+    [*] --> parse: a line
+    parse --> done: syntax error, missing privilege
+    parse --> start
+    start --> step: SH_MORE, a posted call
+    step --> step: SH_MORE
+    start --> wait: SH_WAIT, a read, the pager or a program
+    step --> wait: SH_WAIT
+    wait --> step: the callback, SH_MORE
+    wait --> done: the callback, SH_DONE
+    step --> done: SH_DONE
+    start --> done: SH_DONE
+    step --> done: Ctrl-C, the session ended
+    done --> [*]: stop, /OUTPUT file, message, marker, callback
+```
+
+- A step does a bounded piece of work. The next step is posted to the loop, so input, ticks and the device watchdog run between two steps. The bound of each step:
+
+| Command | One step | Bound |
+|---|---|---|
+| `TYPE`, `HELP` printing | 8 display rows | A long line counts one row per 80-column segment. `sh_next_row()` reads at most 81 bytes ahead, so a step costs the same for a 1 MiB line as for short ones. |
+| `TYPE` read | `vfs_read_all()` of one file | 1 MiB, `SH_TYPE_MAX`, in one call. Measured in QEMU: 28 to 34 ticks on raspi0, raspi1ap and raspi2b, 143 to 180 on raspi3b. The vfs service has no stepped read. |
+| `HELP` read | one help file | 64 KiB, `SH_OUT_MAX` |
+| `TYPE /PAGE` | `con_page_text()` | Copies and indexes at most 1 MiB in one call |
+| `DIRECTORY` start | `vfs_list()` | One pass over the folder's entries, each a filter and an insert into at most 256 kept ones. The folder's size bounds it: FAT allows 65536 entries. |
+| `DIRECTORY` rows | 8 rows | Text up to 64 KiB for `/OUTPUT` |
+| File loops start | `vfs_iter_begin()` | One pass over the folder, at most 128 matches kept |
+| File loops | one file: a delete, a rename, a question | One vfs call |
+| `COPY` | one `vfs_copy_step()` | 16 KiB |
+| `SHOW DEVICES` | every device, in `start` | 32 entries, `DEV:` reads of 256 bytes |
+| `AUTHORIZE LIST` | every user, in `start` | 32 users, `UAF_MAX_USERS` |
+| End of a command | `/OUTPUT` write | 64 KiB, one atomic write |
+
+- Ctrl-C ends the running command with `%UOS-I-CANCEL`, `rc=CANCEL` in the end marker and `SH_CANCELLED` for the caller, whichever screen takes the key. The screen on top owns Ctrl-C and reports it to the shell through its callback; the shell never reads another screen's keys. The table lists each state.
+- Ctrl-C on the shell screen while a command steps sets a flag; the next step ends the command. A command that waits on a program with no screen of its own gets a step posted, so Ctrl-C ends it too.
+
+| State while a command runs | Screen with the keys | Ctrl-C |
+|---|---|---|
+| Steps: a copy, a loop, a listing, a long `TYPE` | shell | Flag, the next step ends the command |
+| `TYPE /PAGE` | pager | The pager pops and calls back `CON_CANCEL`; the shell ends the command |
+| `/CONFIRM` question | read | `CON_CANCEL`; the shell ends the command. `Q` instead stops the loop and reports the files done |
+| Masked password of `SET PASSWORD` or `AUTHORIZE` | read | `CON_CANCEL`; the command ends, nothing written |
+| `CREATE` text lines | read | `CON_CANCEL`; the command ends, no file made |
+| On-screen keyboard over any read | read | The keyboard passes characters to the line editor, so the same as the read |
+| A program with its own screen | the program | The program calls `done()` with `SH_CANCELLED` |
+| A program with no screen | shell | A step is posted that ends the command |
+| The pause screen | none | No command uses `con_pause()` |
+
+  Files follow the atomic rules: a file a loop finished stays, a copy in progress is aborted and its work file removed, `CREATE` and `/OUTPUT` write nothing. `stop` frees what the command holds: a running copy is aborted and its work file removed.
+- Each command run gets an identity, a number from 1 that grows with every run. Every callback the shell hands out carries it as its context: the posted step, the `con_read_line()` of a `/CONFIRM` question, a `CREATE` line or a masked password, the `TYPE /PAGE` pager, and a program's `done()`. A callback whose identity is not the running job's comes from an ended run: the shell ignores it and prints `sh stale=<step|read|pager|prog> id= cur=`. So a program that ends after its run was cancelled cannot end a later `RUN` with its result. At most one step is posted at a time.
+- When the session ends under a command, the shell's `tick` ends it the same way: a logout pops every screen, so a read or a program it waited on never calls back.
+- Every error goes through `sh_err_msg()`, the one map from file system, `DEV:`, path and user database codes to `dcl` messages. `DEV:` codes keep the device service's meaning: a sensor gives `%DEVICE-E-SENSOR`, a bad action word `%DEVICE-E-IVACT`.
+- File loops walk `vfs_iter_begin()`, which checks access per matched file, and count done, failed, refused and declined files. `sh_tally_result()` gives the final message. The refused count comes from the listing filter, `vfs_list_keep()`, as well as from the per-file check, so a wildcard whose matches are all refused is `%UOS-E-NOPRIV`, not `%UOS-W-NOFILES`. `DIRECTORY` reads the same count from `vfs_last_refused()`.
+- `/OUTPUT` text collects in a buffer. When the command ends, `sh_output_write()` decides: only a final message of severity `S` or `I`, not cancelled, replaces the file, with one `vfs_write_all()`, which is atomic. Every other end leaves the file as it was and prints `cmd output=kept`.
+
+#### Passwords and the user database
+
+`SET PASSWORD` and `AUTHORIZE ADD` and `MODIFY /PASSWORD` read passwords with `CON_RL_MASK`. A password never comes from the command line: `AUTHORIZE`'s `/PASSWORD` takes no value. Each change copies the session's database, edits it with the `uaf_` calls, salts a new password from the hardware RNG, writes the image with `vfs_sys_write_all()` and calls `sess_reload()`. The buffers are wiped when the command ends. One hash, 2000 iterations, runs in one loop pass: the cost of one login check, 7 to 18 ms in QEMU, not stepped.
+
+#### Markers and the `sh` command
+
+| Marker | When |
+|---|---|
+| `sh state=prompt kind=<cmd\|contin\|param\|confirm\|line\|password> n= rc=` | A read starts |
+| `cmd state=start verb=<VERB[_KEY]> src=<shell\|port\|api>` | A command starts |
+| `cmd file=<quoted> op=<copy\|delete\|rename\|type> result=<ok\|skip\|IDENT>` | One file of a file loop |
+| `cmd output=<written\|kept\|toobig\|failed> verb=` | A command with `/OUTPUT` ends, before its end marker |
+| `cmd state=end verb= rc=<IDENT> sev= files= skipped= failed= steps= maxticks=` | A command ends |
+| `sh stale=<step\|read\|pager\|prog> id= cur=` | A callback of an ended run, ignored |
+| `sh held=1 id=`, `sh prog=<reg\|start\|done>` | Test builds: `sh hold` and the test program |
+| `term scheme=<name>` | `SET TERMINAL /SCHEME` |
+| `uaf result=written users=` | `SYSUAF.DAT` was written |
+| `sh run=done status= result=<quoted>`, `sh run=refused rc=` | The end of `sh run` |
+
+No marker holds a password or a command line.
+
+| Command | Answer |
+|---|---|
+| `sh state` | `sh state=<idle\|prompt\|running> kind= ask= verb= pending= prompts= runs= id=`. `pending` counts input events the loop has not taken yet. `id` is the running job's identity, 0 when idle. |
+| `sh api <-\|q> [null\|long\|<quoted line>]` | Test builds. Calls `sh_run_line()` with flags 0 or `SH_RUN_QUIET` on the line, an empty line, NULL or a line one byte over `DCL_LINE_MAX`. Prints `sh api=call rc= cbs=` and, per callback, `sh api=done n= status= result=`. |
+| `sh hold <1\|0>` | Test builds. 1: the next step of a command waits and prints `sh held=1`; Ctrl-C still cancels it. 0: it runs on. |
+| `sh prog reg <NAME>` | Test builds. Registers a test program for `RUN <NAME>`. It pushes no screen and prints `sh prog=start n=` per run. |
+| `sh prog done <n> <status>` | Test builds. Ends the n-th run of the test program, with the tag that run got, even after its job ended. |
+| `sh run <line>` | Runs the line as the session. The line is quoted as the console's markers quote text: a blank is `%20`. A read at the prompt gives way and comes back after. |
 
 ### Holotape reader
 
@@ -504,26 +634,30 @@ The word list is read with `vfs_sys_read_all()`: `/UOS/WORDS` is SYSTEM-only, an
 
 The `devices` service, in `src/dev/devglue.c`, applies `/UOS/DEVICES.CFG` to the GPIO pins. Its rules are pure, in `devcfg.c`, `devstate.c` and `devsplan.c`. Other services call `src/dev/devs.h`, prefix `devs_`. Nothing here is validated on real hardware.
 
-Init registers the `DEV:` hooks with the file system, then reads the file with `vfs_sys_read_all()`, at most 8 KiB. It parses it with `DV_REFUSED_UOS`. The library cannot say which pins its input layer claimed. When the input layer's GPIO backend runs, the service also refuses every button and dial pin; today that backend is off. Init then sets every pin and starts the watchdog. Its markers:
+Init registers the `DEV:` hooks with the file system, then reads the file with `vfs_sys_read_all()`, at most 8 KiB. It parses it with `DV_REFUSED_UOS`. The library cannot say which pins its input layer claimed. When the input layer's GPIO backend runs, the service also refuses every button and dial pin; today that backend is off. Init then attaches each declared expander chip, sets every pin and starts the software watchdog. Its markers:
 
 | Marker | Meaning |
 |---|---|
 | `devcfg result=<ok\|syntax\|missing\|bad\|skipped> loaded=...` | The file and the parse summary. `missing`, `bad` and `skipped` load no device and the system stays up. |
 | `deverr name= line= why=<IDENT>` | One per skipped device or bad expander, up to 8 |
 | `devwarn name= line= why=PULLUP` | One per warning, up to 8 |
+| `devexp chip= addr= result=<ok\|absent\|bus\|addr\|error> rc=` | One per declared expander chip: `gpiox_attach()` answered |
 | `devboot count= arm=<name\|none>` | The boot operations ran |
-| `devfail name= op=<config\|write\|read\|pulse> rc= why=` | An operation failed, such as `NOEXPDRV` on an expander pin |
+| `devfail name= op=<config\|write\|read\|pulse> rc= why=` | An operation failed, such as `EXPABSENT` on a pin of a chip that did not answer |
 | `devfault name= result=failing op=<config\|write\|pulse> owed= rc= why=` | A write to the safe level failed: a fault starts |
 | `devfault name= result=cleared fails= state=` | The owed write succeeded after `fails` failed tries |
 | `devarm name= result=held why=unreachable count=` | Boot: `ARM` stays off because `count` other outputs did not reach their initial level |
 | `devarm name= result=on why=unreachable count=` | An operator switched `ARM` on while `count` other outputs are unreachable |
-| `wdog result=<on\|off\|expired> timeout_ms=15000` | The watchdog |
+| `wdog result=<on\|off\|expired> timeout_ms=15000` | The software watchdog |
 | `dev name= state= by=<source>` | A state change: `maint`, `dev`, a caller's word, `pulse` or `sensor` |
-| `devsafe name= pin= level= rc= tries=`, `devdown why= count=` | The safe state at shutdown, one `devsafe` per write |
+| `devsafe name= pin= level= rc= tries=`, `devdown why= count=` | The safe state at shutdown, one `devsafe` per write. `pin` is `12` or `X0.3`. A skipped expander write has `rc=-44 tries=0` |
+| `hwdog result=off why=setting` | Init: the hardware watchdog stays off |
+| `hwdog result=start timeout_ms=`, `hwdog result=<on\|err> timeout_ms= rc=` | The hardware watchdog starts |
+| `hwdog result=<left\|stopped> why= remaining_ms=` | Shutdown: what happened to a running hardware watchdog |
 
 The init markers come after `ev=service name=console` and before `ev=service name=devices`.
 
-The `dev` maintenance command: `dev list` gives `dev count=N`, the header and one status line per device. `dev set <name> <action> [privs]` runs a command with the privilege bits given, `SYSTEM` by default, and answers `dev name= state=` or `err <message>`. `dev rec` gives `rec count= total=`, then the pin record, oldest first. Test builds add `dev sense <name> <0|1>`, which replaces a sensor's pin read, `dev fail <name> <writes>`, which makes the next writes to a Pi pin fail, `dev hang`, which stops the watchdog kicks, and `dev stall <ticks>`, which keeps the loop busy. QEMU cannot drive a Pi GPIO input from outside, and the library's harness has no way to inject a GPIO level, so the sensor tests use `dev sense`.
+The `dev` maintenance command: `dev list` gives `dev count=N`, the header and one status line per device. `dev set <name> <action> [privs]` runs a command with the privilege bits given, `SYSTEM` by default, and answers `dev name= state=` or `err <message>`. `dev rec` gives `rec count= total=`, then the pin record, oldest first. `dev hwdog` gives `hwdog running= timeout_ms= remaining_ms= held=` from the library's `wdog.h`. Test builds add `dev sense <name> <0|1>`, which replaces a sensor's pin read, `dev fail <name> <writes>`, which makes the next writes to a Pi pin fail, `dev hang`, which stops the kicks of both watchdogs, and `dev stall <ticks>`, which keeps the loop busy. QEMU cannot drive a Pi GPIO input from outside, and the library's harness has no way to inject a GPIO level, so the sensor tests use `dev sense`.
 
 #### Ticks, pulses and sensors
 
@@ -537,9 +671,12 @@ Sensors are read every 50 ms. A change counts after 3 equal reads in a row, so i
 - At boot every output is set to its initial level, in file order, with `gpio_config_output()`, which sets the level before the pin becomes an output.
 - A relay named `ARM` switches the supply of every load. It is set last at boot. It goes off first at shutdown.
 - `ARM` is switched on at boot only if every other output was written to its initial level. No other name or type gets special treatment.
-- Shutdown on reboot, halt and panic, and the watchdog, drive `ARM` off, then every other output to its initial level in reverse file order. They use direct GPIO writes only: no timers, no allocation, safe with IRQs off.
+- The `ARM` rule: an expander output is usable only when the file has a relay named `ARM` on a Pi pin that is off at reset. Off at reset means the pin's reset pull is not its active level: GPIO 0 to 8 pull up, 9 to 27 pull down, so `ARM` on GPIO 25 must be `active = high`. The parser checks it after the whole file. When it fails, every expander output, `ARM` too when it sits on an expander, is refused with `%DEVICE-E-NOARM, expander output needs an ARM relay on a Pi pin off at reset`. The error is counted and named in a `deverr why=NOARM` marker. A refused output stays in the table but is never configured or written, its status line ends with ` REFUSED=NOARM`, and every command to it fails with that message. Expander inputs, Pi pins and the rest of the system keep working. A refused output counts as unreachable, so a Pi `ARM` stays off at boot while one exists. The reason: on a panic and from the software watchdog nothing but `ARM` can cut an expander output, see the next rules.
+- Shutdown on reboot, halt and panic, and the software watchdog, drive `ARM` off, then every other output to its initial level in reverse file order. No timers, no allocation, safe with IRQs off. Pi pins get direct GPIO writes. Expander pins: see the next rule.
+- On reboot and halt, expander outputs go safe through the driver, polled, each I2C transfer bounded by a deadline on the system timer. On panic and from the software watchdog, no I2C transfer starts: each expander write is skipped with `DEVS_ERR_SKIP`, `%DEVICE-W-NOTWRITTEN`, and the pin keeps its level. The reason: a panic can come from inside the I2C driver or the controller, or from damaged memory that holds the driver's shadow registers, and the software watchdog runs in IRQ context, which `i2c.h` does not allow, while the hung loop may sit inside a transfer. `ARM`, on a Pi pin by the `ARM` rule, still goes off first and cuts the supply of every load.
+- What a user gets on panic and on software-watchdog expiry: `ARM` reads off on its Pi pin. Each expander output keeps the value in its chip's output register but has no load supply. The `devsafe` line of each has `rc=-44 tries=0`. The software watchdog then reboots. After a panic the terminal stays in the panic screen, unless the hardware watchdog is on: then its reset follows. A PCA9554 keeps its output register across a Pi reset, since only its own power-on resets it. So at the next boot the old level is still there, with `ARM` off. Boot writes every output to its `initial` level first and switches `ARM` on last, only when all of them got there. A chip that does not answer keeps `ARM` off. No order lets `ARM` come back on while an expander output holds a level the system did not choose at this boot. Between the Pi reset and boot, `ARM` rests at its pin's reset pull, which the `ARM` rule makes its off level.
 - A failed pin write never leaves the model saying a state the pin does not have. See "Pin faults".
-- An expander device loads and is listed. Every operation on it fails with `%DEVICE-E-NOEXPDRV, expander not available in this build`. The library has no expander driver yet. `exp_write`, `exp_config` and `exp_read` in `devglue.c` are the three functions a driver replaces.
+- Expander pins go through the library's PCA9554 driver, `gpiox.h`. Init attaches each declared chip once. A chip that does not answer never blocks the boot: the probe is one bounded transfer. Its devices load and are listed, every operation on them fails with `%DEVICE-E-EXPABSENT, expander chip did not answer at boot`, their outputs show ` UNREACHABLE`, and `ARM` stays off. The chip is not tried again until the next boot.
 
 #### Pin faults
 
@@ -552,8 +689,8 @@ A GPIO or expander write can fail. The rule: after a failed write, the model nev
 - `SHOW DEVICES`, `dev list` and `DEV:` reads show ` FAULT=<count>` after the pin while the fault lasts.
 - A device in fault refuses every command with `%DEVICE-E-PINFAULT, a pin write failed and is retried; command refused`. A queued command could fire long after the operator gave it, so none is kept.
 - A failed write away from the safe level starts no fault. The command fails with its code, `%DEVICE-E-IOERR` for a Pi pin, and the state stays as it was.
-- `NOEXPDRV` starts no fault: without an expander driver, the pin was never driven. At boot the output is off and marked unreached. Its line shows ` UNREACHABLE` until a write to it succeeds.
-- An output is unreachable while it is in fault or unreached. `ARM`'s line shows ` UNREACH=<count>` while any other output is unreachable.
+- `EXPABSENT` starts no fault: a chip that did not answer at boot was never driven. At boot the output is off and marked unreached. Its line shows ` UNREACHABLE` until a write to it succeeds. A bus error on an attached chip is `IOERR` and follows the rules above, so a failed write to the safe level is owed and retried every tick.
+- An output is unreachable while it is in fault, unreached, or refused by the `ARM` rule. `ARM`'s line shows ` UNREACH=<count>` while any other output is unreachable.
 
 Each write site:
 
@@ -563,16 +700,27 @@ Each write site:
 | Command to the safe level, such as `LOCK` | Fault, `PINFAULT` to the caller. A pending pulse end is cancelled: the fault owes the same write. |
 | Command away from the safe level, such as `UNLOCK` | `IOERR` to the caller, state unchanged, nothing owed. |
 | Pulse start | As the command away from the safe level. No pulse end is set. |
-| Boot, `DEVICES.CFG` loaded | `devfail op=config`. The output is off. A Pi GPIO error, a refused pin or an expander driver error starts a fault with its `CONFIG_OUTPUT` owed. `NOEXPDRV` marks the output unreached. |
+| Boot, `DEVICES.CFG` loaded | `devfail op=config`. The output is off. A Pi GPIO error, a refused pin or an expander driver error starts a fault with its `CONFIG_OUTPUT` owed. `EXPABSENT` marks the output unreached. |
 | Boot, `ARM` | Any failed output counts, with a fault or not. `ARM` is then written off instead of its initial level, with a `devarm result=held` marker. |
 | Command, `ARM` on | Allowed while outputs are unreachable: the operator decides, as on a real panel. The answer reads `ON, <n> outputs unreachable` and a `devarm result=on` marker follows. |
-| Shutdown on reboot, halt and panic | Each write is tried 3 times, then the next device comes. Each write gives one `devsafe` marker with its `rc` and `tries`. |
+| Shutdown on reboot, halt and panic | Each write is tried 3 times, then the next device comes. Each write gives one `devsafe` marker with its `rc` and `tries`. On panic an expander write is skipped, not tried: `tries=0`, no fault, the state stays. |
 | Shutdown, `ARM` off fails | The other outputs still go to their initial level. That level is safe with or without the supply. |
-| The watchdog | It runs the shutdown sequence, so the same bound applies. |
+| The software watchdog | It runs the shutdown sequence, so the same bound applies. Expander writes are skipped as on panic. |
 
-#### The watchdog
+#### The watchdogs
 
-The library has no watchdog start or kick call: `power.h` only resets. QEMU resets at once on a write of the watchdog's reset register, so a hardware watchdog could not be tested there either. The service runs a software watchdog instead. When at least one output is configured, init adds a tick callback. The loop kicks it from the service's `tick`. When no kick comes for 15 s, the callback, in IRQ context, drives the outputs safe and calls `power_reboot()`. The callback needs IRQs, so it does not reset the system after a panic or a halt, which run with IRQs off. Shutdown stops the kicks after it drives the outputs safe. A hardware watchdog that also covers those cases waits on a library feature.
+The software watchdog stays the tested path. When at least one output is configured, init adds a tick callback. The loop kicks it from the service's `tick`. When no kick comes for 15 s, the callback, in IRQ context, drives the outputs safe and calls `power_reboot()`. The callback needs IRQs, so it does not reset the system after a panic or a halt, which run with IRQs off. Shutdown stops the kicks after it drives the outputs safe.
+
+The hardware watchdog is the library's `wdog.h`, the BCM2835 PM watchdog. QEMU 10.1 does not count it: `wdog_start()` resets the board at once on all four boards. So it is a `UOS.CFG` setting, `[watchdog] enabled`, off by default and off on every test card, with `timeout_ms` 1000 to 15000, 8000 by default. The rules are pure, in `src/kernel/hwdog.c`, `uos_hwdog.h`, with host tests. When it is on:
+
+- It starts on the device service's first tick in the ready phase, after every service is up. Every service's `init`, the session's read of `SYSUAF.DAT` included, runs before the ready phase, so no start-up work delays a kick. The shortest timeout, 1000 ms, is 100 ticks, and a kick comes every 25 ticks, 250 ms.
+- The service's `tick` kicks it, the place that already proves the loop alive for the software watchdog, every quarter of the timeout. No IRQ kicks it, so a hung loop is never kept alive. `dev hang` stops these kicks too.
+- Panic: the outputs go safe, then the kicks stop and the watchdog keeps running. The board resets when the timeout ends, and the boot sets every output to its initial level.
+- Halt: the outputs go safe, then `wdog_stop()`. A halt is a deliberate stop, so the terminal stays halted until someone resets it.
+- Reboot: the kicks stop. `power_reboot()` resets the board through the same block anyway.
+- It covers what the software watchdog cannot: a hang with IRQs off, and a panic, which then reboots on its own.
+
+The one QEMU test of it, `test_hwdog_on_resets_at_start`, proves only that the setting on resets the board at start. The reset repeats for good, so the test stops at the second start and the harness kills QEMU.
 
 QEMU's reset says nothing about the level of a real Pi's pins during and after a reset. Keeping loads off then is the board's job: pull-downs on the outputs and a load supply switched by the `ARM` relay, off while its pin is low or floating.
 
@@ -593,9 +741,6 @@ The pure files allocate nothing. The file system's whole-file reads take their b
 
 ## Pending library features
 
-These wait on RobCo-Core changes and a pin bump.
+These wait on RobCo-Core changes and a pin bump. The pin `4249632` still lacks them.
 
-- `ini_parse_sections()`. `ini_parse()` reports keys only. A section with no keys is never seen, and a repeated section header is not reported. `src/dev/devcfg.c` and `src/tui/tuicfg.c` will switch to `ini_parse_sections()` so an empty or repeated section is a counted error. Both files carry a note marked `PENDING LIBRARY FEATURE`. Nothing works around it now.
 - Data tapes in `rimg`. `rimg_validate()` cannot accept a data tape, subtype 2, because it looks up a slot first and subtype 2 has none. `tools/rimg.py seal` and `pack` refuse subtype 2 for the same reason. The holo module works around both: `holofmt.c` checks the slot rules itself, and `tools/mkholo.py` writes the header itself. See [holo](modules/holo.md).
-- The I2C expander driver. `DEVICES.CFG` already names expander pins, see [dev](modules/dev.md#expander-pins). The device service fails every expander operation until the library has the driver.
-- A watchdog start and kick call, such as `wdog_start(ms)`, `wdog_kick()` and `wdog_stop()` on the BCM2835 PM watchdog. The device service runs a software watchdog on the tick until then, see [The watchdog](#the-watchdog). That one needs IRQs, so it cannot reset the board after a panic or a halt. Safety there holds by rule: the shutdown drives every output safe and nothing writes a pin afterwards. `test_link.py` checks that the pin record is unchanged for 4 s after a panic and after a halt, with a pulse running. A hardware watchdog would add a reset when the panic path or the halt itself hangs before the outputs are safe, and a reset some time after a panic, so the terminal comes back on its own. A reset then sets every output to its `initial` level again at boot.

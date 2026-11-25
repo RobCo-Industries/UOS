@@ -153,7 +153,7 @@ TEST(cfg_bad_fields_alone)
     expect_bad("privs = 4294967296", DV_ERR_PRIVS);
     expect_bad("privs = oper", DV_ERR_PRIVS);
     expect_bad("pulse_ms = 100\ninitial = on", DV_ERR_INITIAL);
-    CHECK_EQ(g_res.errs[0].line, 2);
+    CHECK_EQ(g_res.errs[0].line, 1);
 }
 
 TEST(cfg_field_limits_good)
@@ -211,7 +211,7 @@ TEST(cfg_duplicates)
                    "[device a]\ntype = light\ngpio = 25\n"), DV_OK);
     CHECK_EQ(g_res.loaded, 1);
     CHECK_EQ(g_res.errs[0].code, DV_ERR_DUPNAME);
-    CHECK_EQ(g_res.errs[0].line, 5);
+    CHECK_EQ(g_res.errs[0].line, 4);
     CHECK_STR(g_res.errs[0].name, "a");
     CHECK_EQ(parse("[device A]\ntype = door\ngpio = 4\n"
                    "[device B]\ntype = light\ngpio = 4\n"
@@ -341,7 +341,7 @@ TEST(cfg_warns_active_high_output_on_reset_pullup)
     CHECK_EQ(g_res.loaded, 1);
     CHECK_EQ(g_res.warn_count, 1);
     CHECK_EQ(g_res.warns[0].code, DV_WARN_PULLUP);
-    CHECK_EQ(g_res.warns[0].line, 2);
+    CHECK_EQ(g_res.warns[0].line, 1);
     CHECK_STR(g_res.warns[0].name, "D1");
     CHECK_EQ(g_res.err_count, 0);
     /* No warning: active low, a sensor, or a pin pulled down at reset. */
@@ -477,12 +477,15 @@ static const char *with_expanders =
     "pulse_ms = 300\n"
     "[device PUMP]\n"
     "type = relay\n"
-    "gpio = 12\n";
+    "gpio = 12\n"
+    "[device ARM]\n"
+    "type = relay\n"
+    "gpio = 13\n";
 
 TEST(cfg_expander_pins_load)
 {
     CHECK_EQ(parse(with_expanders), DV_OK);
-    CHECK_EQ(g_res.loaded, 3);
+    CHECK_EQ(g_res.loaded, 4);
     CHECK_EQ(g_res.err_count, 0);
     CHECK_EQ(g_res.unknown, 0);
     CHECK_EQ(g_set.exp[0].declared, 1);
@@ -516,7 +519,7 @@ TEST(cfg_expander_pin_needs_its_chip)
     CHECK_EQ(g_res.skipped, 1);
     CHECK_EQ(g_res.err_count, 1);
     CHECK_EQ(g_res.errs[0].code, DV_ERR_NOCHIP);
-    CHECK_EQ(g_res.errs[0].line, 5);
+    CHECK_EQ(g_res.errs[0].line, 4);
     CHECK_STR(g_res.errs[0].name, "LAMP");
     CHECK_STR(g_set.dev[0].name, "A");
     CHECK_STR(g_set.dev[1].name, "B");
@@ -579,7 +582,7 @@ TEST(cfg_expander_numbers_and_duplicates)
         CHECK_EQ(parse(buf), DV_OK);
         CHECK_EQ(g_res.err_count, 1);
         CHECK_EQ(g_res.errs[0].code, DV_ERR_EXPANDER);
-        CHECK_EQ(g_res.errs[0].line, 2);
+        CHECK_EQ(g_res.errs[0].line, 1);
     }
     /* The same chip twice: the second one is refused. */
     CHECK_EQ(parse("[expander 0]\naddr = 0x20\n[x]\ny = 1\n[expander 0]\naddr = 0x21\n"), DV_OK);
@@ -592,6 +595,175 @@ TEST(cfg_expander_numbers_and_duplicates)
     CHECK_STR(g_res.errs[0].name, "X1");
     CHECK_EQ(g_set.exp[0].declared, 1);
     CHECK_EQ(g_set.exp[1].declared, 0);
+}
+
+/* ini_parse_sections() shows headers: an empty section is a named error. */
+TEST(cfg_empty_sections_counted)
+{
+    CHECK_EQ(parse("[device A]\ntype = door\ngpio = 12\n"
+                   "[device EMPTY]\n"
+                   "[expander 1]\n"
+                   "; a comment is not a key\n"
+                   "[device B]\ntype = light\ngpio = 13\n"), DV_OK);
+    CHECK_EQ(g_res.loaded, 2);
+    CHECK_EQ(g_res.skipped, 1);
+    CHECK_EQ(g_res.err_count, 2);
+    CHECK_EQ(g_res.errs[0].code, DV_ERR_EMPTY);
+    CHECK_EQ(g_res.errs[0].line, 4);
+    CHECK_STR(g_res.errs[0].name, "EMPTY");
+    CHECK_EQ(g_res.errs[1].code, DV_ERR_EMPTY);
+    CHECK_EQ(g_res.errs[1].line, 5);
+    CHECK_STR(g_res.errs[1].name, "X1");
+    CHECK_EQ(g_set.exp[1].declared, 0);
+    /* The last section of the file, empty, counts too. */
+    CHECK_EQ(parse("[device A]\ntype = door\ngpio = 12\n[device Z]\n"), DV_OK);
+    CHECK_EQ(g_res.err_count, 1);
+    CHECK_EQ(g_res.errs[0].code, DV_ERR_EMPTY);
+    CHECK_STR(g_res.errs[0].name, "Z");
+    /* An empty section of another kind is not a device: nothing counts. */
+    CHECK_EQ(parse("[notes]\n[device A]\ntype = door\ngpio = 12\n"), DV_OK);
+    CHECK_EQ(g_res.err_count, 0);
+    CHECK_EQ(g_res.loaded, 1);
+    CHECK_STR(dv_strerror(DV_ERR_EMPTY), "%DEVICE-E-EMPTY, section has no keys");
+}
+
+/* A header repeated right after itself is a new section, not a merge. */
+TEST(cfg_repeated_sections_counted)
+{
+    CHECK_EQ(parse("[device A]\ntype = door\ngpio = 12\n"
+                   "[device A]\ntype = light\ngpio = 13\n"), DV_OK);
+    CHECK_EQ(g_res.loaded, 1);
+    CHECK_EQ(g_res.err_count, 1);
+    CHECK_EQ(g_res.errs[0].code, DV_ERR_DUPNAME);
+    CHECK_EQ(g_res.errs[0].line, 4);
+    CHECK_STR(g_res.errs[0].name, "A");
+    CHECK_EQ(g_set.dev[0].pin, 12);
+    CHECK_EQ(parse("[expander 0]\naddr = 0x20\n[expander 0]\naddr = 0x21\n"), DV_OK);
+    CHECK_EQ(g_res.err_count, 1);
+    CHECK_EQ(g_res.errs[0].code, DV_ERR_EXPANDER);
+    CHECK_EQ(g_res.errs[0].line, 3);
+    CHECK_EQ(g_set.exp[0].addr, 0x20);
+}
+
+/* An empty or bad first section still takes its header: the repeat is
+ * refused, the first section wins even when it loaded nothing. */
+TEST(cfg_repeat_after_empty_or_bad_section)
+{
+    CHECK_EQ(parse("[device A]\n[device A]\ntype = door\ngpio = 12\n"), DV_OK);
+    CHECK_EQ(g_res.loaded, 0);
+    CHECK_EQ(g_res.skipped, 2);
+    CHECK_EQ(g_res.err_count, 2);
+    CHECK_EQ(g_res.errs[0].code, DV_ERR_EMPTY);
+    CHECK_EQ(g_res.errs[1].code, DV_ERR_DUPNAME);
+    CHECK_EQ(g_res.errs[1].line, 2);
+    CHECK_EQ(parse("[device a]\ntype = bogus\ngpio = 12\n[device A]\ntype = door\ngpio = 13\n"),
+             DV_OK);
+    CHECK_EQ(g_res.loaded, 0);
+    CHECK_EQ(g_res.errs[0].code, DV_ERR_TYPE);
+    CHECK_EQ(g_res.errs[1].code, DV_ERR_DUPNAME);
+    CHECK_EQ(g_res.errs[1].line, 4);
+    CHECK_EQ(parse("[expander 0]\n[expander 0]\naddr = 0x20\n"), DV_OK);
+    CHECK_EQ(g_set.exp[0].declared, 0);
+    CHECK_EQ(g_res.err_count, 2);
+    CHECK_EQ(g_res.errs[0].code, DV_ERR_EMPTY);
+    CHECK_EQ(g_res.errs[1].code, DV_ERR_EXPANDER);
+    CHECK_EQ(g_res.errs[1].line, 2);
+    CHECK_EQ(parse("[expander 1]\naddr = 0x99\n[expander 1]\naddr = 0x21\n"), DV_OK);
+    CHECK_EQ(g_set.exp[1].declared, 0);
+    CHECK_EQ(g_res.errs[0].code, DV_ERR_EXPADDR);
+    CHECK_EQ(g_res.errs[1].code, DV_ERR_EXPANDER);
+}
+
+/* ---- the ARM rule ---- */
+
+static const char *exp_no_arm =
+    "[expander 0]\naddr = 0x20\n"
+    "[device LAMP]\ntype = light\ngpio = X0.3\ninitial = on\n"   /* 3 */
+    "[device PIR]\ntype = sensor\ngpio = X0.4\n"
+    "[device PUMP]\ntype = relay\ngpio = 12\n";
+
+TEST(arm_rule_missing_refuses_expander_outputs)
+{
+    dv_op_t ops[4];
+    char buf[DV_STATUS_LINE_MAX];
+
+    CHECK_EQ(parse(exp_no_arm), DV_OK);
+    CHECK_EQ(dv_arm_ok(&g_set), 0);
+    CHECK_EQ(g_res.loaded, 3);
+    CHECK_EQ(g_res.err_count, 1);
+    CHECK_EQ(g_res.errs[0].code, DV_ERR_NOARM);
+    CHECK_EQ(g_res.errs[0].line, 3);
+    CHECK_STR(g_res.errs[0].name, "LAMP");
+    CHECK_EQ(g_set.dev[0].refused, DV_ERR_NOARM);
+    CHECK_EQ(g_set.dev[1].refused, 0);      /* an expander input still works */
+    CHECK_EQ(g_set.dev[2].refused, 0);      /* a Pi pin too */
+    /* Never configured: no boot operation, state off. */
+    CHECK_EQ(dv_boot_ops(&g_set, ops, 4), 2);
+    CHECK_EQ(ops[0].dev, 1);
+    CHECK_EQ(ops[1].dev, 2);
+    CHECK_EQ(g_set.st[0].on, 0);
+    /* Every command fails with the reason, before any other check. */
+    CHECK_EQ(dv_command(&g_set, 0, DV_ACT_ON, DV_PRIV_SYSTEM, 0, ops, 4), DV_ERR_NOARM);
+    CHECK_EQ(dv_command(&g_set, 0, DV_ACT_NONE, 0, 0, ops, 4), DV_ERR_NOARM);
+    CHECK_EQ(dv_command(&g_set, 2, DV_ACT_ON, DV_PRIV_SYSTEM, 0, ops, 4), 1);
+    CHECK(dv_status_line(&g_set, 0, buf, sizeof(buf)) > 0);
+    CHECK_STR(buf, "LAMP     LIGHT                                  OFF      X0.3 REFUSED=NOARM");
+    CHECK_STR(dv_strerror(DV_ERR_NOARM),
+              "%DEVICE-E-NOARM, expander output needs an ARM relay on a Pi pin off at reset");
+}
+
+TEST(arm_rule_arm_on_expander_refused)
+{
+    CHECK_EQ(parse("[expander 0]\naddr = 0x20\n"
+                   "[device ARM]\ntype = relay\ngpio = X0.1\n"
+                   "[device LAMP]\ntype = light\ngpio = X0.2\n"), DV_OK);
+    CHECK_EQ(dv_arm_ok(&g_set), 0);
+    CHECK_EQ(g_res.err_count, 2);
+    CHECK_EQ(g_res.errs[0].code, DV_ERR_NOARM);
+    CHECK_STR(g_res.errs[0].name, "ARM");
+    CHECK_EQ(g_set.dev[0].refused, DV_ERR_NOARM);
+    CHECK_EQ(g_set.dev[1].refused, DV_ERR_NOARM);
+}
+
+TEST(arm_rule_arm_on_pi_pin)
+{
+    CHECK_EQ(parse("[expander 0]\naddr = 0x20\n"
+                   "[device LAMP]\ntype = light\ngpio = X0.2\n"
+                   "[device ARM]\ntype = relay\ngpio = 25\n"), DV_OK);
+    CHECK_EQ(dv_arm_ok(&g_set), 1);
+    CHECK_EQ(g_res.err_count, 0);
+    CHECK_EQ(g_set.dev[0].refused, 0);
+    /* No expander output: nothing to refuse, whatever ARM is. */
+    CHECK_EQ(parse("[device PUMP]\ntype = relay\ngpio = 12\n"), DV_OK);
+    CHECK_EQ(g_res.err_count, 0);
+    /* An ARM that is not a relay is not ARM. */
+    CHECK_EQ(parse("[expander 0]\naddr = 0x20\n"
+                   "[device LAMP]\ntype = light\ngpio = X0.2\n"
+                   "[device ARM]\ntype = light\ngpio = 25\n"), DV_OK);
+    CHECK_EQ(g_set.dev[0].refused, DV_ERR_NOARM);
+}
+
+/* ARM must be off from the Pi reset until boot: its reset pull is not its
+ * active level. Pins 0 to 8 pull up, 9 to 27 pull down. */
+TEST(arm_rule_arm_off_at_reset)
+{
+    static const struct { const char *pin; const char *active; int ok; } c[] = {
+        { "25", "high", 1 }, { "25", "low", 0 }, { "4", "high", 0 }, { "4", "low", 1 },
+    };
+    char buf[256];
+    unsigned i;
+
+    for (i = 0; i < sizeof(c) / sizeof(c[0]); i++) {
+        snprintf(buf, sizeof(buf), "[expander 0]\naddr = 0x20\n"
+                 "[device LAMP]\ntype = light\ngpio = X0.2\n"
+                 "[device ARM]\ntype = relay\ngpio = %s\nactive = %s\n", c[i].pin, c[i].active);
+        CHECK_EQ(dv_cfg_parse_pins(buf, strlen(buf), DV_REFUSED_UOS, &g_set, &g_res), DV_OK);
+        CHECK_EQ(g_set.count, 2);
+        CHECK_EQ(dv_on_at_reset(&g_set.dev[1]), !c[i].ok);
+        CHECK_EQ(dv_arm_ok(&g_set), c[i].ok);
+        CHECK_EQ(g_set.dev[0].refused, c[i].ok ? 0 : DV_ERR_NOARM);
+        CHECK_EQ(g_set.dev[1].refused, 0);
+    }
 }
 
 TEST(cfg_expander_pin_syntax)
@@ -617,9 +789,10 @@ TEST(cfg_expander_pin_shared)
                    "[device A]\ntype = relay\ngpio = X0.4\n"
                    "[device B]\ntype = relay\ngpio = X0.4\n"
                    "[device C]\ntype = relay\ngpio = X1.4\n"
-                   "[device D]\ntype = relay\ngpio = 4\n"), DV_OK);
+                   "[device D]\ntype = relay\ngpio = 4\n"
+                   "[device ARM]\ntype = relay\ngpio = 13\n"), DV_OK);
     /* Same chip and pin: refused. Same pin on another chip or the Pi: fine. */
-    CHECK_EQ(g_res.loaded, 3);
+    CHECK_EQ(g_res.loaded, 4);
     CHECK_EQ(g_res.err_count, 1);
     CHECK_EQ(g_res.errs[0].code, DV_ERR_PINSHARED);
     CHECK_STR(g_res.errs[0].name, "B");
@@ -638,7 +811,7 @@ TEST(expander_ops_name_the_chip)
     char buf[DV_STATUS_LINE_MAX];
 
     CHECK_EQ(parse(with_expanders), DV_OK);
-    CHECK_EQ(dv_boot_ops(&g_set, ops, 4), 3);
+    CHECK_EQ(dv_boot_ops(&g_set, ops, 4), 4);
     CHECK_EQ(ops[0].chip, 0);
     CHECK_EQ(ops[0].pin, 0);
     CHECK_EQ(ops[1].chip, 3);

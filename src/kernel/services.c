@@ -18,6 +18,7 @@ extern const uos_service_t uos_svc_uptime;
 extern const uos_service_t uos_svc_vfs;
 extern const uos_service_t uos_svc_console;
 extern const uos_service_t uos_svc_session;
+extern const uos_service_t uos_svc_shell;
 extern const uos_service_t uos_svc_devices;
 extern const uos_service_t uos_svc_holo;
 extern const uos_service_t uos_svc_hack;
@@ -53,6 +54,7 @@ static const uos_service_t *const services[] = {
     &uos_svc_vfs,
     &uos_svc_console,
     &uos_svc_session,
+    &uos_svc_shell,
     &uos_svc_devices,
     &uos_svc_holo,
     &uos_svc_hack,

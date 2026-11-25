@@ -28,10 +28,10 @@ TICK_HZ = 100
 
 # Bring-up markers in order, docs/ARCHITECTURE.md.
 # One "service" marker per service of src/kernel/services.c, in table order.
-SERVICES = ["uptime", "vfs", "console", "session", "devices", "holo", "hack"]
+SERVICES = ["uptime", "vfs", "console", "session", "shell", "devices", "holo", "hack"]
 # The maintenance commands each service registers, test builds included.
 SERVICE_COMMANDS = {"uptime": ["uptime"], "vfs": ["fs"], "console": ["readline", "page", "osk", "button"],
-                    "session": ["sess"], "devices": ["dev"],
+                    "session": ["sess"], "shell": ["sh"], "devices": ["dev"],
                     "holo": ["holo"], "hack": ["hack"]}
 BOOT_ORDER = ["boot", "handoff", "maint", "board", "mbox", "mmu", "screen", "tick", "heap",
               "input", "selfcheck", "mount", "config", "rtc"] + ["service"] * len(SERVICES) + \
@@ -80,16 +80,17 @@ def uos_card(tmp_path, cfg=DEFAULT_CFG, extra=None, name="sd.img"):
 
 
 @contextlib.contextmanager
-def alone(image, board, sd=None, extra_args=None):
+def alone(image, board, sd=None, extra_args=None, qtest=False):
     """Boots UOS with no earlier stage: QEMU loads it at its link address, and
-    a two-word image at 0x8000 jumps to it with no boot info in r3."""
+    a two-word image at 0x8000 jumps to it with no boot info in r3. qtest=True
+    lets a test drive device inputs with vm.qmp.set_irq_in()."""
     with tempfile.TemporaryDirectory(prefix="uos") as tmp:
         tramp = os.path.join(tmp, "tramp.img")
         with open(tramp, "wb") as f:
             f.write(TRAMPOLINE)
         args = ["-device", f"loader,file={image},addr={OS_SLOT:#x},force-raw=on"]
         with boot(tramp, board, sd=sd, serial2=True,
-                  extra_args=args + list(extra_args or []),
+                  extra_args=args + list(extra_args or []), qtest=qtest,
                   elf=os.path.splitext(image)[0] + ".elf") as vm:
             yield vm
 

@@ -34,7 +34,7 @@
 
 /* Results given to the callbacks. */
 #define CON_OK          0       /* the person accepted the line, or left the pager */
-#define CON_CANCEL      1       /* the person cancelled the line (Ctrl-C) */
+#define CON_CANCEL      1       /* the person pressed Ctrl-C in a read or the pager */
 #define CON_ALT         2       /* CON_RL_ALTKEY: F2 on an empty line */
 
 /* ---- Read a line ---- */
@@ -82,7 +82,8 @@ void con_osk_state(int *open, unsigned *layer, unsigned *row, unsigned *col,
 /* Texts longer than this are refused. */
 #define CON_PAGE_MAX    (1024u * 1024u)
 
-/* Called once when the person leaves the pager, with CON_OK. */
+/* Called once when the person leaves the pager: CON_OK for the keys that
+ * end it, CON_CANCEL for Ctrl-C. */
 typedef void (*con_done_fn)(int result, void *ctx);
 
 /*

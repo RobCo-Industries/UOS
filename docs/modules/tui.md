@@ -53,7 +53,10 @@ A plain file name means a menu cannot reach outside the user's home.
 
 Rules:
 - At most 16 valid entries per file, hidden ones included. The 17th valid entry and later ones are skipped with `TUI_E_TOO_MANY`.
-- A second `[entry N]` with the same N is skipped: the first wins.
+- A second `[entry N]` with the same N is skipped with `TUI_E_DUP_ENTRY`: the first wins, also when the repeat follows it directly. The parser marks every N from 1 to 999 it saw, valid section or not, so a repeat after an empty or bad first section is refused, however many headers came before.
+- A second `[terminal]` is skipped with `TUI_E_DUP_SECTION`: the first wins.
+- A `[terminal]` or `[entry N]` section with no keys counts as `TUI_E_EMPTY`. An empty entry is skipped.
+- A section error carries the line of the section header.
 - A key given twice in a section: the first wins and the error is counted.
 - An unknown key in an entry skips the entry. An unknown key in `[terminal]` is ignored.
 - An unknown section, and keys before any section, are ignored.
@@ -83,6 +86,8 @@ Rules:
 | `TUI_E_DEPTH` | -15 | menus nested too deep |
 | `TUI_E_STATE` | -16 | not possible now |
 | `TUI_E_SPACE` | -17 | buffer too small |
+| `TUI_E_EMPTY` | -18 | section has no keys |
+| `TUI_E_DUP_SECTION` | -19 | section given twice |
 
 `tui_strerror()` returns the text.
 
