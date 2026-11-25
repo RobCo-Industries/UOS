@@ -95,6 +95,12 @@ struct sh_job {
     char tmp[VP_DISPLAY_MAX];
     sh_done_fn cb;
     void *cbctx;
+    /* sh_run_line_on(): the screen the job belongs to, NULL for the shell. */
+    struct uos_screen *host;
+    /* SH_RUN_CAPTURE: the output and messages, for the callback. */
+    char *cap;
+    size_t caplen, capcap;
+    int capfull;
 };
 
 /* shell.c: the one job. */
@@ -105,8 +111,9 @@ const sh_impl_t *sh_impl_find(const dcl_cmd_t *cmd);
 
 /* shell.c: one line of output. /OUTPUT text when a file collects it, else
  * the console, unless SH_RUN_QUIET. */
-/* The shell's screen: the owner of the reads and the pager a command
- * opens, see uos_screen_push_child(). */
+/* The job's screen: the owner of the reads and the pager a command
+ * opens, see uos_screen_push_child(). The shell, or the host screen of
+ * sh_run_line_on(). */
 struct uos_screen *sh_screen(void);
 
 void sh_out(sh_job_t *j, const char *text);
