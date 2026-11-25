@@ -34,8 +34,8 @@ PURE_NAMED := src/console/conview.c \
               src/console/lineedit.c \
               src/dcl/*.c \
               src/dev/devcfg.c src/dev/devsplan.c src/dev/devstate.c \
-              src/hack/hack.c \
-              src/holo/holofmt.c src/holo/holoread.c \
+              src/hack/hack.c src/hack/hackui.c \
+              src/holo/holofmt.c src/holo/holoread.c src/holo/holoscan.c \
               src/osk/osk.c \
               src/session/lockout.c src/session/login.c src/session/sha256.c \
               src/session/uaf.c \
@@ -49,6 +49,7 @@ PURE_KERNEL := \
               src/kernel/screen.c \
               src/kernel/service.c \
               src/kernel/settings.c \
+              src/kernel/text.c \
               src/kernel/timerq.c \
               src/kernel/u64dec.c \
 
