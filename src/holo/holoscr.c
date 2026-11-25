@@ -566,7 +566,7 @@ static int cmd_holo(int argc, char **argv)
                         (unsigned)hs.kept, (unsigned)hs.total, (unsigned)hs.r.sel_tape,
                         (unsigned)hs.r.sel_entry, hs.buf != NULL ? hs.tapes[hs.open].file : "none",
                         hs.msg[0] != '\0' ? "yes" : "none",
-                        input_pending() + hs.posted +
+                        uos_input_pending() + hs.posted +
                             (hs.st == ST_SCAN || hs.st == ST_LOADING ? 1u : 0u));
         return 0;
     }

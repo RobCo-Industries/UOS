@@ -515,7 +515,7 @@ static void reply_state(void)
                     res == HK_CANCELLED ? "cancelled" : "playing",
                     live ? (unsigned)game.board.len : 0u, live ? (unsigned)game.board.count : 0u,
                     live ? hk_board_pair_count(&game.board) : 0u,
-                    input_pending() + hg.posted);
+                    uos_input_pending() + hg.posted);
     if (!live) {
         return;
     }

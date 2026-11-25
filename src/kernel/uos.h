@@ -104,6 +104,14 @@ uint32_t uos_ticks(void);
  */
 int uos_post_event(const uos_event_t *ev);
 
+/*
+ * Input events not handled yet: those still in the input layer plus the
+ * keys and characters the loop took into its queue and has not given to
+ * a screen. A maintenance command runs inside input_poll(), between the
+ * two, so a state reply must use this and not input_pending(). Loop only.
+ */
+unsigned uos_input_pending(void);
+
 /* Queues a call of fn(arg) from the loop. Any context. 0 or UOS_EVQ_ERR_FULL. */
 int uos_post(uos_call_fn fn, void *arg);
 

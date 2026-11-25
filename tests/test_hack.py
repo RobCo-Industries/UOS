@@ -297,6 +297,31 @@ def test_buttons_move_and_select(board, hooks_image, need_mtools, tmp_path):
         assert state(vm).f["state"] == "off"
 
 
+def test_state_counts_keys_the_loop_holds(board, hooks_image, need_mtools, tmp_path):
+    """Buttons and `hack state` in one port write: the commands run inside the input
+    poll, before the loop hands the keys to the game, so the state reply comes while
+    the presses wait in the loop's queue. It must say pending, never pending=0 with
+    the old cursor. This is the cause of the button test's old flake on raspi3b."""
+    with alone(hooks_image, board, hack_card(tmp_path, cfg())) as vm:
+        wait_ready(vm)
+        at_login(vm)
+        answer(vm, f"hack seed {SEED}")
+        start_from_login(vm)
+        # The port reads the lines as the UART brings them: a state line often
+        # runs once the input layer is empty while the presses still wait in the
+        # loop's queue. Rounds make that moment come up on every board.
+        for _ in range(6):
+            cur = state(vm).f["cursor"]
+            replies = batch(vm, ["button right"] * 2 + ["hack state"] * 12)
+            assert [r[0] for r in replies[:2]] == ["ok"] * 2, replies
+            end = state(vm).f["cursor"]
+            assert end != cur
+            # pending=0 means both presses are in the cursor.
+            for r in replies[2:]:
+                f = Game(r[1]).f
+                assert f["pending"] != "0" or f["cursor"] == end, (f, cur, end)
+
+
 def uaf_with(tmp_path, flags):
     ini = tmp_path / "users.ini"
     ini.write_text(f"[GUEST]\npassword = GUEST\nhome = GUEST\nflags = {flags}\n"

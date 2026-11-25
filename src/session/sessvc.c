@@ -285,7 +285,7 @@ static int cmd_sess(int argc, char **argv)
                         sess.in ? sess.user : "none", (unsigned)sess_privs(),
                         (unsigned)sess_flags(), sess.in ? sess.home : "none",
                         lk_tries_left(&sess.lk), (unsigned)lk_remaining_s(&sess.lk, sess_now_ms()),
-                        sess.idle_s, input_pending());
+                        sess.idle_s, uos_input_pending());
         return 0;
     }
     if (uos.phase != UOS_PHASE_READY) {

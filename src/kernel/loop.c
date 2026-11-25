@@ -18,6 +18,9 @@ static uos_sstack_t ss;
 static uint32_t last_tick;
 /* The tick of the last key or character taken, for the idle rule. */
 static volatile uint32_t last_input;
+/* Keys and characters taken from the input layer and not dispatched yet.
+ * Loop only: take_input() and dispatch() run in the loop. */
+static unsigned taken;
 
 uint32_t uos_ticks(void)
 {
@@ -102,7 +105,14 @@ static void take_input(const input_event_t *in)
     ev.code = in->code;
     ev.value = in->value;
     last_input = tick_count();
-    (void)uos_post_event(&ev);
+    if (uos_post_event(&ev) == 0) {
+        taken++;
+    }
+}
+
+unsigned uos_input_pending(void)
+{
+    return input_pending() + taken;
 }
 
 uint32_t uos_last_input(void)
@@ -144,6 +154,10 @@ static int evq_room(void)
 
 static void dispatch(uos_event_t *ev)
 {
+    /* Only take_input() posts KEY and CHAR events. */
+    if ((ev->type == UOS_EV_KEY || ev->type == UOS_EV_CHAR) && taken > 0) {
+        taken--;
+    }
     switch (ev->type) {
     case UOS_EV_CALL:
         if (ev->fn != NULL) {
