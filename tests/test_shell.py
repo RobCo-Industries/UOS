@@ -26,7 +26,10 @@ CFG = b"[system]\nname = TEST TERMINAL\n"
 
 
 def shell_card(tmp_path, extra=None, name="sd.img"):
+    """The default card for shell tests. OPER's TERMINAL.CFG is left out:
+    every default user gets the shell after the login."""
     files = card_tree({"/UOS/UOS.CFG": CFG})
+    del files["/UOS/HOME/OPER/TERMINAL.CFG"]
     files.update(extra or {})
     return card(tmp_path, files, name=name)
 
@@ -195,7 +198,6 @@ def test_show_help_and_simple_verbs(board, hooks_image, need_mtools, tmp_path):
         assert "ROBCO INDUSTRIES UNIFIED OPERATING SYSTEM" in out(vm, s)
         res, _, _ = expect(vm, "RUN HACK", "NOTINST")
         assert res == "%UOS-W-NOTINST, HACK is not installed in this build", res
-        expect(vm, "RUN TERMINAL", "NOTINST")
         res, _, _ = expect(vm, "HOLOTAPE STORY", "NOTINST")
         assert "HOLOTAPE is not installed" in res, res
         res, _, _ = expect(vm, "MAIL DIRECTORY", "NOTINST")
@@ -223,7 +225,7 @@ def test_files_and_qualifiers(board, hooks_image, need_mtools, tmp_path):
         _, end, s = expect(vm, "DIRECTORY", "NORMAL")
         o = out(vm, s)
         assert "Directory SD0:[HOME.ADMIN]" in o and "NOTICE.TXT" in o, o
-        assert "Total of 6 files." in o and end["files"] == "6", (o, end)
+        assert "Total of 4 files." in o and end["files"] == "4", (o, end)
         _, _, s = expect(vm, "DIR *.TXT /SIZE", "NORMAL")
         o = out(vm, s)
         assert any(re.match(r"NOTICE\.TXT +\d+$", l) for l in o), o
@@ -557,15 +559,15 @@ def test_late_program_end_is_ignored(board, hooks_image, need_mtools, tmp_path):
     with alone(hooks_image, board, shell_card(tmp_path)) as vm:
         wait_ready(vm)
         login(vm, "ADMIN")
-        answer(vm, "sh prog reg TERMINAL")
+        answer(vm, "sh prog reg HACK")
         assert wait_marker(vm, "sh prog=reg")["rc"] == "0"
-        c = send_line(vm, "RUN TERMINAL")
+        c = send_line(vm, "RUN HACK")
         wait_marker(vm, "sh prog=start n=1")
         first = wait_state(vm, state="running", verb="RUN")["id"]
         vm.send("\x03")
         res, end, _ = wait_done(vm, c)
         assert end["rc"] == "CANCEL", (res, end)
-        c = send_line(vm, "RUN TERMINAL")
+        c = send_line(vm, "RUN HACK")
         wait_marker(vm, "sh prog=start n=2")
         second = wait_state(vm, state="running", verb="RUN")["id"]
         assert second != first
@@ -704,9 +706,9 @@ def test_ctrl_c_in_every_screen_over_the_shell(board, hooks_image, need_mtools, 
         ctrl_c(vm, c)
         expect(vm, "TYPE OSK.TXT", "FNF")
         # A program's screen took Ctrl-C and reports it with SH_CANCELLED.
-        answer(vm, "sh prog reg TERMINAL")
+        answer(vm, "sh prog reg HACK")
         assert wait_marker(vm, "sh prog=reg")["rc"] == "0"
-        c = send_line(vm, "RUN TERMINAL")
+        c = send_line(vm, "RUN HACK")
         wait_marker(vm, "sh prog=start n=1")
         answer(vm, "sh prog done 1 3")
         res, end, _ = wait_done(vm, c)

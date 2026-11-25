@@ -1,0 +1,30 @@
+ TEST TERMINAL
+ Test console
+
+ Test header line one
+ Line two
+
+ > Read the log
+   Sub menu
+   Show the system
+   Yard lights
+   Tape list
+   One tape
+   Missing text
+   Missing menu
+   Bad menu
+   Missing tape
+   Failing command
+   Missing device
+   Delete with confirm
+   Run the menu again
+   Log out
+
+
+
+
+
+
+
+ Test console
+ UP/DOWN: move  1-9: pick  ENTER: choose  BACK: log out
