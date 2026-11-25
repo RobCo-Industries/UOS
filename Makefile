@@ -39,6 +39,7 @@ PURE_NAMED := src/console/conview.c \
               src/osk/osk.c \
               src/session/lockout.c src/session/login.c src/session/sha256.c \
               src/session/uaf.c \
+              src/shell/shrules.c \
               src/tui/pager.c src/tui/tui.c src/tui/tuicfg.c \
               src/vfs/path.c \
               src/vfs/vfsrules.c
