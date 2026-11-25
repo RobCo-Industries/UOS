@@ -136,7 +136,7 @@ Type `SET PASSWORD`. The terminal asks for your old password, the new one, and t
 - `SHOW SYSTEM`, `SHOW TIME`, `SHOW USERS`, `SHOW TERMINAL`, `SHOW MEMORY` give the terminal's state.
 - `SET TERMINAL /SCHEME=AMBER` changes the colors: `GREEN`, `AMBER`, `BLUE` or `WHITE`, until the next restart.
 - `LOGOUT` ends your session.
-- An operator can type `SET HALT` to stop the terminal, or `SET HALT RESTART` to restart it.
+- An operator can type `SET HALT` to stop the terminal, or `SET HALT RESTART` to restart it. `SET HALT RESTART /MAINTENANCE` restarts into the boot agent's maintenance screen. From there the maintenance image can restore the default users when every password is lost, if the card's `BOOT.CFG` allows it. If the request cannot be saved, the terminal says so and stays up.
 - A security officer manages the users with `AUTHORIZE`: `AUTHORIZE LIST`, `AUTHORIZE ADD BOB`, `AUTHORIZE MODIFY BOB /DISABLED`, `AUTHORIZE REMOVE BOB`.
 - `RUN`, `HOLOTAPE` and `MAIL` are not part of this build yet: they say so.
 

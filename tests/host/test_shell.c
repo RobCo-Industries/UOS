@@ -448,3 +448,31 @@ TEST(verb_words)
     sh_verb_word(&cmd, w, sizeof(w));
     CHECK_STR(w, "-");
 }
+
+TEST(halt_request_per_qualifier)
+{
+    CHECK_EQ(sh_halt_mreq(0), SH_MREQ_NONE);
+    CHECK_EQ(sh_halt_mreq(1), SH_MREQ_WRITE);
+    CHECK_EQ(sh_halt_mreq(-1), SH_MREQ_CLEAR);
+}
+
+TEST(maint_note_is_one_printable_line)
+{
+    char buf[80];
+    char small[7];
+    char longname[100];
+
+    CHECK_EQ(sh_maint_note("OPER", buf, sizeof(buf)), 10);
+    CHECK_STR(buf, "UOS OPER\r\n");
+    CHECK_EQ(sh_maint_note("A\tB\x7f", buf, sizeof(buf)), 10);
+    CHECK_STR(buf, "UOS A?B?\r\n");
+    CHECK_EQ(sh_maint_note(NULL, buf, sizeof(buf)), 6);
+    CHECK_STR(buf, "UOS \r\n");
+    memset(longname, 'X', sizeof(longname) - 1);
+    longname[sizeof(longname) - 1] = '\0';
+    CHECK_EQ(sh_maint_note(longname, buf, sizeof(buf)), 65);
+    CHECK_EQ(strlen(buf), 65u);
+    CHECK_EQ(sh_maint_note("OPER", small, sizeof(small)), 6);
+    CHECK_STR(small, "UOS \r\n");
+    CHECK_EQ(sh_maint_note("OPER", small, 6), -1);
+}

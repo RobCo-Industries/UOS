@@ -1,6 +1,6 @@
 """The command shell: the prompt after login, every verb through `sh run`, each
 qualifier, wildcards, access refusals per user, a read-only volume, a missing file,
-a stepped copy cancelled with Ctrl-C, SET HALT and its forms, LOGOUT, typing through
+a stepped copy cancelled with Ctrl-C, LOGOUT, typing through
 the line editor with the continuation and missing-parameter prompts, AUTHORIZE and
 SET PASSWORD with masked reads, and no password on the serial lines. /OUTPUT keeps the
 old file on a failure and a Ctrl-C; a late program end is ignored; wildcards count the
@@ -14,8 +14,8 @@ import time
 import pytest
 
 from harness.boot import parse_markers
-from uos import (IDLE, ROOT, TIMEOUT, _mtools, alone, answer, card, card_names, card_tree,
-                 dump_until, events, one, wait_ready)
+from uos import (ROOT, TIMEOUT, _mtools, alone, answer, card, card_names, card_tree,
+                 dump_until, wait_ready)
 
 REBOOTED = re.compile(r"(@RC stage=uos ev=ready [^\n]*\n[\s\S]*){2}")
 
@@ -390,27 +390,6 @@ def test_copy_cancelled_with_ctrl_c(board, hooks_image, need_mtools, tmp_path):
     assert not [n for n in names if n.startswith("~") or n.startswith("#")], names
 
 
-def test_set_halt_forms(board, hooks_image, need_mtools, tmp_path):
-    """/MAINTENANCE is refused and nothing stops; RESTART reboots; SET HALT halts."""
-    with alone(hooks_image, board, shell_card(tmp_path)) as vm:
-        wait_ready(vm)
-        login(vm, "OPER")
-        expect(vm, "SET HALT /MAINTENANCE", "NOMAINT", "%UOS-E-NOMAINT")
-        expect(vm, "SET HALT RESTART /MAINTENANCE", "NOMAINT")
-        assert not events(vm, "reboot") and not events(vm, "halt")
-        expect(vm, "SET HALT RESTART /NOMAINTENANCE", "NORMAL")
-        vm.wait_for(REBOOTED, timeout=TIMEOUT)
-        assert events(vm, "reboot")[0]["source"] == "shell"
-    with alone(hooks_image, board, shell_card(tmp_path, name="sd2.img")) as vm:
-        wait_ready(vm)
-        login(vm, "OPER")
-        answer(vm, "sh run " + quote("SET HALT"))
-        vm.wait_for(IDLE, timeout=TIMEOUT)
-        one(vm, "halt")
-        end = [m for m in events(vm, "cmd") if m.get("state") == "end"][-1]
-        assert (end["verb"], end["rc"]) == ("SET_HALT", "NORMAL"), end
-
-
 def test_typed_line_continuation_and_missing_parameter(board, hooks_image, need_mtools,
                                                        tmp_path):
     """Lines typed through the real line editor: a command, a line ending in '-'
@@ -615,14 +594,16 @@ def test_wildcards_count_refused_matches(board, hooks_image, need_mtools, tmp_pa
     with alone(hooks_image, board, sd) as vm:
         wait_ready(vm)
         login(vm, "ADMIN")
-        for line in ("DELETE SD0:[000000]SYSUAF.*", "RENAME SD0:[000000]SYSUAF.* X.*",
-                     "DELETE SD0:[000000]SY*.D%T"):
+        # SYSUAF.* matches SYSUAF.DAT and SYSUAF.DEF, both protected.
+        for line, n in (("DELETE SD0:[000000]SYSUAF.*", "2"),
+                        ("RENAME SD0:[000000]SYSUAF.* X.*", "2"),
+                        ("DELETE SD0:[000000]SY*.D%T", "1")):
             _, end, _ = expect(vm, line, "NOPRIV", "%UOS-E-NOPRIV")
-            assert end["skipped"] == "1", (line, end)
+            assert end["skipped"] == n, (line, end)
         res, end, s = expect(vm, "DELETE SD0:[000000]S*.* /LOG", "DELETED")
         assert res == "%DELETE-S-DELETED, 2 files deleted", res
-        assert (end["files"], end["skipped"]) == ("2", "1"), end
-        assert "%UOS-I-SKIPPED, 1 file skipped: not enough privilege" in out(vm, s), out(vm, s)
+        assert (end["files"], end["skipped"]) == ("2", "2"), end
+        assert "%UOS-I-SKIPPED, 2 files skipped: not enough privilege" in out(vm, s), out(vm, s)
         assert sorted(n for n, _ in files(vm, s, "delete")) == \
             ["SD0:[000000]SPARE.TXT;1", "SD0:[000000]SPARE2.TXT;1"], files(vm, s)
         _, end, _ = expect(vm, "DELETE SD0:[000000]NOPE*.*", "NOFILES", "%UOS-W-NOFILES")

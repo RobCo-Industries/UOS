@@ -590,16 +590,47 @@ static int set_terminal(sh_job_t *j)
     return sh_end(j, DCL_NORMAL, NULL, 0, 0);
 }
 
+/* Writes or removes /ROBCO/MAINT.REQ for SET HALT. 0, or 1 after sh_end():
+ * a failed change stops the command before any halt or restart. */
+static int halt_request(sh_job_t *j, int what)
+{
+    char note[UAF_NAME_MAX + 8];
+    const char *res;
+    int done = 0;
+    int rc;
+
+    if (what == SH_MREQ_NONE) {
+        return 0;
+    }
+    if (what == SH_MREQ_WRITE) {
+        (void)sh_maint_note(j->user, note, sizeof(note));
+        rc = vfs_maint_request(note, &done);
+        res = rc != VFS_OK ? "failed" : done ? "written" : "kept";
+    } else {
+        rc = vfs_maint_clear(&done);
+        res = rc != VFS_OK ? "failed" : done ? "removed" : "none";
+    }
+    UOS_MARK("maint_req op=%s result=%s rc=%s", what == SH_MREQ_WRITE ? "write" : "clear",
+             res, vfs_strerror(rc));
+    if (rc != VFS_OK) {
+        (void)sh_end(j, what == SH_MREQ_WRITE ? DCL_SYS_NOMAINT : DCL_SYS_MREQKEPT,
+                     dcl_msg_text(vfs_msg(rc)), 0, 1);
+        return 1;
+    }
+    return 0;
+}
+
 static int set_halt(sh_job_t *j)
 {
     const dcl_qval_t *m = dcl_cmd_qual(&j->cmd, "MAINTENANCE");
     int restart = param(j, 0) != NULL;
+    int what = sh_halt_mreq(m == NULL ? 0 : m->negated ? -1 : 1);
 
-    if (m != NULL && !m->negated) {
-        /* The boot chain carries no request across a reset: the first
-         * stage cold-boots and builds boot_flags itself. Say so; do not
-         * restart into the normal system instead. */
-        return sh_end(j, DCL_SYS_NOMAINT, NULL, 0, 1);
+    if (halt_request(j, what) != 0) {
+        return SH_DONE;
+    }
+    if (what == SH_MREQ_WRITE) {
+        sh_out(j, "MAINTENANCE REQUESTED FOR THE NEXT START.");
     }
     sh_out(j, restart ? "SYSTEM RESTARTING." : "SYSTEM HALTED. RESTART THE TERMINAL BY POWER.");
     j->after = restart ? SH_AFTER_RESTART : SH_AFTER_HALT;

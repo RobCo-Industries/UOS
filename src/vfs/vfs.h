@@ -273,4 +273,26 @@ int vfs_sys_read_all(const char *fat_path, size_t max_bytes, char **buf, size_t 
  * with no access check. The path must start with "/UOS/". Loop. */
 int vfs_sys_write_all(const char *fat_path, const void *data, size_t len);
 
+/* ---- The maintenance request ------------------------------------------------ */
+
+/*
+ * The boot agent's maintenance request, BOOT_PROTOCOL.md "Maintenance
+ * request". The one boot-tree path UOS writes; no user specification reaches
+ * it, and BOOT: stays read-only. System code only: the caller checks the
+ * privilege.
+ */
+#define VFS_MAINT_REQ_PATH "/ROBCO/MAINT.REQ"
+
+/* Asks for maintenance at the next boot. An existing file is left as it is:
+ * VFS_OK with *made = 0. Otherwise creates it with fs_open(), writes `note`
+ * (NULL or "" for none) with fs_write() and calls fs_sync(): VFS_OK with
+ * *made = 1. Not atomic, by the spec: presence is the request. A folder of
+ * that name is VFS_E_ISDIR, no /ROBCO folder VFS_E_DIRNF. A failed write or
+ * sync removes the new file. Loop. */
+int vfs_maint_request(const char *note, int *made);
+
+/* Removes a request file. No file, or a folder of that name, is VFS_OK with
+ * *removed = 0. Loop. */
+int vfs_maint_clear(int *removed);
+
 #endif

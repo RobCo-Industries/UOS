@@ -6,6 +6,8 @@ UOS reads its files from the `/UOS` folder of the card. This page lists every fo
 |---|---|---|---|
 | `/UOS/UOS.CFG` | INI | `src/kernel/settings.c` | [below](#uoscfg) |
 | `/UOS/SYSUAF.DAT` | binary, little-endian | `src/session/uaf.c` | [session](modules/session.md#sysuafdat-layout) |
+| `/UOS/SYSUAF.DEF` | as `SYSUAF.DAT` | the maintenance image, not UOS | [below](#sysuafdef) |
+| `/ROBCO/MAINT.REQ` | one optional text line | MFBootAgent, not UOS | [below](#maintreq) |
 | `/UOS/DEVICES.CFG` | INI | `src/dev/devcfg.c` | [dev](modules/dev.md#file-format), [expander pins](modules/dev.md#expander-pins) |
 | `/UOS/HOME/<user>/TERMINAL.CFG` and other `.CFG` menus | INI | `src/tui/tuicfg.c` | [tui](modules/tui.md#terminalcfg) |
 | `/UOS/WORDS/Wnn.TXT` | text, one word per line | `src/hack/hack.c` | [hack](modules/hack.md#word-list-format) |
@@ -77,6 +79,14 @@ The kernel reads `UOS.CFG` at boot. The session service applies `[login]`, see [
 ## SYSUAF.DAT
 
 The user database: a 32-byte header, then one 96-byte record per user, at most 32. A CRC-32 covers the records. Each password is a salted, iterated SHA-256. The session service reads the file at boot, and again after `SET PASSWORD` or `AUTHORIZE` wrote it whole with an atomic write; a missing or damaged file stops every login, see [session](modules/session.md#the-session-service). `tools/mkuaf.py` builds the file from an INI list, `tools/default_users.ini` for the default card. The privilege bits are the ones in `src/kernel/uos_privs.h`: `SYSTEM` bit 0, `OPER` bit 1, `SECURITY` bit 2, `READALL` bit 3. Layout: [session](modules/session.md#sysuafdat-layout).
+
+## SYSUAF.DEF
+
+The default user database, the same bytes as the card's fresh `SYSUAF.DAT`. `card/UOS/SYSUAF.DEF` is a copy of `card/UOS/SYSUAF.DAT`, so `make sdimage` puts both on the card. The maintenance image's restore users tool copies it over `SYSUAF.DAT` when every password is lost, see RobCo-Core's `BOOT_PROTOCOL.md`, "Maintenance image". UOS never writes it. The path module protects it as it protects `SYSUAF.DAT` for reading, `SYSTEM` or `SECURITY`, and refuses every change for every user with `%UOS-E-PROTECT`, see [vfs-path](modules/vfs-path.md). Rebuild both files together when `tools/default_users.ini` changes.
+
+## MAINT.REQ
+
+The maintenance request, `/ROBCO/MAINT.REQ` on the boot volume. Its presence asks MFBootAgent for its maintenance screen at the next boot; the agent deletes it first. `SET HALT /MAINTENANCE` creates it with a plain create, not an atomic write, and writes one line, `UOS <user>` and CR LF. The format is RobCo-Core's: `BOOT_PROTOCOL.md`, "Maintenance request".
 
 ## DEVICES.CFG
 

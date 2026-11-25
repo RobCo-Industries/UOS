@@ -10,7 +10,7 @@ src/kernel/   entry, panic, event loop, timers, screens, settings, maintenance p
 src/dcl/ src/vfs/ src/session/ src/osk/ src/dev/ src/tui/ src/hack/ src/holo/
               the pure modules, one folder each
 src/shell/    the command shell and its commands
-card/         the default card: /UOS/UOS.CFG, SYSUAF.DAT, DEVICES.CFG, HOME/, WORDS/, HOLO/, SYS/HELP/
+card/         the default card: /UOS/UOS.CFG, SYSUAF.DAT, SYSUAF.DEF, DEVICES.CFG, HOME/, WORDS/, HOLO/, SYS/HELP/
 tools/        card tools: mkuaf.py, mkwords.py, mkholo.py
 tests/host/   host tests of the pure files, and host tools such as holocheck.c
 tests/tools/  pytest tests of the card tools
@@ -458,6 +458,7 @@ Every call that touches the card runs from the loop only. The service reads `uos
 - `vfs_copy_begin()` and `vfs_copy_step()` copy in steps of 16 KiB. The new file is written as `~NAME` and moved into place through `#NAME`, the library's recovery names. `vfs_copy()` runs every step in one call, for small files.
 - `vfs_dev_register()` takes the device service's `read`, `write` and `list` hooks for `DEV:` names. Without hooks, `DEV:` calls return `VFS_E_NODEV`. A `list` hook that fails on index 0 makes the listing `VFS_E_NODEV` too.
 - `vfs_sys_read_all()` and `vfs_sys_write_all()` skip the access check, for system files such as `/UOS/SYSUAF.DAT`.
+- `vfs_maint_request()` and `vfs_maint_clear()` create and remove `/ROBCO/MAINT.REQ`, one fixed path. They are the only writes UOS makes in the boot tree. They take no file specification, so `BOOT:` stays read-only to every user and command. The create uses `fs_open()`, `fs_write()` and `fs_sync()`, not the atomic write: the agent reads the plain name only. `SET HALT` checks `OPER` before it calls them.
 
 The decisions are pure, in `src/vfs/vfsrules.c`, with host tests.
 
@@ -679,6 +680,7 @@ stateDiagram-v2
 | `sh op=resume id= owe=<step\|end>` | The shell is on top again and runs what it owed |
 | `term scheme=<name>` | `SET TERMINAL /SCHEME` |
 | `uaf result=written users=` | `SYSUAF.DAT` was written |
+| `maint_req op=<write\|clear> result=<written\|kept\|removed\|none\|failed> rc=` | `SET HALT /MAINTENANCE` or `/NOMAINTENANCE` changed the request file, before the halt or restart |
 | `sh run=done status= result=<quoted>`, `sh run=refused rc=`, `sh run=refused why=covered` | The end of `sh run`. `covered`: another screen covers the shell |
 
 No marker holds a password or a command line.

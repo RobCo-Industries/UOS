@@ -687,6 +687,9 @@ static const acase_t acases[] = {
     /* SYSUAF.DAT */
     { "SD0:[000000]SYSUAF.DAT",
       { { NP, PR, PR, NP }, { NP, PR, PR, NP }, { OK, PR, PR, OK }, { NP, PR, PR, NP }, { OK, PR, PR, OK } } },
+    /* SYSUAF.DEF: read as SYSUAF.DAT, changed by nobody */
+    { "SD0:[000000]SYSUAF.DEF",
+      { { NP, PR, PR, NP }, { NP, PR, PR, NP }, { OK, PR, PR, OK }, { NP, PR, PR, NP }, { OK, PR, PR, OK } } },
     /* other root file */
     { "SD0:[000000]UOS.CFG",
       { { NP, NP, NP, NP }, { NP, NP, NP, NP }, { NP, NP, NP, NP }, { NP, NP, NP, NP }, { OK, OK, OK, OK } } },
@@ -730,7 +733,7 @@ TEST(access_table)
             }
         }
     }
-    CHECK_EQ(cells, 17 * 5 * 4);
+    CHECK_EQ(cells, 18 * 5 * 4);
 }
 
 /* A file directly in HOME has depth 1: vp_access() must not look at
@@ -787,6 +790,12 @@ TEST(access_edges)
     /* all privileges together on SYSUAF.DAT still cannot write */
     vp_resolve(&c, "SD0:[000000]SYSUAF.DAT", NULL, 0, &r);
     CHECK_EQ(vp_access(&r, "ADMIN", 0xffffffffu, VP_OP_WRITE), VP_E_PROTECTED);
+    vp_resolve(&c, "SD0:[000000]SYSUAF.DEF", NULL, 0, &r);
+    CHECK_EQ(vp_access(&r, "ADMIN", 0xffffffffu, VP_OP_WRITE), VP_E_PROTECTED);
+    CHECK_EQ(vp_access(&r, "ADMIN", 0xffffffffu, VP_OP_DELETE), VP_E_PROTECTED);
+    /* SYSUAF.DEF in a home is just a file */
+    vp_resolve(&c, "SYS$LOGIN:SYSUAF.DEF", NULL, 0, &r);
+    CHECK_EQ(vp_access(&r, "ADMIN", 0, VP_OP_WRITE), VP_OK);
 }
 
 TEST(error_texts)

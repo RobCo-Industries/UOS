@@ -1119,3 +1119,87 @@ int vfs_sys_write_all(const char *fat_path, const void *data, size_t len)
     }
     return vfs_from_fs(fs_write_file_atomic(r.path, len ? data : "", len), 1);
 }
+
+/* ---- The maintenance request ---------------------------------------------------------- */
+
+/* One fixed path in the boot tree, written by plain FatFs calls: the reader
+ * checks the plain name only, so no atomic write and no recovery here
+ * (BOOT_PROTOCOL.md, Maintenance request). */
+static fs_file_t mreq_file;
+
+int vfs_maint_request(const char *note, int *made)
+{
+    size_t len = note != NULL ? k_strlen(note) : 0;
+    int rc = vfs_ready();
+    int frc;
+
+    if (made == NULL) {
+        return VFS_E_ARG;
+    }
+    *made = 0;
+    if (rc != VFS_OK) {
+        return rc;
+    }
+    frc = fs_stat(VFS_MAINT_REQ_PATH, &st_a);
+    if (frc == FS_OK) {
+        return st_a.is_dir ? VFS_E_ISDIR : VFS_OK;   /* a request is there already */
+    }
+    if (frc != FS_ERR_NOENT) {
+        return vfs_from_fs(frc, 0);
+    }
+    frc = fs_open(&mreq_file, VFS_MAINT_REQ_PATH, FS_WRITE | FS_CREATE | FS_EXCL);
+    if (frc != FS_OK) {
+        return frc == FS_ERR_NOENT ? VFS_E_DIRNF : vfs_from_fs(frc, 1);
+    }
+    if (len > 0) {
+        frc = fs_write(&mreq_file, note, len);
+        if (frc >= 0 && (size_t)frc != len) {
+            frc = FS_ERR_NOSPC;
+        }
+    }
+    if (frc >= 0) {
+        frc = fs_sync(&mreq_file);
+    }
+    if (frc < 0) {
+        (void)fs_close(&mreq_file);
+        (void)fs_unlink(VFS_MAINT_REQ_PATH);
+        return vfs_from_fs(frc, 1);
+    }
+    frc = fs_close(&mreq_file);
+    if (frc < 0) {
+        (void)fs_unlink(VFS_MAINT_REQ_PATH);
+        return vfs_from_fs(frc, 1);
+    }
+    *made = 1;
+    return VFS_OK;
+}
+
+int vfs_maint_clear(int *removed)
+{
+    int rc = vfs_ready();
+    int frc;
+
+    if (removed == NULL) {
+        return VFS_E_ARG;
+    }
+    *removed = 0;
+    if (rc != VFS_OK) {
+        return rc;
+    }
+    frc = fs_stat(VFS_MAINT_REQ_PATH, &st_a);
+    if (frc == FS_ERR_NOENT) {
+        return VFS_OK;
+    }
+    if (frc != FS_OK) {
+        return vfs_from_fs(frc, 0);
+    }
+    if (st_a.is_dir) {
+        return VFS_OK;   /* a folder of that name is no request */
+    }
+    frc = fs_unlink(VFS_MAINT_REQ_PATH);
+    if (frc != FS_OK) {
+        return vfs_from_fs(frc, 1);
+    }
+    *removed = 1;
+    return VFS_OK;
+}
