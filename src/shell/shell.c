@@ -28,6 +28,8 @@
  *   cmd state=end verb= rc=<IDENT> sev= files= skipped= failed= steps= maxticks=
  *   cmd output=<written|kept|toobig|failed> verb=   /OUTPUT, before the end
  *   sh stale=<step|read|pager|prog> id= cur=         a late callback ignored
+ *   sh op=wait why=covered id= owe=<step|end>        a job waits under a screen, once
+ *   sh op=resume id= owe=<step|end>                  the shell is on top again
  *   sh prog=<reg|start|done> n=                      test programs only
  * No marker holds a password: SET PASSWORD and AUTHORIZE read passwords
  * masked, and a command line never holds one.
@@ -53,6 +55,7 @@ static int sh_up;
 static unsigned runs;
 static uint32_t job_seq;            /* the last job identity given */
 static int test_hold, test_held;    /* sh hold: test builds only */
+static int owed;                    /* SH_OWE_*: the job's work a covered shell owes */
 
 /* ---- The session's default folder ---- */
 
@@ -178,6 +181,26 @@ static const char *ask_kind;        /* a command's read: its kind, else NULL */
 static con_line_fn ask_cb;
 
 static uos_screen_t shell_screen;
+
+/* 1 when the shell is the session's screen and another one covers it.
+ * The shell's own `$` read on top does not count: a command the API
+ * starts while it waits runs under it, as before. */
+static int covered(void)
+{
+    return sh_job_waits(shp.on, uos_screen_on_top(&shell_screen) ||
+                                    (shp.reading && con_line_on_top()));
+}
+
+static const char *const owe_name[] = { "none", "step", "end" };
+
+/* Records work the job owes while the shell is covered; marks once. */
+static void owe(int what)
+{
+    if (sh_owe(&owed, what)) {
+        UOS_MARK("sh op=wait why=covered id=%u owe=%s", (unsigned)sh_job.id, owe_name[what]);
+    }
+}
+
 static void on_line(int result, const char *text, unsigned len, void *ctx);
 static int launch(const char *line, unsigned flags, const char *src, sh_done_fn cb, void *ctx,
                   char *need, size_t need_size);
@@ -363,10 +386,26 @@ static int shell_event(uos_screen_t *s, const uos_event_t *ev)
     return ev->type == UOS_EV_KEY || ev->type == UOS_EV_CHAR;
 }
 
-/* On top again: the `$` read a covered shell_idle() could not start. */
+static void finish(void);
+
+/* On top again. A job that waited runs on: its owed end, or its next step.
+ * sh_owe_take() clears the debt before the work, and sh_resume() posts
+ * at most one step, so the work runs once. With no job, the `$` read a
+ * covered shell_idle() could not start. */
 static void shell_uncover(uos_screen_t *s)
 {
+    int what = sh_owe_take(&owed);
+
     (void)s;
+    if (what != SH_OWE_NONE && sh_job.active) {
+        UOS_MARK("sh op=resume id=%u owe=%s", (unsigned)sh_job.id, owe_name[what]);
+        if (what == SH_OWE_END) {
+            finish();
+        } else {
+            sh_resume(&sh_job, SH_MORE);
+        }
+        return;
+    }
     shell_idle(NULL);
 }
 
@@ -488,8 +527,6 @@ int sh_ask(const char *kind, const char *prompt, unsigned flags, unsigned max, c
 
 /* ---- The executor ---- */
 
-static void finish(void);
-
 static void drive(void *arg)
 {
     sh_job_t *j = &sh_job;
@@ -501,6 +538,12 @@ static void drive(void *arg)
         return;
     }
     j->posted = 0;
+    /* A covered shell: the step could ask, page, start a program or print
+     * over the covering screen. It waits; shell_uncover() posts it. */
+    if (covered()) {
+        owe(SH_OWE_STEP);
+        return;
+    }
     if (j->cancel || j->impl == NULL || j->impl->step == NULL) {
         j->tally.cancelled = 1;
         (void)sh_end(j, DCL_SYS_CANCEL, NULL, 0, 1);
@@ -542,6 +585,11 @@ void sh_resume(sh_job_t *j, int rc)
             }
         }
     } else if (rc == SH_DONE) {
+        if (covered()) {
+            /* The end prints its message: it waits for the shell. */
+            owe(SH_OWE_END);
+            return;
+        }
         finish();
     }
 }
@@ -595,6 +643,7 @@ static void finish(void)
     int after = j->after;
     int status;
 
+    owed = SH_OWE_NONE;
     if (j->impl != NULL && j->impl->stop != NULL) {
         j->impl->stop(j);
     }
@@ -707,7 +756,12 @@ static int launch(const char *line, unsigned flags, const char *src, sh_done_fn 
     if (!sess_logged_in()) {
         return SH_ERR_NOUSER;
     }
+    if (covered()) {
+        /* start() may ask, page or start a program's screen. */
+        return SH_ERR_COVERED;
+    }
     k_memset(j, 0, sizeof(*j));
+    owed = SH_OWE_NONE;
     if (++job_seq == 0) {
         job_seq = 1;
     }

@@ -320,3 +320,142 @@ def test_reader_over_each_shell_read(board, hooks_image, need_mtools, tmp_path):
             assert state(vm)["screen"] == "readline"
             answer(vm, f"type {rest}")
             wait_marker(vm, "cmd state=end", n + 1)
+
+
+# A shell job under the reader: a step that would ask, page, start a program
+# or print waits while the shell is covered and goes on once the reader closes.
+
+def run_line(line):
+    return 'sh run "' + line.replace(" ", "%20") + '"'
+
+
+def stack(vm):
+    """The screen stack, bottom to top, once every event and posted call ran."""
+    settled_rows(vm)
+    fields = dict(f.split("=", 1) for f in answer(vm, "screens")[0].split()[1:])
+    return fields["stack"].split(",")
+
+
+def sh_fields(vm):
+    return dict(f.split("=", 1) for f in answer(vm, "sh state")[0].split()[1:])
+
+
+def guest_shell(vm):
+    at_prompt(vm)
+    answer(vm, "sess login GUEST")
+    at_shell_prompt(vm)
+
+
+def covered_job(vm, line):
+    """`line` starts with its first step held, the reader opens, then the step is
+    let go: it is due while the reader covers the shell."""
+    answer(vm, "sh hold 1")
+    answer(vm, run_line(line))
+    wait_marker(vm, "sh held=1", 1)
+    answer(vm, "holo open")
+    wait_marker(vm, "holo op=scan", 1)
+    answer(vm, "sh hold 0")
+    assert stack(vm) == ["shell", "holo"]
+    wait_marker(vm, "sh op=wait", 1)
+    assert sh_fields(vm)["state"] == "running"
+
+
+def test_confirm_under_the_reader_waits(board, hooks_image, need_mtools, tmp_path):
+    """DELETE /CONFIRM under the reader: the question waits and opens once the
+    reader closes. Ctrl-C while it waits goes to the reader, not to the job."""
+    files = card_tree({"/UOS/HOME/GUEST/GONE.TXT": b"gone\r\n"})
+    with alone(hooks_image, board, card(tmp_path, files)) as vm:
+        guest_shell(vm)
+        covered_job(vm, "DELETE GONE.TXT /CONFIRM")
+        assert not [m for m in events(vm, "sh") if m.get("kind") == "confirm"]
+        # Ctrl-C reaches the top screen only: the job neither ends nor asks.
+        vm.send("\x03")
+        assert stack(vm) == ["shell", "holo"]
+        assert sh_fields(vm)["state"] == "running"
+        assert not [m for m in events(vm, "cmd") if m.get("state") == "end"]
+        close_reader(vm)
+        assert wait_marker(vm, "sh op=resume", 1)["owe"] == "step"
+        wait_marker(vm, "sh state=prompt kind=confirm", 1)
+        assert stack(vm) == ["shell", "readline"]
+        answer(vm, "type Y")
+        done = wait_marker(vm, "sh run=done", 1)
+        assert "DELETED" in done["result"], done
+        wait_marker(vm, "sh state=prompt kind=cmd", 2)
+
+
+def test_ctrl_c_after_the_reader_cancels(board, hooks_image, need_mtools, tmp_path):
+    """The waiting question opens once the reader closes: Ctrl-C there cancels the
+    command and deletes nothing."""
+    files = card_tree({"/UOS/HOME/GUEST/KEEP.TXT": b"keep\r\n"})
+    with alone(hooks_image, board, card(tmp_path, files)) as vm:
+        guest_shell(vm)
+        covered_job(vm, "DELETE KEEP.TXT /CONFIRM")
+        close_reader(vm)
+        wait_marker(vm, "sh state=prompt kind=confirm", 1)
+        assert stack(vm) == ["shell", "readline"]
+        vm.send("\x03")
+        assert wait_marker(vm, "cmd state=end", 1)["rc"] == "CANCEL"
+        answer(vm, run_line("DIR KEEP.TXT"))
+        assert wait_marker(vm, "cmd state=end", 2)["rc"] == "NORMAL"
+
+
+def test_paged_type_under_the_reader_waits(board, hooks_image, need_mtools, tmp_path):
+    """TYPE /PAGE under the reader: the pager opens once the reader closes."""
+    with alone(hooks_image, board, card(tmp_path, card_tree())) as vm:
+        guest_shell(vm)
+        covered_job(vm, "TYPE NOTICE.TXT /PAGE")
+        assert not events(vm, "page")
+        close_reader(vm)
+        wait_marker(vm, "page top=0", 1)
+        assert stack(vm) == ["shell", "pager"]
+        answer(vm, "key back")
+        wait_marker(vm, "sh run=done", 1)
+        wait_marker(vm, "sh state=prompt kind=cmd", 2)
+
+
+def test_nothing_starts_under_the_reader(board, hooks_image, need_mtools, tmp_path):
+    """sh_run_line() under the reader: CREATE would ask for its first line and RUN
+    would start a program. Both are refused with SH_ERR_COVERED; once the reader
+    closes, CREATE from the port asks."""
+    with alone(hooks_image, board, card(tmp_path, card_tree())) as vm:
+        guest_shell(vm)
+        answer(vm, "sh prog reg TERMINAL")
+        assert wait_marker(vm, "sh prog=reg", 1)["rc"] == "0"
+        answer(vm, "holo open")
+        wait_marker(vm, "holo op=scan", 1)
+        for n, line in enumerate(("CREATE%20NEW.TXT", "RUN%20TERMINAL"), 1):
+            answer(vm, f'sh api - "{line}"')
+            assert wait_marker(vm, "sh api=call", n)["rc"] == "-7"
+            assert stack(vm) == ["shell", "readline", "holo"]
+        assert not [m for m in events(vm, "sh") if m.get("kind") == "line"]
+        assert not [m for m in events(vm, "sh") if m.get("prog") == "start"]
+        close_reader(vm)
+        assert stack(vm) == ["shell", "readline"]
+        answer(vm, run_line("CREATE NEW.TXT"))
+        wait_marker(vm, "sh state=prompt kind=line", 1)
+        assert stack(vm) == ["shell", "readline"]
+
+
+def test_end_under_the_reader_waits(board, hooks_image, need_mtools, tmp_path):
+    """A program ends while the reader covers the shell: its result line waits,
+    so nothing paints over the reader."""
+    with alone(hooks_image, board, card(tmp_path, card_tree())) as vm:
+        guest_shell(vm)
+        answer(vm, "sh prog reg TERMINAL")
+        wait_marker(vm, "sh prog=reg", 1)
+        answer(vm, run_line("RUN TERMINAL"))
+        wait_marker(vm, "sh prog=start", 1)
+        answer(vm, "holo open")
+        wait_marker(vm, "holo op=scan", 1)
+        before = settled_rows(vm)
+        answer(vm, "sh prog done 1 0")
+        assert wait_marker(vm, "sh op=wait", 1)["owe"] == "end"
+        same(before, settled_rows(vm))
+        assert stack(vm) == ["shell", "holo"]
+        assert not [m for m in events(vm, "sh") if m.get("run") == "done"]
+        close_reader(vm)
+        assert wait_marker(vm, "sh op=resume", 1)["owe"] == "end"
+        done = wait_marker(vm, "sh run=done", 1)
+        assert "TEST%20PROGRAM%20RUN%201%20ENDED" in done["result"] or \
+            "TEST PROGRAM RUN 1 ENDED" in done["result"], done
+        wait_marker(vm, "sh state=prompt kind=cmd", 2)

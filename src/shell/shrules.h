@@ -142,6 +142,25 @@ int sh_output_write(dcl_msg_t final, int cancelled);
  */
 int sh_tag_live(int active, uint32_t current, uint32_t tag);
 
+/* ---- A job under a covered shell ---- */
+
+/* What a covered shell owes its job. An end outranks a step. */
+#define SH_OWE_NONE     0
+#define SH_OWE_STEP     1       /* a posted step found the shell covered */
+#define SH_OWE_END      2       /* the job ended while the shell was covered */
+
+/*
+ * 1 when a job must wait: the shell is the session's screen and another
+ * screen is on top. A job's step may ask, page, start a program or print,
+ * and each of those would land on top of the covering screen.
+ */
+int sh_job_waits(int shell_on, int shell_on_top);
+/* Records `what` in *owed, keeping an end over a step. Returns 1 when the
+ * shell owed nothing before: the caller marks the wait once. */
+int sh_owe(int *owed, int what);
+/* The owed work, once: returns it and clears *owed. */
+int sh_owe_take(int *owed);
+
 /* ---- HELP ---- */
 
 /*

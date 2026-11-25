@@ -104,7 +104,8 @@ def test_help_and_errors(board, uos_image, need_mtools, tmp_path):
         lines = answer(vm, "help")
         names = [line.split()[0] for line in lines]
         assert names == sorted(names), lines
-        for name in ("help", "state", "dump", "type", "timers", "reboot", "services", "uptime"):
+        for name in ("help", "state", "screens", "dump", "type", "timers", "reboot", "services",
+                     "uptime"):
             assert name in names, lines
         # The shipped image has no test commands.
         for name in ("fault", "panic", "halt", "bench", "hold"):
@@ -167,7 +168,8 @@ def test_panic_after_services(board, hooks_image, need_mtools, tmp_path):
         assert [(m["name"], m["why"]) for m in down] == \
             [(n, "panic") for n in reversed(SERVICES)], vm.serial
         names = [line.split()[0] for line in answer(vm, "help")]
-        assert names == sorted(["help", "state", "dump", "type", "timers", "reboot", "services",
+        assert names == sorted(["help", "state", "screens", "dump", "type", "timers", "reboot",
+                                "services",
                                 "fault", "panic", "halt", "bench", "hold"] +
                                [c for n in SERVICES for c in SERVICE_COMMANDS[n]]), names
         assert state(vm)["phase"] == "panic"

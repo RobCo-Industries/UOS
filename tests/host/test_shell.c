@@ -255,6 +255,23 @@ TEST(job_tags)
     CHECK_EQ(sh_tag_live(1, 0, 0), 0);       /* tag 0 is never a job */
 }
 
+TEST(covered_shell_owes)
+{
+    int owed = SH_OWE_NONE;
+
+    CHECK_EQ(sh_job_waits(1, 0), 1);         /* a screen covers the shell */
+    CHECK_EQ(sh_job_waits(1, 1), 0);
+    CHECK_EQ(sh_job_waits(0, 0), 0);         /* no shell: nothing to wait for */
+    CHECK_EQ(sh_owe(&owed, SH_OWE_STEP), 1); /* the first debt marks */
+    CHECK_EQ(sh_owe(&owed, SH_OWE_STEP), 0);
+    CHECK_EQ(owed, SH_OWE_STEP);
+    CHECK_EQ(sh_owe(&owed, SH_OWE_END), 0);  /* an end outranks a step */
+    CHECK_EQ(sh_owe(&owed, SH_OWE_STEP), 0);
+    CHECK_EQ(owed, SH_OWE_END);
+    CHECK_EQ(sh_owe_take(&owed), SH_OWE_END);
+    CHECK_EQ(sh_owe_take(&owed), SH_OWE_NONE); /* taken once */
+}
+
 TEST(numbers_and_dates)
 {
     char b[32];

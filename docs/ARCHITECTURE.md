@@ -178,6 +178,24 @@ The stack calls `uncover()` once each time a pop or an unwind leaves the screen 
 | `shell` | `shell_idle`, posted after each line or command | The `$` read |
 | `hack` | `pause_end`, the 1 s result pause | The game's end. It marks `ev=hack op=wait why=covered` once |
 | `first` | `show`, the end of the banner | The handover to the login |
+| `shell` | `drive`, a command's posted step | The step. It marks `ev=sh op=wait why=covered owe=step` once |
+| `shell` | `sh_resume(SH_DONE)`, a command's end, such as a program's `done()` | The end and its result line. It marks `owe=end` |
+
+A running command waits whole while another screen covers the shell. Any step may ask a `/CONFIRM` question, read a `CREATE` line or a password, open the `TYPE /PAGE` pager or print. `con_print()` writes to the console cells at once, so a step's output would paint over the covering screen. So no step runs, quiet or not. The shell records the step or the end it owes, and `shell_uncover()` runs it with `ev=sh op=resume owe=`. `sh_owe_take()` clears the debt before the work, and `sh_resume()` posts at most one step, so the work runs once. An end outranks a step.
+
+Nothing starts on a covered shell: `sh_run_line()` returns `SH_ERR_COVERED`, so no command, question or program starts. `sh run` already replies `covered`. The shell's own `$` read on top does not count as a cover. A command the API starts while that read waits runs under it, as before. When a screen covers that read, a waiting step goes on only once the read ends and the shell is on top.
+
+Ctrl-C while a command waits under the reader goes to the reader, the top screen. The command neither ends nor asks. Once the reader closes, the question opens and Ctrl-C there cancels the command.
+
+The shell's pushes and their rule:
+
+| Push from the shell's side | Covered shell, before | Now |
+|---|---|---|
+| `sh_ask()`: `/CONFIRM`, `CREATE` line, password | The read line opened over the covering screen | The step waits. A start through `sh_run_line()` is refused |
+| `con_page_text()` in `TYPE /PAGE` | The pager opened over the covering screen | The step waits |
+| A program's `start()` through `RUN` | Could start through `sh_run_line()` | Refused with `SH_ERR_COVERED` |
+| `con_print()` through `sh_out()` and the end message | Painted over the covering screen | The step or the end waits |
+| `prompt_start()`, the `$` read | Already waited in `shell_idle()` | Unchanged |
 
 The invariant: a screen that is on top while no command runs has an active read or takes keys itself. The login, the shell, the game, the pager, the lockout, the welcome and the first screen take keys themselves; the login and the shell also own a read in their prompt states. Tests in `tests/test_screens.py` cover each prompt state with the reader at the moment its next step is due, close the reader and type on.
 
@@ -240,6 +258,7 @@ The base commands enter the table on the first use of the registry: `uos_maint_s
 |---|---|
 | `help` | One line per registered command, sorted by name: the name, then its help text |
 | `state` | `phase=... screen=... user=... card=... trusted=... error=...`: the phase `init`, `ready` or `panic`; the top screen's name; the user; the card `ok`, `none` or `notree`; the trust result; the last error. `none` stands for nothing. |
+| `screens` | `screens depth=<n> stack=<names>`: the screen stack, bottom to top, names joined with commas |
 | `dump` | The console cells, from `console_dump()` |
 | `key <name>` | Built in: presses and releases a key |
 | `char <c>`, `text <s>` | Built in: characters |
@@ -522,7 +541,7 @@ One command runs at a time, for the prompt and every other caller together. Othe
 
 | Call | Context | Does |
 |---|---|---|
-| `sh_run_line(line, flags, cb, ctx)` | loop | Runs one line as the logged-in user, with the shell's current folder. `SH_RUN_QUIET` keeps the output off the console. The callback gets a status, `SH_OK`, `SH_WARN`, `SH_FAIL` or `SH_CANCELLED`, and the final message's first line. A missing parameter or a bad line runs as a command that fails: only the prompt asks for a parameter. Returns 0 and calls `cb` exactly once, maybe before it returns; `cb` may be NULL. Or returns `SH_ERR_DOWN`, `SH_ERR_ARG` for NULL, an empty or comment-only line or one over `DCL_LINE_MAX`, `SH_ERR_BUSY` or `SH_ERR_NOUSER`, checked in that order, and never calls `cb`. `SH_RUN_QUIET` keeps output and messages off the console; a question still shows. |
+| `sh_run_line(line, flags, cb, ctx)` | loop | Runs one line as the logged-in user, with the shell's current folder. `SH_RUN_QUIET` keeps the output off the console. The callback gets a status, `SH_OK`, `SH_WARN`, `SH_FAIL` or `SH_CANCELLED`, and the final message's first line. A missing parameter or a bad line runs as a command that fails: only the prompt asks for a parameter. Returns 0 and calls `cb` exactly once, maybe before it returns; `cb` may be NULL. Or returns `SH_ERR_DOWN`, `SH_ERR_ARG` for NULL, an empty or comment-only line or one over `DCL_LINE_MAX`, `SH_ERR_BUSY`, `SH_ERR_NOUSER` or `SH_ERR_COVERED` when another screen covers the shell, checked in that order, and never calls `cb`. `SH_RUN_QUIET` keeps output and messages off the console; a question still shows. |
 | `sh_busy()` | any | Non-zero while a command runs |
 | `sh_program_register(name, start)` | loop | A program for `RUN`. `start(args, done, tag)` pushes its screen, returns 0, and calls `done(tag, status, text)` once, with the tag it got. Status 0 is success, `SH_CANCELLED` is Ctrl-C, anything else a failure. Its screen owns the keys, so it must end the run with `SH_CANCELLED` on Ctrl-C. Returns `SH_ERR_DOWN` before the shell service started. A name with no entry answers `%UOS-W-NOTINST, <NAME> is not installed in this build`. At most 8 programs. |
 
@@ -603,6 +622,8 @@ stateDiagram-v2
 | `cmd state=end verb= rc=<IDENT> sev= files= skipped= failed= steps= maxticks=` | A command ends |
 | `sh stale=<step\|read\|pager\|prog> id= cur=` | A callback of an ended run, ignored |
 | `sh held=1 id=`, `sh prog=<reg\|start\|done>` | Test builds: `sh hold` and the test program |
+| `sh op=wait why=covered id= owe=<step\|end>` | A command's step or end is due while another screen covers the shell. Once per wait |
+| `sh op=resume id= owe=<step\|end>` | The shell is on top again and runs what it owed |
 | `term scheme=<name>` | `SET TERMINAL /SCHEME` |
 | `uaf result=written users=` | `SYSUAF.DAT` was written |
 | `sh run=done status= result=<quoted>`, `sh run=refused rc=`, `sh run=refused why=covered` | The end of `sh run`. `covered`: another screen covers the shell |

@@ -9,6 +9,7 @@
  * up in the registry of uos_maint.h. Commands registered here:
  *   help           the registered commands with their help, sorted
  *   state          one line: phase, screen, user, card, last error
+ *   screens        screens depth=<n> stack=<bottom,...,top>
  *   dump           the console cells, through console_dump()
  *   type <words>   the words as characters, then SELECT: one typed line of
  *                  at most 30 characters, or "err full"
@@ -152,6 +153,31 @@ static int cmd_state(int argc, char **argv)
                     top != NULL && top->name != NULL ? top->name : "none",
                     uos.user[0] != '\0' ? uos.user : "none", uos_card_name(uos.card),
                     uos.trusted, uos.error[0] != '\0' ? uos.error : "none");
+    return 0;
+}
+
+static int cmd_screens(int argc, char **argv)
+{
+    char names[96];
+    size_t n = 0;
+    unsigned i;
+    uos_screen_t *s;
+
+    (void)argv;
+    if (argc != 0) {
+        return uos_maint_fail("unknown command");
+    }
+    names[0] = '\0';
+    for (i = 0; (s = uos_screen_at(i)) != NULL; i++) {
+        int w = k_snprintf(names + n, sizeof(names) - n, "%s%s", i > 0 ? "," : "",
+                           s->name != NULL ? s->name : "?");
+
+        if (w < 0 || (size_t)w >= sizeof(names) - n) {
+            break;
+        }
+        n += (size_t)w;
+    }
+    uos_maint_reply("screens depth=%u stack=%s", i, i > 0 ? names : "none");
     return 0;
 }
 
@@ -390,6 +416,7 @@ static void fill_table(void)
     (void)uos_mt_add(&table, "help", cmd_help, "lists the commands");
     (void)uos_mt_add(&table, "state", cmd_state, "phase, screen, user, card, trust, last error");
     (void)uos_mt_add(&table, "dump", cmd_dump, "the console cells");
+    (void)uos_mt_add(&table, "screens", cmd_screens, "the screen stack, bottom to top");
     (void)uos_mt_add(&table, "type", cmd_type, "types the words, then SELECT");
     (void)uos_mt_add(&table, "timers", cmd_timers, "the live timers");
     (void)uos_mt_add(&table, "reboot", cmd_reboot, "shuts the services down and restarts");

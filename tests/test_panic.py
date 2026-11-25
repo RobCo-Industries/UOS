@@ -137,7 +137,7 @@ def test_earliest_fault_keeps_the_port(board, early_fault_image, need_mtools, tm
 
 # The base commands of src/kernel/maint.c: in the table on the panic path
 # even when uos_maint_start() never ran.
-BASE_COMMANDS = ["dump", "help", "reboot", "state", "timers", "type"]
+BASE_COMMANDS = ["dump", "help", "reboot", "screens", "state", "timers", "type"]
 
 
 def help_names(vm):

@@ -326,6 +326,29 @@ int sh_tag_live(int active, uint32_t current, uint32_t tag)
     return active && tag != 0 && current == tag;
 }
 
+int sh_job_waits(int shell_on, int shell_on_top)
+{
+    return shell_on && !shell_on_top;
+}
+
+int sh_owe(int *owed, int what)
+{
+    int first = *owed == SH_OWE_NONE;
+
+    if (what > *owed) {
+        *owed = what;
+    }
+    return first;
+}
+
+int sh_owe_take(int *owed)
+{
+    int what = *owed;
+
+    *owed = SH_OWE_NONE;
+    return what;
+}
+
 static int fit(int n, size_t size)
 {
     return (n < 0 || (size_t)n >= size) ? -1 : n;

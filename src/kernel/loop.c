@@ -137,6 +137,11 @@ uos_screen_t *uos_screen_top(void)
     return uos_ss_top(&ss);
 }
 
+uos_screen_t *uos_screen_at(unsigned i)
+{
+    return i < ss.depth ? ss.stack[i] : NULL;
+}
+
 void uos_screen_invalidate(void)
 {
     uos_ss_invalidate(&ss);

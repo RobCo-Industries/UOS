@@ -153,6 +153,8 @@ int uos_screen_unwind(void);
 int uos_screen_on_top(const uos_screen_t *s);
 int uos_screen_replace(uos_screen_t *s);
 uos_screen_t *uos_screen_top(void);
+/* The screen at depth `i`, 0 at the bottom; NULL at or past the depth. */
+uos_screen_t *uos_screen_at(unsigned i);
 /* Asks for a redraw of the top screen after the current event. */
 void uos_screen_invalidate(void);
 /* Asks for a redraw of every visible screen, bottom-up, as after a pop. */
