@@ -63,7 +63,7 @@ static const dcl_qual_t q_send[] = {
     { "SUBJECT", 0, DCL_QV_REQUIRED, DCL_VT_TEXT, NULL, 0, 0, NULL },
 };
 static const dcl_qual_t q_user[] = {
-    { "PASSWORD", 0, DCL_QV_REQUIRED, DCL_VT_TEXT, NULL, 0, 0, NULL },
+    { "PASSWORD", 0, DCL_QV_NONE, DCL_VT_NONE, NULL, 0, 0, NULL }, /* asked for, masked */
     { "PRIVS", DCL_QF_NEG | DCL_QF_LIST, DCL_QV_REQUIRED, DCL_VT_KEYWORD, k_privs, 0, 0, NULL },
     { "HOME", 0, DCL_QV_REQUIRED, DCL_VT_TEXT, NULL, 0, 0, NULL },
     { "DISABLED", DCL_QF_NEG, DCL_QV_NONE, DCL_VT_NONE, NULL, 0, 0, NULL },

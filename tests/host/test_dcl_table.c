@@ -328,8 +328,10 @@ static const struct {
     /* AUTHORIZE */
     { "authorize list", "AUTHORIZE LIST" },
     { "auth list bob", "AUTHORIZE LIST BOB" },
-    { "auth add bob/password=\"Pa55word\"/privs=(oper,sec)/home=bob",
-      "AUTHORIZE ADD BOB /PASSWORD=Pa55word /PRIVS=(OPER|SECURITY) /HOME=BOB" },
+    { "auth add bob/password/privs=(oper,sec)/home=bob",
+      "AUTHORIZE ADD BOB /PASSWORD /PRIVS=(OPER|SECURITY) /HOME=BOB" },
+    /* A password is never typed on the line: AUTHORIZE asks for it, masked. */
+    { "auth add bob/password=\"Pa55word\"", "!NOVALU PASSWORD" },
     { "auth mod bob/disabled", "AUTHORIZE MODIFY BOB /DISABLED" },
     { "auth mod bob/nohackable/noprivs", "AUTHORIZE MODIFY BOB /NOHACKABLE /NOPRIVS" },
     { "auth modify bob/privs=readall", "AUTHORIZE MODIFY BOB /PRIVS=(READALL)" },

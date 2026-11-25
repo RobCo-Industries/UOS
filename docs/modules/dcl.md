@@ -214,7 +214,7 @@ The "Shortest" column is informative. The test finds every verb's shortest prefi
 | `REMOVE` | 1: Username (text) | |
 | `LIST` | 0 required: Username (text) | |
 
-User qualifiers: `/PASSWORD=text`, `/PRIVS=` one value or a list from `SYSTEM`, `OPER`, `SECURITY`, `READALL` (neg: `/NOPRIVS` clears them), `/HOME=text`, `/DISABLED` neg (flag bit 0), `/HACKABLE` neg (`/NOHACKABLE` sets flag bit 1).
+User qualifiers: `/PASSWORD`, no value: the shell asks for the password, masked, so it never sits on the command line; `/PRIVS=` one value or a list from `SYSTEM`, `OPER`, `SECURITY`, `READALL` (neg: `/NOPRIVS` clears them), `/HOME=text`, `/DISABLED` neg (flag bit 0), `/HACKABLE` neg (`/NOHACKABLE` sets flag bit 1).
 
 ## Tests
 
