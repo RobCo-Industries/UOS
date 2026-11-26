@@ -48,7 +48,7 @@ MAINTENANCE REQUESTED FOR THE NEXT START.
 SYSTEM RESTARTING.
 ```
 
-An account without OPER gets `%UOS-E-NOPRIV, not enough privilege for this operation`.
+An account with OPER or SYSTEM may give this command. SYSTEM stands for every privilege, so the default ADMIN account may give it too. Any other account gets `%UOS-E-NOPRIV, not enough privilege for this operation`.
 
 **Risk Assessment:**
 - **Technical Risk:** HIGH
@@ -163,11 +163,11 @@ Username and password input buffers can potentially be overflowed with specially
 **SEVERITY:** LOW
 
 **Description:**  
-This terminal model has no network. Its only wire is the serial service port, which carries the terminal's messages in plaintext. The terminal answers a typed password with one star per character. A password typed on the service port still travels to the terminal as text.
+This terminal model has no network. Its only wire is the serial console on the PL011 port, pins 8 and 10 of the header. It carries the session in plaintext, both ways: what the terminal prints, and every key typed on it. The terminal answers a typed password with one star per character. A password typed on the console still travels to the terminal as text. The second channel, the maintenance port of the test bench, reaches no pin on a fielded unit.
 
 **Impact:**
 - Anyone on the wire reads the session
-- Anyone on the wire reads a password typed on the service port. A password typed on the terminal's own keyboard never crosses the wire
+- Anyone on the wire reads a password typed on the serial console. A password typed on the terminal's own keyboard never crosses the wire
 - Anyone on the wire can type into the terminal
 - No protection for file contents shown on screen
 
@@ -180,7 +180,7 @@ This terminal model has no network. Its only wire is the serial service port, wh
 > — Product Management, June 2077
 
 **Mitigation:**
-- Keep the service port inside the terminal case
+- Keep the serial console's pins inside the terminal case
 - Physical security of the cable
 - Limited to trusted environments
 
