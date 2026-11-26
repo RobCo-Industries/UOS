@@ -26,6 +26,7 @@
 #define SH_AFTER_LOGOUT   1
 #define SH_AFTER_HALT     2
 #define SH_AFTER_RESTART  3
+#define SH_AFTER_LOGIN    4  /* log out, then ask the password of login_name */
 
 /* Lines a command reads with CREATE, at most. */
 #define SH_CREATE_MAX     16384u
@@ -63,6 +64,7 @@ struct sh_job {
     char verb[32];                  /* the marker word */
     int cancel;
     int after;                      /* SH_AFTER_* */
+    char login_name[UAF_NAME_MAX + 1];  /* LOGIN's user name, SH_AFTER_LOGIN */
     uint32_t steps, maxticks;
     /* The final message. */
     dcl_msg_t msg;

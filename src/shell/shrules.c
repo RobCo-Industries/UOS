@@ -589,6 +589,23 @@ int sh_prog_add(sh_progtab_t *t, const char *name, sh_prog_start_fn start)
     return 0;
 }
 
+int sh_prog_put(sh_progtab_t *t, const char *name, sh_prog_start_fn start)
+{
+    char n[SH_PROG_NAME_MAX + 1];
+    unsigned i;
+
+    if (t == NULL || start == NULL || prog_name(name, n) != 0) {
+        return SH_PROG_ERR_ARG;
+    }
+    for (i = 0; i < t->count; i++) {
+        if (k_strcmp(t->prog[i].name, n) == 0) {
+            t->prog[i].start = start;
+            return 0;
+        }
+    }
+    return sh_prog_add(t, n, start);
+}
+
 sh_prog_start_fn sh_prog_find(const sh_progtab_t *t, const char *name)
 {
     char n[SH_PROG_NAME_MAX + 1];
@@ -619,6 +636,29 @@ void sh_verb_word(const dcl_cmd_t *cmd, char *out, size_t size)
     } else {
         (void)k_snprintf(out, size, "%s", cmd->verb->name);
     }
+}
+
+/* ---- LOGIN ---- */
+
+int sh_login_name(const char *param, char *out, size_t size)
+{
+    size_t i;
+
+    if (out == NULL || size < UAF_NAME_MAX + 1u) {
+        return DCL_SYS_IVUSER;
+    }
+    out[0] = '\0';
+    if (param == NULL || param[0] == '\0') {
+        return DCL_NORMAL;
+    }
+    if (uaf_check_name(param) != UAF_OK) {
+        return DCL_SYS_IVUSER;
+    }
+    for (i = 0; param[i] != '\0'; i++) {
+        out[i] = up(param[i]);
+    }
+    out[i] = '\0';
+    return DCL_NORMAL;
 }
 
 /* ---- SET HALT and the maintenance request ---- */

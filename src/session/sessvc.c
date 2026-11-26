@@ -156,6 +156,20 @@ int sess_logout(int reason)
     return 0;
 }
 
+int sess_logout_as(int reason, const char *name)
+{
+    int rc;
+
+    if (name != NULL) {
+        k_snprintf(sess.preset, sizeof(sess.preset), "%s", name);
+    }
+    rc = sess_logout(reason);
+    if (rc != 0) {
+        k_memset(sess.preset, 0, sizeof(sess.preset));
+    }
+    return rc;
+}
+
 /* ---- The password game ---- */
 
 int sess_hack_check(void)

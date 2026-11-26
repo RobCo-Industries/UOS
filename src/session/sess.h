@@ -69,6 +69,15 @@ int sess_vp_ctx(vp_ctx_t *ctx);
  */
 int sess_logout(int reason);
 
+/*
+ * loop: as sess_logout(), then the login takes `name` as the user name
+ * and asks only for its password. Every login rule applies: a wrong
+ * password counts, a cancel or a failure brings the user name prompt
+ * back. NULL or "" is sess_logout(). The name is not checked here: an
+ * unknown one fails as a wrong password does.
+ */
+int sess_logout_as(int reason, const char *name);
+
 /* any: "user", "maint", "idle", "shell". */
 const char *sess_end_name(int reason);
 

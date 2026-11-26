@@ -764,6 +764,7 @@ static void finish(void)
     sh_done_fn cb = j->cb;
     void *cbctx = j->cbctx;
     int after = j->after;
+    char login_name[UAF_NAME_MAX + 1];
     int status;
     char *cap;
     size_t caplen;
@@ -819,6 +820,7 @@ static void finish(void)
              (unsigned)j->tally.failed, (unsigned)j->steps, (unsigned)j->maxticks);
     cap = j->cap;
     caplen = j->caplen;
+    k_memcpy(login_name, j->login_name, sizeof(login_name));
     k_memset(j, 0, sizeof(*j));
     if (cb != NULL) {
         cap_view = cap;
@@ -833,6 +835,10 @@ static void finish(void)
     switch (after) {
     case SH_AFTER_LOGOUT:
         (void)sess_logout(SESS_END_USER);
+        return;
+    case SH_AFTER_LOGIN:
+        (void)sess_logout_as(SESS_END_USER, login_name);
+        k_memset(login_name, 0, sizeof(login_name));
         return;
     case SH_AFTER_HALT:
         uos_halt();
@@ -1058,7 +1064,8 @@ static void test_prog_reg(void *arg)
 {
     (void)arg;
     tp_busy = 0;
-    UOS_MARK("sh prog=reg name=%s rc=%d", tp_name, sh_program_register(tp_name, test_prog_start));
+    /* The test program stands in for an installed one of the same name. */
+    UOS_MARK("sh prog=reg name=%s rc=%d", tp_name, sh_prog_put(&sh_progs, tp_name, test_prog_start));
 }
 
 static void test_prog_end(void *arg)

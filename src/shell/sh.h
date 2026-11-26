@@ -114,8 +114,9 @@ int sh_busy(void);
 /*
  * loop: registers a program for RUN. `name` is 1 to 12 of A-Z 0-9 $ _,
  * any case; the RUN verb accepts the names of the command table: HACK,
- * TERMINAL and HOLOTAPE. The HOLOTAPE verb runs the HOLOTAPE program
- * with its parameters as `args`.
+ * TERMINAL and HOLOTAPE. The menu, holo and hack services register
+ * those three. The HOLOTAPE verb runs the HOLOTAPE program with its
+ * tape name, or "", as `args`; RUN passes "".
  *
  * start(args, done, tag) runs from the loop when RUN names the program.
  * It pushes its own screen and returns 0, then calls done(tag, status,

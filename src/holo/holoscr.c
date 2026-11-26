@@ -36,6 +36,7 @@
 #include "holoscan.h"
 #include "holoscr.h"
 #include "sess.h"
+#include "sh.h"
 #include "uos.h"
 #include "uos_maint.h"
 #include "uos_text.h"
@@ -655,9 +656,51 @@ static int cmd_holo(int argc, char **argv)
     return uos_maint_fail("usage holo open|list|pick <n>|state");
 }
 
+/* ---- RUN HOLOTAPE and the HOLOTAPE verb ---- */
+
+static char prog_tape[16];          /* an 8.3 name with room to spare */
+static int prog_posted;
+
+static void push_program(void *arg)
+{
+    int rc;
+
+    (void)arg;
+    prog_posted = 0;
+    rc = holo_screen_start_tape(prog_tape, NULL, NULL);
+    UOS_MARK("holo op=program tape=%s rc=%d", prog_tape[0] != '\0' ? prog_tape : "-", rc);
+}
+
+/*
+ * The HOLOTAPE program, `args` the tape name or "". As RUN TERMINAL, the
+ * run ends at once and the push is posted after it: the shell owes only
+ * its prompt while the reader covers it, and shows it when BACK closes
+ * the reader.
+ */
+static int prog_start(const char *args, sh_prog_done_fn done, void *tag)
+{
+    size_t n = args != NULL ? k_strlen(args) : 0;
+
+    if (holo_screen_active() || prog_posted || n >= sizeof(prog_tape)) {
+        return 1;
+    }
+    k_memcpy(prog_tape, n != 0 ? args : "", n + 1u);
+    if (uos_post(push_program, NULL) != 0) {
+        return 1;
+    }
+    prog_posted = 1;
+    done(tag, 0, NULL);
+    return 0;
+}
+
 static int holo_svc_init(void)
 {
-    return uos_maint_register("holo", cmd_holo, "the holotape reader: open list pick state");
+    int rc = uos_maint_register("holo", cmd_holo, "the holotape reader: open list pick state");
+
+    if (rc != 0) {
+        return rc;
+    }
+    return sh_program_register("HOLOTAPE", prog_start);
 }
 
 static void holo_svc_shutdown(int why)

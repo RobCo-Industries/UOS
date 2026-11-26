@@ -66,14 +66,14 @@ TEST(table_is_sound)
 
     CHECK_EQ(dcl_table_check(U, &bad), 0);
     CHECK(bad == NULL);
-    CHECK_EQ(U->count, 17);
+    CHECK_EQ(U->count, 16);
 }
 
 TEST(every_design_verb_is_present)
 {
     static const char *const verbs[] = {
         "DIRECTORY", "TYPE", "COPY", "DELETE", "RENAME", "CREATE", "SET", "SHOW", "HELP", "RUN",
-        "LOGIN", "LOGOUT", "ROBCO", "DEVICE", "HOLOTAPE", "MAIL", "AUTHORIZE",
+        "LOGIN", "LOGOUT", "ROBCO", "DEVICE", "HOLOTAPE", "AUTHORIZE",
     };
     size_t i;
     size_t k;
@@ -312,19 +312,11 @@ static const struct {
     /* HOLOTAPE */
     { "holotape", "HOLOTAPE" },
     { "holo diary", "HOLOTAPE DIARY" },
-    { "holo diary \"Day one\"", "HOLOTAPE DIARY|Day one" },
-    /* MAIL */
-    { "mail dir", "MAIL DIRECTORY" },
-    { "mail read", "MAIL READ" },
-    { "mail read 3", "MAIL READ 3" },
-    { "mail read %x10", "MAIL READ %X10" },
-    { "mail read 0", "!NUMRNG 0" },
-    { "mail read three", "!IVNUMB THREE" },
-    { "mail send oper/subject=\"Shift notes\"", "MAIL SEND OPER /SUBJECT=Shift notes" },
-    { "mail send", "?To" },
-    { "mail delete 2", "MAIL DELETE 2" },
-    { "mail d", "!ABKEYW D" },
-    { "mail", "?Action" },
+    { "holo diary \"Day one\"", "!MAXPARM Day one" },
+    { "holo diary entry", "!MAXPARM ENTRY" },
+    /* MAIL is gone */
+    { "mail", "!IVVERB MAIL" },
+    { "mail dir", "!IVVERB MAIL" },
     /* AUTHORIZE */
     { "authorize list", "AUTHORIZE LIST" },
     { "auth list bob", "AUTHORIZE LIST BOB" },
