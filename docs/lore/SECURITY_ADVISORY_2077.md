@@ -34,10 +34,10 @@ This advisory documents known security vulnerabilities in the Unified Operating 
 **SEVERITY:** HIGH (Downgraded to MEDIUM by management)
 
 **Description:**  
-The SET HALT RESTART /MAINTENANCE command needs only the OPER privilege. It leaves a request file on the card and restarts the terminal. At the next start the boot agent opens its maintenance screen, which asks for no login. When the card's BOOT.CFG sets `restore_users = on`, anyone at that screen can restore the default accounts, whose passwords are printed in every manual.
+The SET HALT RESTART /MAINTENANCE command needs only the OPER privilege. It leaves a request file on the card and restarts the terminal. At the next start the boot agent opens its maintenance screen, which asks for no login. When the card's BOOT.CFG sets `restore_users = on`, anyone at that screen can copy the recovery user file, SYSUAF.DEF, over the live one. On a unit as shipped, that file holds the default accounts, whose passwords are printed in every manual. On a unit whose administrator replaced it, it holds whatever accounts and passwords the administrator put there.
 
 **Impact:**
-- All accounts reset to their published passwords, when `restore_users` is on
+- The live accounts are replaced by those of SYSUAF.DEF, when `restore_users` is on. On a unit as shipped, those are the published passwords
 - The request file names the operator who asked, but nothing records who stood at the screen
 - Affects all terminal types
 

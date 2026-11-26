@@ -101,7 +101,7 @@ BOB              home=BOB      privs=OPER flags=-
 mkuaf: users.ini: [BOB]: unknown privilege 'ROOT'
 ```
 
-Copy the file to `/UOS/SYSUAF.DAT` and create each home folder under `/UOS/HOME`. The tool makes no folder. The default card is built from `tools/default_users.ini`, with the command in its first lines. `card/UOS/SYSUAF.DEF` must stay a copy of `card/UOS/SYSUAF.DAT`.
+Copy the file to `/UOS/SYSUAF.DAT` and create each home folder under `/UOS/HOME`. The tool makes no folder. The default card is built from `tools/default_users.ini`, with the command in its first lines. In this repository `card/UOS/SYSUAF.DEF` and `card/UOS/SYSUAF.DAT` hold the same bytes, the default users, and `tests/test_maint.py` checks it. On a card of your own, `SYSUAF.DEF` is the recovery set: build it once from accounts whose passwords you store safely, and do not copy the live file over it after each change. See [Lost passwords](#lost-passwords).
 
 ### Changing users at the terminal
 
