@@ -454,7 +454,7 @@ The first service, in `src/kernel/svc_uptime.c`, is the model of a service. Its 
 
 The file system service, `src/vfs/vfs.h`, prefix `vfs_`. Commands and screens reach card files through it with file specifications. Each call resolves the specification with the caller's `vp_ctx_t`, checks access with `vp_access()`, acts through the library's FatFs glue and returns 0 or a negative `VFS_E_*` code. `vfs_msg()` maps a code to the command language's message, so every command prints the same message for the same failure. A read-only volume gives `WRITLCK`, a protected file `PROTECT`, a file over the limit `TOOBIG` and a full heap `INSFMEM`.
 
-Every call that touches the card runs from the loop only. The service reads `uos.card` on each call: no card gives `VFS_E_NOCARD`, no `/UOS` folder `VFS_E_NOTREE`. Its init cannot fail.
+Every call that touches the card runs from the loop only. The service reads `uos.card` on each call: no card gives `VFS_E_NOCARD`, no `/UOS` folder `VFS_E_NOTREE`. Its init cannot fail. A card taken out after boot gives the library's `FS_ERR_GONE` on every later call, and `vfs_from_fs()` turns it into `VFS_E_NOCARD` too, so the shell prints `%UOS-E-NODEV`. The card stays gone until UOS restarts, and `uos.card` still says `ok`.
 
 - `vfs_read_all()` reads a whole file into a heap buffer. A file over the caller's limit is `VFS_E_TOOBIG` and nothing is read.
 - `vfs_write_all()` uses `fs_write_file_atomic()`. New content goes to `~NAME`, then replaces `NAME`. After a power cut the target holds the whole old or the whole new content, or is absent for a first write. A full card is `VFS_E_FULL` and keeps the old file.
@@ -910,10 +910,12 @@ The step runs before the screen and before IRQs are enabled, as RobCo-Core's `me
 
 QEMU does not model caches, so the MMU change cannot show a speed-up there. A real Pi should run the login hash and screen copies several times faster with the caches on. That is not measured: nothing is validated on real hardware. The login measures its check in QEMU, see [Session](#session).
 
+UOS builds RobCo-Core with one file system volume, `ROBCO_FS_VOLUMES` 1 in `src/kernel/robco_config.h`. It mounts one card and has no holotape slot, so the library's second slot would only cost about 590 bytes of BSS.
+
 The pure files allocate nothing. The file system's whole-file reads take their buffers from the heap. The holotape reader holds one tape there while it is open, up to `HF_TAPE_MAX`, 2098728 bytes, and the pager holds a copy of the entry it shows, up to 64 KiB. The password game keeps its list and board in static memory, about 5 KiB.
 
 ## Pending library features
 
-These wait on RobCo-Core changes and a pin bump. The pin `4249632` still lacks them.
+These wait on RobCo-Core changes and a pin bump. The pin `ef5079f` still lacks them.
 
 - Data tapes in `rimg`. `rimg_validate()` cannot accept a data tape, subtype 2, because it looks up a slot first and subtype 2 has none. `tools/rimg.py seal` and `pack` refuse subtype 2 for the same reason. The holo module works around both: `holofmt.c` checks the slot rules itself, and `tools/mkholo.py` writes the header itself. See [holo](modules/holo.md).

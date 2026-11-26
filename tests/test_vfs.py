@@ -388,6 +388,17 @@ def test_no_card(board, uos_image):
         no_card_checks(vm, "nocard")
 
 
+def test_card_taken_out(board, uos_image, need_mtools, tmp_path):
+    """A card pulled after boot gives nocard, not a read or write error.
+    The library returns FS_ERR_GONE once the slot reports no card."""
+    with alone(uos_image, board, home_card(tmp_path)) as vm:
+        wait_ready(vm)
+        ok(fs(vm, "ls *.*")[0])
+        drive = [b for b in vm.qmp.execute("query-block") if b["device"] == "sd0"][0]
+        vm.qmp.execute("eject", id=drive["qdev"], force=True)
+        no_card_checks(vm, "nocard")
+
+
 def test_no_uos_tree(board, uos_image, need_mtools, tmp_path):
     with alone(uos_image, board, card(tmp_path, {"/ROBCO/README.TXT": b"x\n"})) as vm:
         wait_ready(vm)
