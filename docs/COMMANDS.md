@@ -222,7 +222,7 @@ Format: `HELP [topic]`. Prints `SYS$HELP:<verb>.HLP`, the file the command table
 
 ## RUN
 
-Format: `RUN program`, one of `HACK`, `TERMINAL`, `HOLOTAPE`. Starts a program another task registered with `sh_program_register()`. All three are installed. At the prompt, `RUN` alone asks `_Program:` until it gets a name, and Ctrl-C drops the command. From `sh_run_line()`, with no prompt, it gives `%DCL-W-INSFPRM`. Another name gives `%DCL-W-IVKEYW`. A program with no entry would give `%UOS-W-NOTINST, <NAME> is not installed in this build`. A program that fails to start gives `%UOS-E-PROGERR`. Ctrl-C ends the wait for a program; if that program ends later, its result is ignored, also when another `RUN` waits by then.
+Format: `RUN program`, one of `HACK`, `TERMINAL`, `HOLOTAPE`. Starts a program another task registered with `sh_program_register()`. All three are installed. At the prompt, `RUN` alone asks `_Program:` until it gets a name, and Ctrl-C drops the command. From `sh_run_line()`, with no prompt, it gives `%DCL-W-INSFPRM`. Another name gives `%DCL-W-IVKEYW`. A program with no entry would give `%UOS-W-NOTINST, <NAME> is not installed in this build`. A program that fails to start gives `%UOS-E-PROGERR`, or `%UOS-E-IVSPEC` when its argument is not a valid name. Ctrl-C ends the wait for a program; if that program ends later, its result is ignored, also when another `RUN` waits by then.
 
 `RUN TERMINAL` opens the terminal menu of `TERMINAL.CFG` in your home over the shell. The command ends at once with success, so the menu's own command entries can run. BACK at the top level asks `Close the menu?`, and ENTER there brings the `$` prompt back. A `logout` entry still logs out. Without `TERMINAL.CFG` the menu shows `File TERMINAL.CFG not found`. `RUN TERMINAL` from a menu's command entry, while the menu is open, gives `%UOS-E-PROGERR`. See [tui](modules/tui.md#the-screen).
 
@@ -253,7 +253,7 @@ LIGHT1   LIGHT  GPIO25  ON     Hall lights
 
 ## HOLOTAPE
 
-Format: `HOLOTAPE [tape]`. Runs the `HOLOTAPE` program, as `RUN HOLOTAPE` does. With a tape name the reader opens that tape once its scan ends; a name the list does not hold leaves the list shown with `No holotape NAME`. A second parameter gives `%DCL-W-MAXPARM`.
+Format: `HOLOTAPE [tape]`. Runs the `HOLOTAPE` program, as `RUN HOLOTAPE` does. A tape name is 1 to 8 of `A-Z 0-9 $ _ -`, any case, then nothing or `.HTP`. Any other name, a longer one among them, gives `%UOS-E-IVSPEC` and opens nothing: a name is never cut to fit. With a valid name the reader opens that tape once its scan ends; a tape the list does not hold leaves the list shown with `No holotape NAME.HTP`. A second parameter gives `%DCL-W-MAXPARM`.
 
 ## AUTHORIZE
 

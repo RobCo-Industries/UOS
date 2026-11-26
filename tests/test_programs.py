@@ -7,7 +7,7 @@ from test_screens import at_prompt, at_shell_prompt, settled_rows, stack
 from test_shell import PASSWORDS, expect, n_marks, wait_marker, wait_state
 import pytest
 
-from uos import alone, answer, batch, card, card_tree, dump_until, key
+from uos import ROOT, alone, answer, batch, card, card_tree, dump_until, key
 
 
 def guest_shell(vm):
@@ -45,7 +45,7 @@ def test_run_holotape_and_back(board, hooks_image, need_mtools, tmp_path):
         # The verb with a tape name opens the tape.
         expect(vm, "HOLOTAPE PROCS", "NORMAL")
         m = wait_marker(vm, "holo op=program", 2)
-        assert (m["tape"], m["rc"]) == ("PROCS", "0"), m
+        assert (m["tape"], m["rc"]) == ("PROCS.HTP", "0"), m
         dump_until(vm, lambda r: r[0] == "UOS HOLOTAPE READER")
         st = holo_state(vm)
         assert (st["screen"], st["open"]) == ("entries", "PROCS.HTP"), st
@@ -57,6 +57,50 @@ def test_run_holotape_and_back(board, hooks_image, need_mtools, tmp_path):
         # An entry is not a parameter.
         expect(vm, "HOLOTAPE PROCS ONE", "MAXPARM", "%DCL-W-MAXPARM")
         assert n_marks(vm, "holo op=program") == 2
+
+
+def refused(vm, line, rc, ident, programs):
+    """A refused name: the documented error, nothing posted, the prompt and the
+    session as they were."""
+    expect(vm, line, rc, ident)
+    assert n_marks(vm, "holo op=program") == programs
+    assert stack(vm) == ["shell", "readline"]
+    wait_state(vm, state="prompt", kind="cmd")
+    st = sess_state(vm)
+    assert (st["state"], st["user"]) == ("session", "GUEST"), st
+
+
+def test_names_are_never_cut(board, hooks_image, need_mtools, tmp_path):
+    """A typed name is used whole or refused. A tape name is 1 to 8 characters,
+    then nothing or .HTP: ABCDEFGH.HTPX and ABCDEFGHI give IVSPEC and never open
+    ABCDEFGH.HTP. ABCDEFGH, at the limit, opens; ABCDEFGZ is not on the card.
+    A user name over 16 and a program name over 12 are refused too."""
+    procs = open(f"{ROOT}/card/UOS/HOLO/PROCS.HTP", "rb").read()
+    extra = {"/UOS/HOLO/ABCDEFGH.HTP": procs}
+    with alone(hooks_image, board, card(tmp_path, card_tree(extra))) as vm:
+        guest_shell(vm)
+        refused(vm, "HOLOTAPE ABCDEFGH.HTPX", "IVSPEC", "%UOS-E-IVSPEC", 0)
+        refused(vm, "HOLOTAPE ABCDEFGHI", "IVSPEC", "%UOS-E-IVSPEC", 0)
+        refused(vm, "RUN ABCDEFGHIJKLM", "IVKEYW", "%DCL-W-IVKEYW", 0)
+        refused(vm, "LOGIN ABCDEFGHIJKLMNOPQ", "IVNAME", "%UAF-E-IVNAME", 0)
+        assert n_marks(vm, "session state=end") == 0
+        # Exactly the limit, on the card: that tape opens.
+        expect(vm, "HOLOTAPE abcdefgh", "NORMAL")
+        m = wait_marker(vm, "holo op=program", 1)
+        assert (m["tape"], m["rc"]) == ("ABCDEFGH.HTP", "0"), m
+        assert wait_marker(vm, "holo op=want", 1)["result"] == "found"
+        dump_until(vm, lambda r: r[0] == "UOS HOLOTAPE READER")
+        assert holo_state(vm)["open"] == "ABCDEFGH.HTP"
+        key(vm, "back")
+        key(vm, "back")
+        wait_marker(vm, "holo op=exit", 1)
+        wait_state(vm, state="prompt", kind="cmd")
+        # Exactly the limit, not on the card: the reader says so on its list.
+        expect(vm, "HOLOTAPE ABCDEFGZ.HTP", "NORMAL")
+        m = wait_marker(vm, "holo op=want", 2)
+        assert (m["tape"], m["result"]) == ("ABCDEFGZ.HTP", "missing"), m
+        dump_until(vm, lambda r: any("No holotape ABCDEFGZ.HTP" in row for row in r))
+        assert holo_state(vm)["screen"] == "tapes"
 
 
 def test_run_hack_from_a_session(board, hooks_image, need_mtools, tmp_path):

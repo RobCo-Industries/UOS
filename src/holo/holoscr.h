@@ -10,6 +10,7 @@
 
 #define HOLO_ERR_BUSY       (-1)    /* the reader is already open */
 #define HOLO_ERR_SCREEN     (-2)    /* the screen stack is full */
+#define HOLO_ERR_NAME       (-3)    /* the tape name breaks hf_tape_name() */
 
 /* Called once when the person leaves the reader, after its screen popped. */
 typedef void (*holo_done_fn)(void *ctx);
@@ -25,9 +26,10 @@ int holo_screen_start(holo_done_fn done, void *ctx);
 
 /*
  * As holo_screen_start(), then opens tape `tape` once the scan ends, as
- * ENTER on it would: its entry list shows. `tape` is an 8.3 name, any
- * case; with no type it names a .HTP file. NULL or "" is the list. A tape
- * the list does not hold leaves the list shown with "No holotape NAME".
+ * ENTER on it would: its entry list shows. `tape` follows hf_tape_name():
+ * 1 to 8 of A-Z 0-9 $ _ -, any case, then nothing or ".HTP". NULL or "" is
+ * the list. Another name returns HOLO_ERR_NAME and pushes nothing. A tape
+ * the list does not hold leaves the list shown with "No holotape NAME.HTP".
  */
 int holo_screen_start_tape(const char *tape, holo_done_fn done, void *ctx);
 

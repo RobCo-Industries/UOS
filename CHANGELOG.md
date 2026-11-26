@@ -12,6 +12,7 @@ All notable changes to UOS are recorded here. The format follows [Keep a Changel
 ### Fixed
 
 - A logout or `LOGIN <user>` queued right after `RUN HACK`, `RUN HOLOTAPE` or `RUN TERMINAL` no longer opens that screen over the login prompt. The password game no longer starts there for real. The dropped call prints `sh stale=post`.
+- `HOLOTAPE ABCDEFGH.HTPX` no longer opens `ABCDEFGH.HTP`. A typed tape name is used whole or refused: 1 to 8 of `A-Z 0-9 $ _ -`, then nothing or `.HTP`, else `%UOS-E-IVSPEC`. A menu's `holotape` target follows the same rule.
 
 ### Removed
 

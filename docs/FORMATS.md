@@ -105,7 +105,7 @@ As built:
 - Every file the menu names, sub-menus, the header and `text` targets, is read from the home with the user's rights, up to 64 KiB.
 - `command` targets run as the user, with the user's privileges, as typed at the `$` prompt.
 - `device` targets go to the device service with the user's privileges. The device's own mask applies.
-- `holotape` targets name a tape in `SYS$HOLO`. A name with no type means `.HTP`.
+- `holotape` targets name a tape in `SYS$HOLO`: 1 to 8 of `A-Z 0-9 $ _ -`, then nothing or `.HTP`. A name with no type means `.HTP`.
 - On the default card only OPER has a menu.
 
 ## Word lists

@@ -115,6 +115,7 @@ RobCo-Core's `rimg_validate()` cannot accept a data tape: subtype 2 has no slot,
 | `hf_entry_text(t, i, &text, &len)` | Pointer to the body and its length |
 | `hf_display_char(c)` | The character to draw for a body byte |
 | `hf_err_name(code)`, `hf_strerror(code)` | Error name and text |
+| `hf_tape_name(in, out)` | A typed tape name: 1 to 8 of `A-Z 0-9 $ _ -`, any case, then nothing or `.HTP`. Writes `NAME.HTP` and returns 0, or returns -1. A longer name is refused, never cut |
 | `hf_reader_init(r, tapes, n)` | Starts the reader on the tape list |
 | `hf_reader_event(r, ev, &act)` | Applies UP, DOWN, ENTER or BACK |
 | `hf_reader_loaded(r, image, size)` | Opens the tape the reader asked for |
@@ -149,7 +150,7 @@ Layout of both list screens, 30 lines of at most 78 characters:
 
 ## The screen
 
-`holo_screen_start(done, ctx)` in `holoscr.h` pushes the reader, loop only. It returns 0, `HOLO_ERR_BUSY` when the reader is open, or `HOLO_ERR_SCREEN`. `done(ctx)` runs once after the reader leaves the stack. The holo service registers the `HOLOTAPE` program at its init: `RUN HOLOTAPE` and the `HOLOTAPE` verb post `holo_screen_start_tape()` with the tape name or none, end the command at once, and mark `holo op=program tape= rc=`. The shell owes its prompt until the reader closes.
+`holo_screen_start(done, ctx)` in `holoscr.h` pushes the reader, loop only. It returns 0, `HOLO_ERR_BUSY` when the reader is open, or `HOLO_ERR_SCREEN`. `done(ctx)` runs once after the reader leaves the stack. The holo service registers the `HOLOTAPE` program at its init: `RUN HOLOTAPE` and the `HOLOTAPE` verb check the tape name with `hf_tape_name()`, post `holo_screen_start_tape()` with the tape name or none, end the command at once, and mark `holo op=program tape= rc=`. The shell owes its prompt until the reader closes.
 
 The reader opens over the top screen, at the login or in a session, and closes only itself. `holo open` calls `holo_screen_start(NULL, NULL)`.
 

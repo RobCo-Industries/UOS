@@ -849,7 +849,7 @@ static int run_program(sh_job_t *j, const char *name, const char *args)
     j->prog_in_start = 0;
     if (rc != 0) {
         j->prog_wait = 0;
-        return sh_end(j, DCL_SYS_PROGERR, name, 0, 1);
+        return sh_end(j, rc == SH_PROG_IVSPEC ? DCL_SYS_IVSPEC : DCL_SYS_PROGERR, name, 0, 1);
     }
     return j->prog_sync ? SH_DONE : SH_WAIT;
 }

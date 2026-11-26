@@ -79,8 +79,9 @@ int sess_logout(int reason);
  * loop: as sess_logout(), then the login takes `name` as the user name
  * and asks only for its password. Every login rule applies: a wrong
  * password counts, a cancel or a failure brings the user name prompt
- * back. NULL or "" is sess_logout(). The name is not checked here: an
- * unknown one fails as a wrong password does.
+ * back. NULL or "" is sess_logout(). A name that breaks uaf_check_name(),
+ * one longer than UAF_NAME_MAX among them, returns -1 and changes
+ * nothing. An unknown name fails as a wrong password does.
  */
 int sess_logout_as(int reason, const char *name);
 

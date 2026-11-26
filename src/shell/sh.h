@@ -29,6 +29,10 @@
 #define SH_ERR_FULL     (-6)    /* SH_PROG_MAX programs already */
 #define SH_ERR_COVERED  (-7)    /* another screen covers the shell */
 
+/* A program's start() returns this when its argument is not a valid name:
+ * the run ends with %UOS-E-IVSPEC and nothing is posted. */
+#define SH_PROG_IVSPEC  2
+
 /* Flags of sh_run_line(). */
 #define SH_RUN_QUIET    0x01u   /* print no output or message on the console: only the result
                                    line counts; a question the command asks still shows */

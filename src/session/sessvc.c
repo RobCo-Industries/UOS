@@ -167,7 +167,11 @@ int sess_logout_as(int reason, const char *name)
 {
     int rc;
 
-    if (name != NULL) {
+    if (name != NULL && name[0] != '\0') {
+        /* A name that does not fit is refused before the session ends. */
+        if (uaf_check_name(name) != UAF_OK) {
+            return -1;
+        }
         k_snprintf(sess.preset, sizeof(sess.preset), "%s", name);
     }
     rc = sess_logout(reason);

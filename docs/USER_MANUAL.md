@@ -241,7 +241,7 @@ To give a user the command line again, delete their `TERMINAL.CFG`. A user at th
 
 A holotape is a file on the terminal's card, in the folder `SYS$HOLO`. Each tape has a title and a few entries of text: logs, procedures, letters.
 
-Open the reader with `RUN HOLOTAPE` or `HOLOTAPE` at the `$` prompt, or with a holotape entry of your menu. `HOLOTAPE STORY` opens the tape `STORY` at once. When the reader closes, the prompt or the menu comes back.
+Open the reader with `RUN HOLOTAPE` or `HOLOTAPE` at the `$` prompt, or with a holotape entry of your menu. `HOLOTAPE STORY` opens the tape `STORY` at once. A tape name is 1 to 8 letters, digits, `$`, `_` or `-`, then nothing or `.HTP`. Another name gives `%UOS-E-IVSPEC`. When the reader closes, the prompt or the menu comes back.
 
 The holotape reader lists the tapes by file name and title. Use UP and DOWN to move the `>` mark, and SELECT to open a tape. The terminal shows `LOADING` with the tape's name while it reads. A large tape can take a few seconds.
 
