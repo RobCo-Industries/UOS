@@ -6,11 +6,14 @@ All notable changes to UOS are recorded here. The format follows [Keep a Changel
 
 ### Added
 
+- `docs/ADMIN_GUIDE.md` for the person who prepares the card, `docs/QUICK_REFERENCE.md`, and `docs/LORE.md`, which sets the in-world documents against the real system. Writing a menu moved from the user manual to the administrator guide.
 - `RUN HOLOTAPE` and the `HOLOTAPE` verb open the holotape reader; `HOLOTAPE <tape>` opens one tape. `RUN HACK` opens the password game's screen, which from a session shows the `busy` refusal. Both end the command at once, as `RUN TERMINAL` does.
 - `LOGIN <user>` ends the session and asks only for that user's password, with the login's retries and lockout.
 
 ### Fixed
 
+- The lore documents no longer claim a credential dump, MD5 passwords, a `MAIL` system or a network. They say they are fiction and link to the real docs.
+- The user manual opened the on-screen keyboard with a GPIO button, which UOS does not read yet. It now says F4. The session page no longer says `SECURITY` skips the password game's lockout.
 - A logout or `LOGIN <user>` queued right after `RUN HACK`, `RUN HOLOTAPE` or `RUN TERMINAL` no longer opens that screen over the login prompt. The password game no longer starts there for real. The dropped call prints `sh stale=post`.
 - `HOLOTAPE ABCDEFGH.HTPX` no longer opens `ABCDEFGH.HTP`. A typed tape name is used whole or refused: 1 to 8 of `A-Z 0-9 $ _ -`, then nothing or `.HTP`, else `%UOS-E-IVSPEC`. A menu's `holotape` target follows the same rule.
 
