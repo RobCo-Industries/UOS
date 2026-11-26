@@ -1,4 +1,7 @@
-HOLOTAPE [tape [entry]]
+HOLOTAPE [tape]
 
-Reads a data holotape from SYS$HOLO:. The reader is a program: when it
-is not part of this build the command says so.
+Opens the holotape reader on the tapes in SYS$HOLO:. With a tape name,
+the reader opens that tape. BACK on the list of tapes closes the reader.
+
+Example:
+  HOLOTAPE STORY

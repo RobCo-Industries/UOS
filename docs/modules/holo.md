@@ -149,7 +149,7 @@ Layout of both list screens, 30 lines of at most 78 characters:
 
 ## The screen
 
-`holo_screen_start(done, ctx)` in `holoscr.h` pushes the reader, loop only. It returns 0, `HOLO_ERR_BUSY` when the reader is open, or `HOLO_ERR_SCREEN`. `done(ctx)` runs once after the reader leaves the stack. The shell's `RUN` verb can register it.
+`holo_screen_start(done, ctx)` in `holoscr.h` pushes the reader, loop only. It returns 0, `HOLO_ERR_BUSY` when the reader is open, or `HOLO_ERR_SCREEN`. `done(ctx)` runs once after the reader leaves the stack. The holo service registers the `HOLOTAPE` program at its init: `RUN HOLOTAPE` and the `HOLOTAPE` verb post `holo_screen_start_tape()` with the tape name or none, end the command at once, and mark `holo op=program tape= rc=`. The shell owes its prompt until the reader closes.
 
 The reader opens over the top screen, at the login or in a session, and closes only itself. `holo open` calls `holo_screen_start(NULL, NULL)`.
 
