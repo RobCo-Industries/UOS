@@ -123,7 +123,8 @@ $ AUTHORIZE REMOVE BOB
 - `MODIFY /HOME=` changes the home in the user file only. It neither makes nor moves a folder.
 - `REMOVE` leaves the home folder on the card. You cannot remove yourself: `%UAF-E-SELF, the user who is logged in cannot be removed`.
 - Nothing stops you from removing or demoting the last user with `SECURITY` or `SYSTEM`. Keep one.
-- Each user changes their own password with `SET PASSWORD`.
+- A user at the command prompt changes their own password with `SET PASSWORD`.
+- A user who logs into a menu has no prompt. On the shipped card that is `OPER`, whose menu has no password entry. Change such a password as a user with `SECURITY` or `SYSTEM`: `AUTHORIZE MODIFY OPER /PASSWORD` asks for the new one twice.
 
 ### Login rules
 
@@ -138,7 +139,7 @@ These come from `[login]` in `UOS.CFG`. `tests/host/test_session_lockout.c` has 
 
 ### Lost passwords
 
-When nobody can log in, the maintenance image can copy `/UOS/SYSUAF.DEF` over `/UOS/SYSUAF.DAT`, which brings the default users back. It does this only when `/ROBCO/BOOT.CFG` holds `[maint]` with `restore_users = on`. The shipped setting is off. See [Maintenance](#maintenance). Without the maintenance image, copy a good `SYSUAF.DAT` onto the card from a computer.
+When nobody can log in, the maintenance image can copy `/UOS/SYSUAF.DEF` over `/UOS/SYSUAF.DAT`. That brings back the users and passwords of `SYSUAF.DEF`, whatever they are. On the shipped card they are the default users with their printed passwords. On a card you built, they are what you put there. So keep `SYSUAF.DEF` as a set of accounts whose passwords you know and store safely. If it only mirrors a `SYSUAF.DAT` whose passwords are lost, the copy gives nothing back. It does this only when `/ROBCO/BOOT.CFG` holds `[maint]` with `restore_users = on`. The shipped setting is off. See [Maintenance](#maintenance). Without the maintenance image, copy a good `SYSUAF.DAT` onto the card from a computer.
 
 ## Devices
 
