@@ -75,12 +75,74 @@ TEST(from_fs)
     CHECK_EQ(vfs_from_fs(FS_ERR_NOVOL, 0), VFS_E_NOCARD);
     CHECK_EQ(vfs_from_fs(FS_ERR_NOFS, 0), VFS_E_NOCARD);
     CHECK_EQ(vfs_from_fs(FS_ERR_NOTREADY, 0), VFS_E_NOCARD);
+    CHECK_EQ(vfs_from_fs(FS_ERR_GONE, 1), VFS_E_NOCARD);
     CHECK_EQ(vfs_from_fs(FS_ERR_NOMEM, 0), VFS_E_NOMEM);
     CHECK_EQ(vfs_from_fs(FS_ERR_TOOBIG, 0), VFS_E_TOOBIG);
     CHECK_EQ(vfs_from_fs(FS_ERR_IO, 0), VFS_E_READ);
     CHECK_EQ(vfs_from_fs(FS_ERR_IO, 1), VFS_E_WRITE);
     CHECK_EQ(vfs_from_fs(FS_ERR_TIMEOUT, 0), VFS_E_READ);
     CHECK_EQ(vfs_from_fs(FS_ERR_CORRUPT, 1), VFS_E_WRITE);
+}
+
+/* Every library code UOS knows, with what a read and a write give. */
+static const struct {
+    int fs;
+    int rd;
+    int wr;
+} fs_codes[] = {
+    { FS_ERR_IO,          VFS_E_READ,     VFS_E_WRITE },
+    { FS_ERR_TIMEOUT,     VFS_E_READ,     VFS_E_WRITE },
+    { FS_ERR_NOTREADY,    VFS_E_NOCARD,   VFS_E_NOCARD },
+    { FS_ERR_RO,          VFS_E_READONLY, VFS_E_READONLY },
+    { FS_ERR_INVAL,       VFS_E_SPEC,     VFS_E_SPEC },
+    { FS_ERR_NOENT,       VFS_E_NOTFOUND, VFS_E_NOTFOUND },
+    { FS_ERR_EXIST,       VFS_E_EXISTS,   VFS_E_EXISTS },
+    { FS_ERR_DENIED,      VFS_E_WRITE,    VFS_E_WRITE },
+    { FS_ERR_ISDIR,       VFS_E_ISDIR,    VFS_E_ISDIR },
+    { FS_ERR_NAME,        VFS_E_SPEC,     VFS_E_SPEC },
+    { FS_ERR_NAMETOOLONG, VFS_E_SPEC,     VFS_E_SPEC },
+    { FS_ERR_NOSPC,       VFS_E_FULL,     VFS_E_FULL },
+    { FS_ERR_NOVOL,       VFS_E_NOCARD,   VFS_E_NOCARD },
+    { FS_ERR_NOFS,        VFS_E_NOCARD,   VFS_E_NOCARD },
+    { FS_ERR_BUSY,        VFS_E_READ,     VFS_E_WRITE },
+    { FS_ERR_BADF,        VFS_E_READ,     VFS_E_WRITE },
+    { FS_ERR_CORRUPT,     VFS_E_READ,     VFS_E_WRITE },
+    { FS_ERR_NOMEM,       VFS_E_NOMEM,    VFS_E_NOMEM },
+    { FS_ERR_MKFS,        VFS_E_READ,     VFS_E_WRITE },
+    { FS_ERR_TOOBIG,      VFS_E_TOOBIG,   VFS_E_TOOBIG },
+    { FS_ERR_MOUNTED,     VFS_E_READ,     VFS_E_WRITE },
+    { FS_ERR_GONE,        VFS_E_NOCARD,   VFS_E_NOCARD },
+};
+
+/*
+ * The library names every code it returns with fs_strerror(). A code it
+ * names that the table above does not hold came with a pin move: decide
+ * its VFS error, then add it here.
+ */
+TEST(from_fs_every_code)
+{
+    size_t i;
+    int code;
+
+    for (i = 0; i < sizeof(fs_codes) / sizeof(fs_codes[0]); i++) {
+        CHECK_EQ(vfs_from_fs(fs_codes[i].fs, 0), fs_codes[i].rd);
+        CHECK_EQ(vfs_from_fs(fs_codes[i].fs, 1), fs_codes[i].wr);
+    }
+    for (code = -1; code >= -256; code--) {
+        int known = 0;
+
+        if (strcmp(fs_strerror(code), "unknown error") == 0) {
+            continue;
+        }
+        for (i = 0; i < sizeof(fs_codes) / sizeof(fs_codes[0]); i++) {
+            known |= fs_codes[i].fs == code;
+        }
+        if (!known) {
+            fprintf(stderr, "fs code %d (%s) has no VFS mapping in the test\n", code,
+                    fs_strerror(code));
+        }
+        CHECK(known);
+    }
 }
 
 TEST(from_vp)

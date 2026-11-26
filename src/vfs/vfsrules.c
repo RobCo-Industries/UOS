@@ -62,7 +62,9 @@ int vfs_from_fs(int fs_err, int writing)
     case FS_ERR_DENIED:      return VFS_E_WRITE;
     case FS_ERR_NOVOL:
     case FS_ERR_NOFS:
-    case FS_ERR_NOTREADY:    return VFS_E_NOCARD;
+    case FS_ERR_NOTREADY:
+    /* The boot card can leave too: on a board with card detect, and in QEMU. */
+    case FS_ERR_GONE:        return VFS_E_NOCARD;
     case FS_ERR_NOMEM:       return VFS_E_NOMEM;
     case FS_ERR_TOOBIG:      return VFS_E_TOOBIG;
     default:                 return io;
