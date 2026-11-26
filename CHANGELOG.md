@@ -6,6 +6,7 @@ All notable changes to UOS are recorded here. The format follows [Keep a Changel
 
 ### Changed
 
+- A card taken out while UOS runs gives `%UOS-E-NODEV`, not a read or write error. `vfs_from_fs()` maps the library's new `FS_ERR_GONE` to `VFS_E_NOCARD`, and a host test fails for any library error code with no mapping.
 - Only OPER has a `TERMINAL.CFG` on the default card, with one entry of each type. ADMIN's and GUEST's menus and `ADMIN/MAINT.CFG` are gone, so they get the shell.
 
 - Rebuilt UOS on RobCo-Core. The prototype is gone.
