@@ -54,7 +54,7 @@ This manual prints these passwords, so anyone can read them. Change them before 
 
 ### Buttons and the on-screen keyboard
 
-A terminal with buttons and no keyboard works too. At `USERNAME:` or `PASSWORD:`, press any button: the on-screen keyboard opens over the bottom of the screen. That first press does nothing else.
+At `USERNAME:` or `PASSWORD:`, press F4 to open the on-screen keyboard over the bottom of the screen. It is meant for a terminal with buttons and no keyboard, but UOS does not read GPIO buttons yet, so today F4 is the only way to open it. That key does nothing else.
 
 - The arrow buttons move the highlight.
 - SELECT types the highlighted key.
