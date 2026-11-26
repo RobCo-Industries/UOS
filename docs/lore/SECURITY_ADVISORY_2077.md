@@ -1,4 +1,4 @@
-> Lore: in-world fiction, original to this project. It does not describe how UOS works.
+> Out of world: this advisory is fiction, original to this project. Where it states how UOS behaves, it matches the real system. For how UOS really works, read the [user manual](../USER_MANUAL.md), the [administrator guide](../ADMIN_GUIDE.md) and [lore and real](../LORE.md).
 
 # RobCo Industries Security Advisory
 
@@ -29,28 +29,26 @@ This advisory documents known security vulnerabilities in the Unified Operating 
 
 ## Vulnerability Details
 
-### CVE-RobCo-2077-001: Maintenance Mode Password Disclosure
+### CVE-RobCo-2077-001: Maintenance Screen Without Login
 
 **SEVERITY:** HIGH (Downgraded to MEDIUM by management)
 
 **Description:**  
-The SET HALT RESTART/MAINT command dumps system credentials in plaintext to a predictable memory location (0x000FFF00). Any user with physical terminal access can retrieve administrative passwords.
+The SET HALT RESTART /MAINTENANCE command needs only the OPER privilege. It leaves a request file on the card and restarts the terminal. At the next start the boot agent opens its maintenance screen, which asks for no login. When the card's BOOT.CFG sets `restore_users = on`, anyone at that screen can restore the default accounts, whose passwords are printed in every manual.
 
 **Impact:**
-- Full system compromise possible
-- All user credentials exposed
-- No audit trail of access
+- All accounts reset to their published passwords, when `restore_users` is on
+- The request file names the operator who asked, but nothing records who stood at the screen
 - Affects all terminal types
 
 **Attack Vector:**
 ```
-UOS> SET HALT RESTART/MAINT
-% WARNING: Maintenance mode initiated
-% Dumping credentials:
-  ADMIN:ADMIN
-  GUEST:GUEST
-  MAINT:MAINT
+$ SET HALT RESTART/MAINT
+MAINTENANCE REQUESTED FOR THE NEXT START.
+SYSTEM RESTARTING.
 ```
+
+An account without OPER gets `%UOS-E-NOPRIV, not enough privilege for this operation`.
 
 **Risk Assessment:**
 - **Technical Risk:** HIGH
@@ -70,8 +68,8 @@ UOS> SET HALT RESTART/MAINT
 
 **Mitigation:**
 - Physical security of terminals
-- Limited deployment to secure facilities
-- User training on command restrictions
+- Leave `restore_users` off, as shipped
+- Give OPER to few accounts
 - Planned fix in v7.1
 
 **Status:** ACCEPTED RISK
@@ -83,26 +81,27 @@ UOS> SET HALT RESTART/MAINT
 **SEVERITY:** MEDIUM
 
 **Description:**  
-Passwords are hashed using MD5 without salt. This cryptographic approach is considered weak and vulnerable to rainbow table attacks.
+Passwords are hashed with SHA-256 and a salt, repeated 2000 times. The salt defeats tables built in advance, but 2000 rounds are few. Anyone who copies the user file off the card can try guesses fast.
 
 **Technical Details:**
-- Hash Algorithm: MD5 (deprecated since 2004)
-- Salt: None
-- Iterations: 1
-- Storage: Direct hash comparison
+- Hash Algorithm: SHA-256
+- Salt: 16 bytes per user
+- Iterations: 2000
+- Storage: Comparison in constant time
 
 **Example:**
 ```c
 // Actual implementation (simplified)
-char* hash = md5(password);  // No salt!
-return strcmp(hash, stored_hash);
+h = sha256(salt + password);
+for (i = 1; i < iterations; i++)
+    h = sha256(h + salt + password);
+return same_in_constant_time(h, stored_hash);
 ```
 
 **Impact:**
-- Password recovery possible via rainbow tables
-- Brute force attacks feasible
-- Dictionary attacks effective
-- No protection against pre-computation
+- Guessing offline is feasible once the user file leaves the terminal
+- Dictionary attacks effective against weak passwords
+- At the terminal itself, 3 wrong passwords lock it for 30 seconds
 
 **Management Response:**
 
@@ -130,17 +129,10 @@ return strcmp(hash, stored_hash);
 Username and password input buffers can potentially be overflowed with specially crafted input sequences.
 
 **Technical Details:**
-- Username buffer: 32 bytes
-- Password buffer: 32 bytes
-- Input validation: Minimal
-- Bounds checking: Incomplete
-
-**Proof of Concept:**
-```c
-char username[32];
-// Vulnerable to overflow
-read_input(username);  // No length limit!
-```
+- Username: at most 16 characters
+- Password: at most 32 characters
+- Input validation: the prompt takes no more than the limit
+- LOGIN with a longer name: refused with `%UAF-E-IVNAME`
 
 **Impact:**
 - Arbitrary code execution possible
@@ -157,27 +149,26 @@ read_input(username);  // No length limit!
 
 **QA Team Response:**
 
-> "Overflow occurs with specific terminal types and input sequences. 
-> Reproducible on RobCo Model 4000 terminals with firmware v2.1."
+> "We saw an overflow on Model 4000 terminals running firmware v2.1. 
+> We cannot reproduce it on v7.0.2.8."
 >
 > — Michael Chang, QA Lead, September 2077
 
-**Status:** INVESTIGATING (Low Priority)
+**Status:** CLOSED (Cannot Reproduce)
 
 ---
 
-### CVE-RobCo-2077-004: Unencrypted Network Communications
+### CVE-RobCo-2077-004: Plaintext Service Port
 
 **SEVERITY:** LOW
 
 **Description:**  
-Terminal network protocol (Termlink) transmits data in plaintext, including credentials during remote login.
+This terminal model has no network. Its only wire is the serial service port, which carries the terminal's messages in plaintext. A password crosses it as one star per character, never as text.
 
 **Impact:**
-- Network sniffing can capture passwords
-- Man-in-the-middle attacks possible
-- Session hijacking feasible
-- No protection for sensitive data
+- Anyone on the wire reads the session, but no password
+- Anyone on the wire can type into the terminal
+- No protection for file contents shown on screen
 
 **Management Response:**
 
@@ -188,9 +179,8 @@ Terminal network protocol (Termlink) transmits data in plaintext, including cred
 > — Product Management, June 2077
 
 **Mitigation:**
-- Use private networks only
-- Physical network security
-- VPN for remote access (customer responsibility)
+- Keep the service port inside the terminal case
+- Physical security of the cable
 - Limited to trusted environments
 
 **Status:** ACCEPTED RISK
@@ -203,7 +193,7 @@ Terminal network protocol (Termlink) transmits data in plaintext, including cred
 |--------------|----------|--------|------------|
 | CVE-2077-001 | HIGH→MED | Accepted | v7.1 |
 | CVE-2077-002 | MEDIUM | Won't Fix | N/A |
-| CVE-2077-003 | HIGH | Investigating | TBD |
+| CVE-2077-003 | HIGH | Closed | N/A |
 | CVE-2077-004 | LOW | Accepted | v8.0 |
 
 ---
@@ -218,11 +208,11 @@ Terminal network protocol (Termlink) transmits data in plaintext, including cred
    - Surveillance monitoring
    - Visitor restrictions
 
-2. **Network Security:**
-   - Isolated networks
-   - No external connections
-   - Firewall protection
-   - Network monitoring
+2. **Service Port Security:**
+   - Service port inside the case
+   - No cable left attached
+   - Sealed terminal housing
+   - Inspection after each service visit
 
 3. **Administrative Procedures:**
    - Change default passwords
@@ -264,7 +254,7 @@ Terminal network protocol (Termlink) transmits data in plaintext, including cred
 > - Deploying terminals in physically secure locations
 > - Changing default passwords
 > - Following included security guidelines
-> - Restricting network access appropriately
+> - Restricting access to the service port
 >
 > For high-security requirements, please contact your RobCo sales 
 > representative about our enhanced security options.
@@ -285,7 +275,7 @@ Terminal network protocol (Termlink) transmits data in plaintext, including cred
 - [ ] Review code for additional issues
 
 ### QA Team
-- [ ] Continue testing CVE-2077-003
+- [x] Close CVE-2077-003
 - [ ] Develop security test suite
 - [ ] Validate customer configurations
 - [ ] Document secure deployment practices
