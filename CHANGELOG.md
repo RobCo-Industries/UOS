@@ -24,6 +24,7 @@ All notable changes to UOS are recorded here. The format follows [Keep a Changel
 - `DEVICES.CFG` and `TERMINAL.CFG` read with `ini_parse_sections()`: an empty section is `DV_ERR_EMPTY` or `TUI_E_EMPTY`, a repeated one is a counted error even right after itself, and section errors carry the header's line.
 - A repeated `[device NAME]`, `[expander N]` or `[entry N]` header is refused even when the first section was empty or bad. `TERMINAL.CFG` remembers every entry number, not the first 32.
 - The `ARM` rule: an expander output needs a relay named `ARM` on a Pi pin that is off at reset. Without one, each expander output is refused with `%DEVICE-E-NOARM`, shows ` REFUSED=NOARM` and is never driven.
+- RobCo-Core moved to `ef5079f`. It brings removable volumes in `fs.h`, the holotape slot driver, GPIO input in QEMU tests, a fixed dial decoder, a harness that leaves no QEMU and no passing test's temp data behind, and the maintenance request spec. UOS sets `ROBCO_FS_VOLUMES` to 1: it has one card. `UOS.SYS` grows by 336 bytes, the removal checks, and BSS shrinks by 48 bytes.
 - RobCo-Core moved to `4249632`. The library's two-pass `test-host-gccwarn` and its `make ci-local` replace UOS's own `test-host-gccwarn-ci` and `tools/ci_local.sh`.
 
 ### Added

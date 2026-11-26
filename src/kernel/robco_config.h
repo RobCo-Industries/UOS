@@ -23,4 +23,7 @@
 #define ROBCO_SLOT_END          0x01000000
 #endif
 
+/* One card, no holotape slot: one file system volume saves a slot of BSS. */
+#define ROBCO_FS_VOLUMES        1
+
 #endif

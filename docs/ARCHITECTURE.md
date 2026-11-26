@@ -910,10 +910,12 @@ The step runs before the screen and before IRQs are enabled, as RobCo-Core's `me
 
 QEMU does not model caches, so the MMU change cannot show a speed-up there. A real Pi should run the login hash and screen copies several times faster with the caches on. That is not measured: nothing is validated on real hardware. The login measures its check in QEMU, see [Session](#session).
 
+UOS builds RobCo-Core with one file system volume, `ROBCO_FS_VOLUMES` 1 in `src/kernel/robco_config.h`. It mounts one card and has no holotape slot, so the library's second slot would only cost about 590 bytes of BSS.
+
 The pure files allocate nothing. The file system's whole-file reads take their buffers from the heap. The holotape reader holds one tape there while it is open, up to `HF_TAPE_MAX`, 2098728 bytes, and the pager holds a copy of the entry it shows, up to 64 KiB. The password game keeps its list and board in static memory, about 5 KiB.
 
 ## Pending library features
 
-These wait on RobCo-Core changes and a pin bump. The pin `4249632` still lacks them.
+These wait on RobCo-Core changes and a pin bump. The pin `ef5079f` still lacks them.
 
 - Data tapes in `rimg`. `rimg_validate()` cannot accept a data tape, subtype 2, because it looks up a slot first and subtype 2 has none. `tools/rimg.py seal` and `pack` refuse subtype 2 for the same reason. The holo module works around both: `holofmt.c` checks the slot rules itself, and `tools/mkholo.py` writes the header itself. See [holo](modules/holo.md).
