@@ -26,7 +26,10 @@ CFG = b"[system]\nname = TEST TERMINAL\n"
 
 
 def shell_card(tmp_path, extra=None, name="sd.img"):
+    """The default card for shell tests. OPER's TERMINAL.CFG is left out:
+    every default user gets the shell after the login."""
     files = card_tree({"/UOS/UOS.CFG": CFG})
+    del files["/UOS/HOME/OPER/TERMINAL.CFG"]
     files.update(extra or {})
     return card(tmp_path, files, name=name)
 
@@ -50,8 +53,27 @@ def wait_marker(vm, prefix, n=1):
         found = marks(vm, prefix)
         if len(found) >= n:
             return found[n - 1]
-        assert time.monotonic() < deadline, (prefix, n, vm.serial[-3000:])
+        if time.monotonic() >= deadline:
+            raise AssertionError(timeout_report(vm, prefix, n, len(found)))
         time.sleep(0.02)
+
+
+def timeout_report(vm, prefix, n, got):
+    """What a marker timeout needs to tell a test race from a stuck shell or a stopped
+    guest: the whole serial since the last command began, the count of each marker
+    kind the helpers wait on, and a state query sent now."""
+    counts = {k: n_marks(vm, k) for k in
+              ("sh run=done", "cmd state=end", "sh state=prompt kind=cmd",
+               "sh state=prompt kind=password", "sh state=prompt kind=confirm",
+               "sh state=prompt kind=line")}
+    try:
+        state = vm.script("sh state", timeout=5).lines
+    except Exception as exc:  # the port itself may be what stopped
+        state = f"no answer: {exc!r}"
+    start = getattr(vm, "cmd_start", 0)
+    return (f"waited for marker #{n} of {prefix!r}, found {got}\n"
+            f"marker counts: {counts}\nasked so far: {getattr(vm, 'asked', None)}\n"
+            f"sh state now: {state}\nserial since the last command:\n{vm.serial[start:]}")
 
 
 def sh_state(vm):
@@ -99,7 +121,7 @@ def run(vm, line):
     offset of the serial text)."""
     n = n_marks(vm, "sh run=done")
     e = n_marks(vm, "cmd state=end")
-    start = len(vm.serial)
+    start = vm.cmd_start = len(vm.serial)
     answer(vm, "sh run " + quote(line))
     done = wait_marker(vm, "sh run=done", n + 1)
     end = wait_marker(vm, "cmd state=end", e + 1)
@@ -118,8 +140,13 @@ def files(vm, start, op=None):
 
 
 def send_line(vm, line):
-    """Starts `sh run` without waiting for the end; returns the counts to wait on."""
+    """Starts `sh run` without waiting for the end; returns the counts to wait on. It
+    also records how many reads of each kind were asked before the line: `reply`
+    counts its prompts from there, never from what has arrived when it is called."""
     counts = (n_marks(vm, "sh run=done"), n_marks(vm, "cmd state=end"), len(vm.serial))
+    vm.cmd_start = counts[2]
+    vm.asked = {k: n_marks(vm, f"sh state=prompt kind={k}")
+                for k in ("password", "confirm", "line")}
     answer(vm, "sh run " + quote(line))
     return counts
 
@@ -131,9 +158,13 @@ def wait_done(vm, counts):
 
 
 def reply(vm, kind, text, n=None):
-    """Waits for the next read of `kind` a command asks, then types `text`."""
+    """Waits for the next read of `kind` the command sent by `send_line` asks, then
+    types `text`. The index comes from the count `send_line` took plus the reads
+    already answered: a count taken now would skip a prompt that came up while the
+    previous answer was still in flight, and wait for one that never comes."""
     if n is None:
-        n = n_marks(vm, f"sh state=prompt kind={kind}") + 1
+        n = vm.asked[kind] + 1
+    vm.asked[kind] = n
     wait_marker(vm, f"sh state=prompt kind={kind}", n)
     wait_state(vm, ask=kind)
     answer(vm, f"type {text}")
@@ -195,7 +226,6 @@ def test_show_help_and_simple_verbs(board, hooks_image, need_mtools, tmp_path):
         assert "ROBCO INDUSTRIES UNIFIED OPERATING SYSTEM" in out(vm, s)
         res, _, _ = expect(vm, "RUN HACK", "NOTINST")
         assert res == "%UOS-W-NOTINST, HACK is not installed in this build", res
-        expect(vm, "RUN TERMINAL", "NOTINST")
         res, _, _ = expect(vm, "HOLOTAPE STORY", "NOTINST")
         assert "HOLOTAPE is not installed" in res, res
         res, _, _ = expect(vm, "MAIL DIRECTORY", "NOTINST")
@@ -223,7 +253,7 @@ def test_files_and_qualifiers(board, hooks_image, need_mtools, tmp_path):
         _, end, s = expect(vm, "DIRECTORY", "NORMAL")
         o = out(vm, s)
         assert "Directory SD0:[HOME.ADMIN]" in o and "NOTICE.TXT" in o, o
-        assert "Total of 6 files." in o and end["files"] == "6", (o, end)
+        assert "Total of 4 files." in o and end["files"] == "4", (o, end)
         _, _, s = expect(vm, "DIR *.TXT /SIZE", "NORMAL")
         o = out(vm, s)
         assert any(re.match(r"NOTICE\.TXT +\d+$", l) for l in o), o
@@ -557,15 +587,15 @@ def test_late_program_end_is_ignored(board, hooks_image, need_mtools, tmp_path):
     with alone(hooks_image, board, shell_card(tmp_path)) as vm:
         wait_ready(vm)
         login(vm, "ADMIN")
-        answer(vm, "sh prog reg TERMINAL")
+        answer(vm, "sh prog reg HACK")
         assert wait_marker(vm, "sh prog=reg")["rc"] == "0"
-        c = send_line(vm, "RUN TERMINAL")
+        c = send_line(vm, "RUN HACK")
         wait_marker(vm, "sh prog=start n=1")
         first = wait_state(vm, state="running", verb="RUN")["id"]
         vm.send("\x03")
         res, end, _ = wait_done(vm, c)
         assert end["rc"] == "CANCEL", (res, end)
-        c = send_line(vm, "RUN TERMINAL")
+        c = send_line(vm, "RUN HACK")
         wait_marker(vm, "sh prog=start n=2")
         second = wait_state(vm, state="running", verb="RUN")["id"]
         assert second != first
@@ -704,9 +734,9 @@ def test_ctrl_c_in_every_screen_over_the_shell(board, hooks_image, need_mtools, 
         ctrl_c(vm, c)
         expect(vm, "TYPE OSK.TXT", "FNF")
         # A program's screen took Ctrl-C and reports it with SH_CANCELLED.
-        answer(vm, "sh prog reg TERMINAL")
+        answer(vm, "sh prog reg HACK")
         assert wait_marker(vm, "sh prog=reg")["rc"] == "0"
-        c = send_line(vm, "RUN TERMINAL")
+        c = send_line(vm, "RUN HACK")
         wait_marker(vm, "sh prog=start n=1")
         answer(vm, "sh prog done 1 3")
         res, end, _ = wait_done(vm, c)

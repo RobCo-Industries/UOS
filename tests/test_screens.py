@@ -422,11 +422,11 @@ def test_nothing_starts_under_the_reader(board, hooks_image, need_mtools, tmp_pa
     closes, CREATE from the port asks."""
     with alone(hooks_image, board, card(tmp_path, card_tree())) as vm:
         guest_shell(vm)
-        answer(vm, "sh prog reg TERMINAL")
+        answer(vm, "sh prog reg HACK")
         assert wait_marker(vm, "sh prog=reg", 1)["rc"] == "0"
         answer(vm, "holo open")
         wait_marker(vm, "holo op=scan", 1)
-        for n, line in enumerate(("CREATE%20NEW.TXT", "RUN%20TERMINAL"), 1):
+        for n, line in enumerate(("CREATE%20NEW.TXT", "RUN%20HACK"), 1):
             answer(vm, f'sh api - "{line}"')
             assert wait_marker(vm, "sh api=call", n)["rc"] == "-7"
             assert stack(vm) == ["shell", "readline", "holo"]
@@ -444,9 +444,9 @@ def test_end_under_the_reader_waits(board, hooks_image, need_mtools, tmp_path):
     so nothing paints over the reader."""
     with alone(hooks_image, board, card(tmp_path, card_tree())) as vm:
         guest_shell(vm)
-        answer(vm, "sh prog reg TERMINAL")
+        answer(vm, "sh prog reg HACK")
         wait_marker(vm, "sh prog=reg", 1)
-        answer(vm, run_line("RUN TERMINAL"))
+        answer(vm, run_line("RUN HACK"))
         wait_marker(vm, "sh prog=start", 1)
         answer(vm, "holo open")
         wait_marker(vm, "holo op=scan", 1)

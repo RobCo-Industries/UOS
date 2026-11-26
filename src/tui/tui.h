@@ -139,6 +139,7 @@ enum {
     TUI_ACT_DEVICE,         /* do `word` on device `name`, then tui_done() with one line */
     TUI_ACT_HOLOTAPE,       /* holotape reader: `name` "" for the list; then tui_done() */
     TUI_ACT_LOGOUT,         /* the person logs out; the model stops */
+    TUI_ACT_CLOSE,          /* close mode only: the person leaves the menu; the model stops */
 };
 
 /* States. */
@@ -163,6 +164,7 @@ typedef struct {
     uint8_t state;          /* TUI_ST_* */
     uint8_t depth;          /* levels on the stack, 0 before the first menu */
     uint8_t pending;        /* TUI_ACT_* the model waits for */
+    uint8_t closes;         /* 1: BACK at the top closes the menu, see tui_set_close() */
     char sysname[TUI_SYSNAME_MAX + 1];
     char msg[TUI_MSG_MAX + 1];  /* result or error line, "" for none */
     /* The action out: */
@@ -211,6 +213,31 @@ int tui_give_error(tui_t *t, const char *line);
  * or "", is the result shown until the next key.
  */
 int tui_done(tui_t *t, const char *line);
+
+/*
+ * Close mode, for a menu opened over another screen. BACK at the top
+ * asks "Close the menu?" and ENTER there returns TUI_ACT_CLOSE in place
+ * of TUI_ACT_LOGOUT. A `logout` entry still logs out. Call it after
+ * tui_init(). TUI_E_ARG for NULL.
+ */
+int tui_set_close(tui_t *t);
+
+/*
+ * The held-key rule for the menu. `is_char`: a typed character `code`;
+ * else a key `code` that is a press, or a repeat when `repeat` is 1.
+ * Returns the key for tui_key(), or 0 to drop the event. Only UP and
+ * DOWN may repeat: a held ENTER or BACK chooses or leaves once. Typed
+ * '1' to '9' give TUI_CHAR(); CR and LF give INPUT_KEY_SELECT; other
+ * characters are dropped.
+ */
+unsigned tui_map_key(int is_char, unsigned code, int repeat);
+
+/* Names for markers: "none", "menu", "header", "text", "command",
+ * "device", "holotape", "logout", "close"; "?" for others. */
+const char *tui_act_name(int act);
+
+/* "wait", "menu", "confirm", "done"; "?" for others. */
+const char *tui_state_name(int state);
 
 /* Rows of entries in the window for the current level. */
 unsigned tui_rows(const tui_t *t);

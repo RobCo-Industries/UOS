@@ -133,7 +133,7 @@ TEST(card_menu_devices_exist_and_take_their_words)
         }
         closedir(d);
     }
-    /* TERMINAL.CFG in each home, CONTROL.CFG and MAINT.CFG. */
-    CHECK(files >= 5);
-    CHECK(devices >= 6);
+    /* OPER's TERMINAL.CFG and CONTROL.CFG: the one default menu. */
+    CHECK(files >= 2);
+    CHECK(devices >= 4);
 }

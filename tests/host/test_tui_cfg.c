@@ -538,24 +538,54 @@ static void check_menu(const char *home, const char *file, uint32_t privs, int d
 
 TEST(card_content_parses)
 {
-    check_menu("ADMIN", "TERMINAL.CFG", TUI_PRIV_SYSTEM, 0);
+    char path[256];
+    static char buf[64];
+
     check_menu("OPER", "TERMINAL.CFG", 2, 0);
-    check_menu("GUEST", "TERMINAL.CFG", 0, 0);
+    /* OPER is the one default user with a menu: ADMIN and GUEST get the
+     * shell after the login. */
+    snprintf(path, sizeof(path), "%s/ADMIN/TERMINAL.CFG", TUI_CARD_HOME);
+    CHECK(read_file(path, buf, sizeof(buf)) == (size_t)-1);
+    snprintf(path, sizeof(path), "%s/GUEST/TERMINAL.CFG", TUI_CARD_HOME);
+    CHECK(read_file(path, buf, sizeof(buf)) == (size_t)-1);
 }
 
-TEST(card_guest_sees_no_priv_entries)
+TEST(card_oper_menu_has_each_type)
 {
     static char buf[4096];
     char path[256];
+    unsigned seen = 0;
     size_t n;
+    unsigned i;
 
-    snprintf(path, sizeof(path), "%s/ADMIN/MAINT.CFG", TUI_CARD_HOME);
+    snprintf(path, sizeof(path), "%s/OPER/TERMINAL.CFG", TUI_CARD_HOME);
     n = read_file(path, buf, sizeof(buf));
     CHECK(n != (size_t)-1);
     if (n == (size_t)-1) {
         return;
     }
-    CHECK_EQ(tui_cfg_parse(buf, n, 0, &m, NULL), TUI_OK);
+    CHECK_EQ(tui_cfg_parse(buf, n, 2, &m, NULL), TUI_OK);
+    CHECK_EQ(m.errors, 0);
+    CHECK_EQ(m.hidden, 0);
+    for (i = 0; i < m.count; i++) {
+        seen |= 1u << m.entry[i].type;
+    }
+    for (i = TUI_T_TEXT; i <= TUI_T_LOGOUT; i++) {
+        CHECK(seen & (1u << i));
+    }
+}
+
+TEST(guest_sees_no_priv_entries)
+{
+    static const char text[] =
+        "[terminal]\ntitle = Maintenance\n"
+        "[entry 1]\nlabel = Notes\ntype = text\ntarget = MAINT.TXT\n"
+        "[entry 2]\nlabel = Lights\ntype = device\ntarget = LIGHT1 TOGGLE\nprivs = 2\n"
+        "[entry 3]\nlabel = Door\ntype = device\ntarget = DOOR1 OPEN\nprivs = 2\n"
+        "[entry 4]\nlabel = Vault\ntype = device\ntarget = VAULT LOCK\nprivs = 2\n"
+        "[entry 5]\nlabel = Devices\ntype = command\ntarget = SHOW DEVICES\n";
+
+    CHECK_EQ(tui_cfg_parse(text, sizeof(text) - 1, 0, &m, NULL), TUI_OK);
     CHECK_EQ(m.count, 2);
     CHECK_EQ(m.hidden, 3);
 }

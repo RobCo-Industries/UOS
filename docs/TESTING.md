@@ -56,8 +56,8 @@ The tests run from the repository root, so the ones that read the default card o
 | `test_osk.c` | The on-screen keyboard: both layers, moves with wrap, every key, emitted events, the row text |
 | `test_dev.c` | `DEVICES.CFG`: every key and error, the refused pin masks, the pull-up warning, expander pins, empty and repeated sections with the header's line; commands, pulses, the tick wrap, status lines, the pin record, the default card's file |
 | `test_dev_svc.c` | The device service's rules: debounce, `ARM` last at boot and first at shutdown, the reverse safe order, operations mapped to calls through a fake GPIO layer, expander failures, an expander bus error owed and retried, expander writes skipped on panic, the chip in the pin record, `ARM` held at boot for each kind of output failure and armed by hand with the unreachable count, pulse ends from the tick only, late and across the wrap; the device codes mapped to file system codes for `DEV:` |
-| `test_tui.c` | The menu model: moves, every action, sub-menus to eight levels, scrolling, headers, privileges, the layout |
-| `test_tui_cfg.c` | `TERMINAL.CFG`: every key, target and error; the menus of the default card |
+| `test_tui.c` | The menu model: moves, every action, sub-menus to eight levels, scrolling, headers, privileges, the layout; close mode; the held-key rule of `tui_map_key()`; action and state names |
+| `test_tui_cfg.c` | `TERMINAL.CFG`: every key, target and error; the menus of the default card: OPER's has every entry type, ADMIN and GUEST have none |
 | `test_tui_pager.c` | The pager: line ends, wrapping, moves and keys, a 64 KiB text |
 | `test_card_menus.c` | Each device entry in the default card's menus names a device of its `DEVICES.CFG` and a word that device takes |
 | `test_shell.c` | The shell's rules: the one error map for file, `DEV:`, path and user database codes; `/CONFIRM` answers and steps; file loop counts and their final message; the marker unquoting; line splitting; uptime, date and size formats; `DIRECTORY` rows and totals; the `CREATE` end line; the `HELP` lookup and every verb's help file on the default card; the program registry; the marker verb word; display rows of a long line, with a 1 MiB line one row per call and no read past a row's width; the `/OUTPUT` write rule by severity and cancel; job tags, a late one refused; what each `SET HALT` qualifier does to the request; the request note cut to 63 bytes and the buffer, with bytes outside printable ASCII replaced |
@@ -152,6 +152,14 @@ QEMU refuses a read-only SD card, see below, so the shell's read-only test uses 
 
 The test card has no clock chip, so `SHOW TIME` is tested on its warning path only.
 
+### The terminal menu's tests
+
+`test_menu.py` drives the menu through `menu pick`, `menu back`, `key`, `button`, `text` and `hold`, on a test card that gives OPER and ADMIN one menu with an entry of each type, one entry for SECURITY only, and an entry for each failure. It reads `menu state` and waits for `pending=0`; `menu msg` gives the message row as it is. It covers the login that leads to the menu or to the shell, each entry type, nesting to 8 and BACK, a held BACK that goes up one level only, the hidden entry, each failure, logout two ways, the reader over the menu with a refused pick and a held BACK, a command step owed under the reader and paid when it closes, `RUN TERMINAL` from the shell in close mode, and the default card. One test reads the screenshot: the frame's pixels are lit where the side and the rule run.
+
+`test_shell.py` uses `shell_card()`, the default card without OPER's `TERMINAL.CFG`, so every default user gets the shell there. Its test programs and those of `test_screens.py` register as `HACK`, since the menu registers `TERMINAL`.
+
+Deliberate breaks, each caught: no `sh_host_uncover()` in the menu's `uncover()` fails `test_covered_menu`, the command never resumes; no on-top check in `menu pick` fails `test_covered_menu`; letting BACK repeat in `tui_map_key()` fails `test_nesting_back_and_held_back` and the host test `tui_held_key_rule`.
+
 ### The maintenance request
 
 `test_maint.py` boots UOS alone, with no boot agent, so nothing deletes `/ROBCO/MAINT.REQ`. UOS cannot be asked about the card once it restarts, so the tests read the card image on the host with mtools after QEMU stops. A failed write uses a card with no `/ROBCO` folder and a card with a folder named `MAINT.REQ`. QEMU takes no read-only card, so the read-only case is tested on the host in `test_vfs_card.c`.
@@ -179,7 +187,7 @@ The reader draws a loading line before the read. The test asserts no bound: it p
 
 ### Goldens and screenshots
 
-`holo_tapes.txt`, `holo_entry.txt`, `hack_start.txt` and `hack_two_guesses.txt` hold the reader's tape list, its first entry in the pager, and the game's board at start and after two wrong guesses with the fixed seed. `tests/golden/first.txt` holds the first screen as text, on a card with no user database: the system screen with the missing-database notice. It has no sizes, CRCs, times or toolchain text. `ROBCO_UPDATE_GOLDEN=1` rewrites it. `ROBCO_SHOT_DIR=<folder>` keeps the screenshots of `test_first.py`.
+`menu_oper.txt` holds the test menu as OPER sees it at login. `holo_tapes.txt`, `holo_entry.txt`, `hack_start.txt` and `hack_two_guesses.txt` hold the reader's tape list, its first entry in the pager, and the game's board at start and after two wrong guesses with the fixed seed. `tests/golden/first.txt` holds the first screen as text, on a card with no user database: the system screen with the missing-database notice. It has no sizes, CRCs, times or toolchain text. `ROBCO_UPDATE_GOLDEN=1` rewrites it. `ROBCO_SHOT_DIR=<folder>` keeps the screenshots of `test_first.py`.
 
 ## Screen redraws
 
@@ -195,5 +203,6 @@ The reader draws a loading line before the read. The test asserts no bound: it p
 | Holotape reader | Pager with an entry | Right | Right | `test_refusal_and_pager_over_the_reader` |
 | Shell prompt | Holotape reader | Right | Right | `test_reader_over_a_session` |
 | Shell prompt | On-screen keyboard, then the `TYPE /PAGE` pager | Right | Right | `test_pager_and_keyboard_over_the_shell` |
+| Terminal menu | Holotape reader, closed with a held BACK | New screen | Right | `test_covered_menu` in `test_menu.py` |
 
 The host test `test_screen.c` covers the order of `draw()` calls. Deliberate breaks, each caught: no expose on pop fails three QEMU tests; an invalidate in place of the expose when the keyboard closes fails the keyboard test; ignoring the `full` flag fails the host order test.

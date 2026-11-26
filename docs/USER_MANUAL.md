@@ -21,7 +21,7 @@ USERNAME: _
 
 Type your user name and press Enter. Then type your password at `PASSWORD:` and press Enter. The password shows as one `*` per character. Case matters in the password, not in the user name.
 
-The terminal then shows `CHECKING CREDENTIALS...` for a moment. After a good login it greets you by name, lists your privileges and opens your session at the command line, see [Using the command line](#using-the-command-line). Type `LOGOUT` to leave. The login screen comes back with `SESSION CLOSED.`
+The terminal then shows `CHECKING CREDENTIALS...` for a moment. After a good login it greets you by name, lists your privileges and opens your session. When your home holds a menu file, the session is the terminal menu, see [The terminal menu](#the-terminal-menu). Otherwise it is the command line, see [Using the command line](#using-the-command-line). Type `LOGOUT` to leave. The login screen comes back with `SESSION CLOSED.`
 
 The terminal's owner can set a session to close by itself after some time with no key. Then the login screen comes back the same way.
 
@@ -47,7 +47,7 @@ A new card has three accounts:
 | User | Password | Can |
 |---|---|---|
 | `ADMIN` | `ADMIN-CHANGE-ME` | everything |
-| `OPER` | `OPER-CHANGE-ME` | run the devices |
+| `OPER` | `OPER-CHANGE-ME` | run the devices. Gets the terminal menu after the login |
 | `GUEST` | `GUEST` | read its own files |
 
 This manual prints these passwords, so anyone can read them. Change them before the terminal guards anything: log in as each user and type `SET PASSWORD`, see [Changing your password](#changing-your-password).
@@ -88,10 +88,9 @@ $ DIRECTORY
 Directory SD0:[HOME.GUEST]
 
 NOTICE.TXT
-TERMINAL.CFG
 VISITOR.TXT
 
-Total of 3 files.
+Total of 2 files.
 $ TYPE NOTICE.TXT
 ```
 
@@ -139,6 +138,102 @@ Type `SET PASSWORD`. The terminal asks for your old password, the new one, and t
 - An operator can type `SET HALT` to stop the terminal, or `SET HALT RESTART` to restart it. `SET HALT RESTART /MAINTENANCE` restarts into the boot agent's maintenance screen. From there the maintenance image can restore the default users when every password is lost, if the card's `BOOT.CFG` allows it. If the request cannot be saved, the terminal says so and stays up.
 - A security officer manages the users with `AUTHORIZE`: `AUTHORIZE LIST`, `AUTHORIZE ADD BOB`, `AUTHORIZE MODIFY BOB /DISABLED`, `AUTHORIZE REMOVE BOB`.
 - `RUN`, `HOLOTAPE` and `MAIL` are not part of this build yet: they say so.
+
+## The terminal menu
+
+A user whose home holds `TERMINAL.CFG` gets a menu after the login instead of the command line. On a new card that is OPER.
+
+```
+ ROBCO TERMINAL
+ Operator console
+
+ Operator console. Walk the rounds at the start of every shift.
+
+ > Read the rounds checklist
+   Device controls
+   Show the system
+   Yard lights on or off
+   Holotape library
+   Log out
+
+
+ Operator console
+ UP/DOWN: move  1-9: pick  ENTER: choose  BACK: log out
+```
+
+The first row is the terminal's name, the second the menu's title. Lines frame the header and the entries. Under them are the message row, the trail of menus you came through, and the keys.
+
+- UP and DOWN move the highlight. Held, they keep moving.
+- The digits 1 to 9 move to that entry.
+- ENTER or SELECT chooses the entry.
+- BACK or LEFT goes up one menu. At the top it asks `Log out?`: ENTER logs out, BACK stays.
+
+Buttons work the same way as keys.
+
+What each kind of entry does:
+
+| Entry | What happens |
+|---|---|
+| a text | The file opens in the pager. BACK returns to the menu. |
+| a menu | The other menu opens. Menus go 8 deep at most. |
+| a command | The command runs as you. Its output opens in the pager, and its last message shows on the message row. A question, such as `/CONFIRM`, opens over the menu. Ctrl-C cancels it. |
+| a device | The device acts. The message row shows its new state, or why it refused. |
+| a holotape | The holotape reader opens on that tape, or on the list. BACK returns. |
+| log out | Ends the session at once. |
+
+When something goes wrong, the message row says so in one line, such as `File DUTY.TXT not found`, `Bad menu file TOOLS.CFG (line 4)` or `No holotape STORY.HTP`. The menu stays usable.
+
+The menu is your whole session. You reach the command line only through a command entry that the menu offers.
+
+### Writing a menu
+
+This part is for the person who sets up the terminal. A menu is an INI file in the user's home folder, `/UOS/HOME/<home>/TERMINAL.CFG`. Other menus it opens are `.CFG` files in the same folder. The full rules are in [tui](modules/tui.md#terminalcfg).
+
+```
+[terminal]
+title = Pump house
+header = WELCOME.TXT
+
+[entry 1]
+label = Read the shift notes
+type = text
+target = NOTES.TXT
+
+[entry 2]
+label = Pump controls
+type = menu
+target = PUMPS.CFG
+
+[entry 3]
+label = List my files
+type = command
+target = DIRECTORY
+
+[entry 4]
+label = Pump room light
+type = device
+target = LIGHT1 TOGGLE
+
+[entry 5]
+label = Training tapes
+type = holotape
+
+[entry 6]
+label = Log out
+type = logout
+```
+
+- `title` shows on the second row. `header` names a text file whose first 8 lines show above the entries.
+- Entries show in the order of their numbers, up to 16 a file.
+- A `text`, `menu` or `header` file must be a plain 8.3 name in the same home.
+- A `command` is one command line, as you would type it at `$`.
+- A `device` target is a device name from `DEVICES.CFG` and an action word.
+- A `holotape` target is a tape name in `SYS$HOLO`, or empty for the list.
+- `privs = 2` shows the entry only to users who hold OPER. The value is a mask of privilege bits: 1 SYSTEM, 2 OPER, 4 SECURITY, 8 READALL. SYSTEM sees every entry.
+
+Every entry runs with the user's own rights. A menu entry cannot do what the user could not do at the command line.
+
+To give a user the command line again, delete their `TERMINAL.CFG`. A user at the command line can open their menu with `RUN TERMINAL`; BACK at its top then closes it.
 
 ## Reading holotapes
 

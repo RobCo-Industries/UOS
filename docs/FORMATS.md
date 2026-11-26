@@ -99,6 +99,15 @@ One `[device NAME]` section per device, up to 24, and one `[expander N]` section
 
 A `[terminal]` section with the title and an optional header file, then `[entry N]` sections, at most 16 kept per file. Each entry has a label, a type and a target. Sub-menus are other `.CFG` files in the same home. Layout: [tui](modules/tui.md#terminalcfg).
 
+As built:
+
+- The file sits in the user's home, `/UOS/HOME/<home>/TERMINAL.CFG`. A user whose home holds it gets the menu after the login in place of the shell.
+- Every file the menu names, sub-menus, the header and `text` targets, is read from the home with the user's rights, up to 64 KiB.
+- `command` targets run as the user, with the user's privileges, as typed at the `$` prompt.
+- `device` targets go to the device service with the user's privileges. The device's own mask applies.
+- `holotape` targets name a tape in `SYS$HOLO`. A name with no type means `.HTP`.
+- On the default card only OPER has a menu.
+
 ## Word lists
 
 `/UOS/WORDS/W04.TXT` to `W12.TXT`: one list per word length, 4 to 12. One word per line, `A` to `Z` only, all the same length, at most 512 words. `tools/mkwords.py check` checks the lists. Layout: [hack](modules/hack.md#word-list-format).

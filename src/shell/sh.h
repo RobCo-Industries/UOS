@@ -17,6 +17,8 @@
 #define UOS_SH_H
 
 #include "shrules.h"
+#include "sess.h"
+#include "uos_screen.h"
 
 /* Errors of sh_run_line() and sh_program_register(). */
 #define SH_ERR_ARG      (-1)    /* NULL, empty or comment only, or longer than DCL_LINE_MAX */
@@ -30,6 +32,9 @@
 /* Flags of sh_run_line(). */
 #define SH_RUN_QUIET    0x01u   /* print no output or message on the console: only the result
                                    line counts; a question the command asks still shows */
+#define SH_RUN_CAPTURE  0x02u   /* print nothing on the console; keep the output and the
+                                   messages for the callback, see sh_output() */
+#define SH_CAPTURE_MAX  (64u * 1024u)   /* bytes kept by SH_RUN_CAPTURE; the rest is cut */
 
 /* Severity classes given to the callback. */
 #define SH_OK           0       /* the final message is S or I */
@@ -66,6 +71,42 @@ typedef void (*sh_done_fn)(int status, const char *result, void *ctx);
  * empty or comment-only line itself: it shows a new prompt.
  */
 int sh_run_line(const char *line, unsigned flags, sh_done_fn cb, void *ctx);
+
+/*
+ * loop: as sh_run_line(), for a screen that is not the shell, such as the
+ * terminal menu. The job belongs to `host`: its questions and its pager
+ * open over `host`, and the job is covered while another screen covers
+ * the unit of `host`. A covered job waits as it does under the shell:
+ * the host's uncover() calls sh_host_uncover(), which runs the owed step
+ * or end. The host's leave() calls sh_host_gone(). SH_ERR_COVERED when
+ * the unit of `host` is not the top. The shell itself need not be on the
+ * stack.
+ */
+int sh_run_line_on(uos_screen_t *host, const char *line, unsigned flags, sh_done_fn cb,
+                   void *ctx);
+
+/* loop: the host's uncover() calls it. Runs the step or the end the job
+ * of `host` owes, once. 1 when it did, else 0. */
+int sh_host_uncover(uos_screen_t *host);
+
+/* loop: the host's leave() calls it. A job of `host` becomes an orphan:
+ * it takes no step and prints nothing, and the next tick ends it. */
+void sh_host_gone(uos_screen_t *host);
+
+/* loop: Ctrl-C for the running job, as at the shell. Does nothing with no
+ * job. */
+void sh_cancel(void);
+
+/* loop, inside an sh_done_fn only: the text SH_RUN_CAPTURE kept, lines
+ * ended by LF, the final message last. NULL with *len 0 otherwise. */
+const char *sh_output(size_t *len);
+
+/*
+ * loop: registers the function the shell asks first at each login for
+ * the session's screen. NULL from it gives the shell. Once per boot:
+ * SH_ERR_DUP after. SH_ERR_DOWN before the shell service started.
+ */
+int sh_session_screen_register(sess_next_fn fn);
 
 /* any: non-zero while a command runs. */
 int sh_busy(void);

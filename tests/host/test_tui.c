@@ -506,3 +506,89 @@ TEST(tui_long_breadcrumb_fits)
         }
     }
 }
+
+TEST(tui_close_mode)
+{
+    start(basic, 0);
+    CHECK_EQ(tui_set_close(NULL), TUI_E_ARG);
+    CHECK_EQ(tui_set_close(&t), TUI_OK);
+    CHECK(strstr(dump(), "29 D UP/DOWN: move  1-9: pick  ENTER: choose  BACK: close\n") != NULL);
+    /* A sub-menu still goes up a level. */
+    key(TUI_CHAR('2'));
+    key(INPUT_KEY_SELECT);
+    CHECK_EQ(t.depth, 2);
+    CHECK(strstr(dump(), "BACK: up a level\n") != NULL);
+    CHECK_EQ(key(INPUT_KEY_BACK), TUI_ACT_NONE);
+    CHECK_EQ(t.depth, 1);
+    CHECK_EQ(key(INPUT_KEY_BACK), TUI_ACT_NONE);
+    CHECK_EQ(t.state, TUI_ST_CONFIRM);
+    CHECK(strstr(dump(), "27 N Close the menu? ENTER: yes  BACK: no\n") != NULL);
+    CHECK(strstr(dump(), "29 D ENTER: close  BACK: stay\n") != NULL);
+    CHECK_EQ(key(INPUT_KEY_BACK), TUI_ACT_NONE);
+    CHECK_EQ(t.state, TUI_ST_MENU);
+    key(INPUT_KEY_BACK);
+    CHECK_EQ(key(INPUT_KEY_SELECT), TUI_ACT_CLOSE);
+    CHECK_EQ(t.state, TUI_ST_DONE);
+    CHECK(strstr(dump(), "29 D Closed\n") != NULL);
+    /* A logout entry still logs out in close mode. */
+    start(basic, 0);
+    tui_set_close(&t);
+    key(TUI_CHAR('8'));
+    CHECK_EQ(key(INPUT_KEY_SELECT), TUI_ACT_LOGOUT);
+    /* An empty root in close mode says close. */
+    {
+        static const file_t empty[] = { { "TERMINAL.CFG", "[terminal]\ntitle = E\n" },
+                                        { NULL, NULL } };
+
+        start(empty, 0);
+        tui_set_close(&t);
+        CHECK(strstr(dump(), "29 D BACK: close\n") != NULL);
+    }
+}
+
+TEST(tui_held_key_rule)
+{
+    unsigned k;
+
+    /* Presses pass. */
+    for (k = INPUT_KEY_UP; k < INPUT_KEY_COUNT; k++) {
+        CHECK_EQ(tui_map_key(0, k, 0), k);
+    }
+    /* Only UP and DOWN repeat. */
+    CHECK_EQ(tui_map_key(0, INPUT_KEY_UP, 1), INPUT_KEY_UP);
+    CHECK_EQ(tui_map_key(0, INPUT_KEY_DOWN, 1), INPUT_KEY_DOWN);
+    CHECK_EQ(tui_map_key(0, INPUT_KEY_SELECT, 1), 0);
+    CHECK_EQ(tui_map_key(0, INPUT_KEY_BACK, 1), 0);
+    CHECK_EQ(tui_map_key(0, INPUT_KEY_LEFT, 1), 0);
+    CHECK_EQ(tui_map_key(0, INPUT_KEY_DIAL_PUSH, 1), 0);
+    CHECK_EQ(tui_map_key(0, INPUT_KEY_NONE, 0), 0);
+    CHECK_EQ(tui_map_key(0, INPUT_KEY_COUNT, 0), 0);
+    /* Characters. */
+    CHECK_EQ(tui_map_key(1, '1', 0), TUI_CHAR('1'));
+    CHECK_EQ(tui_map_key(1, '9', 0), TUI_CHAR('9'));
+    CHECK_EQ(tui_map_key(1, '0', 0), 0);
+    CHECK_EQ(tui_map_key(1, 'a', 0), 0);
+    CHECK_EQ(tui_map_key(1, 3, 0), 0);
+    CHECK_EQ(tui_map_key(1, '\r', 0), INPUT_KEY_SELECT);
+    CHECK_EQ(tui_map_key(1, '\n', 0), INPUT_KEY_SELECT);
+}
+
+TEST(tui_names)
+{
+    CHECK_STR(tui_act_name(TUI_ACT_NONE), "none");
+    CHECK_STR(tui_act_name(TUI_ACT_LOAD_MENU), "menu");
+    CHECK_STR(tui_act_name(TUI_ACT_LOAD_HEADER), "header");
+    CHECK_STR(tui_act_name(TUI_ACT_SHOW_TEXT), "text");
+    CHECK_STR(tui_act_name(TUI_ACT_COMMAND), "command");
+    CHECK_STR(tui_act_name(TUI_ACT_DEVICE), "device");
+    CHECK_STR(tui_act_name(TUI_ACT_HOLOTAPE), "holotape");
+    CHECK_STR(tui_act_name(TUI_ACT_LOGOUT), "logout");
+    CHECK_STR(tui_act_name(TUI_ACT_CLOSE), "close");
+    CHECK_STR(tui_act_name(-1), "?");
+    CHECK_STR(tui_act_name(TUI_ACT_CLOSE + 1), "?");
+    CHECK_STR(tui_state_name(TUI_ST_WAIT), "wait");
+    CHECK_STR(tui_state_name(TUI_ST_MENU), "menu");
+    CHECK_STR(tui_state_name(TUI_ST_CONFIRM), "confirm");
+    CHECK_STR(tui_state_name(TUI_ST_DONE), "done");
+    CHECK_STR(tui_state_name(9), "?");
+}

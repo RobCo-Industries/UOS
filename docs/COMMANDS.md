@@ -33,7 +33,7 @@ This is the reference of every command of the UOS shell. The command table in `s
 | `SET HALT` | Done |
 | `SHOW` | Full. `SHOW USERS` lists the one session of this terminal. |
 | `HELP` | Full |
-| `RUN` | Partial: no program is installed in this build. Another task registers them. |
+| `RUN` | Partial: `TERMINAL` is installed. `HACK` and `HOLOTAPE` are not. |
 | `LOGIN` | Partial: the user name parameter is not passed to the login prompt |
 | `LOGOUT` | Full |
 | `ROBCO` | Full |
@@ -224,6 +224,8 @@ Format: `HELP [topic]`. Prints `SYS$HELP:<verb>.HLP`, the file the command table
 ## RUN
 
 Format: `RUN program`, one of `HACK`, `TERMINAL`, `HOLOTAPE`. Starts a program another task registered with `sh_program_register()`. With no entry: `%UOS-W-NOTINST, HACK is not installed in this build`. A program that fails to start gives `%UOS-E-PROGERR`. Ctrl-C ends the wait for a program; if that program ends later, its result is ignored, also when another `RUN` waits by then.
+
+`RUN TERMINAL` opens the terminal menu of `TERMINAL.CFG` in your home over the shell. The command ends at once with success, so the menu's own command entries can run. BACK at the top level asks `Close the menu?`, and ENTER there brings the `$` prompt back. A `logout` entry still logs out. Without `TERMINAL.CFG` the menu shows `File TERMINAL.CFG not found`. `RUN TERMINAL` from a menu's command entry, while the menu is open, gives `%UOS-E-PROGERR`. See [tui](modules/tui.md#the-screen).
 
 ## LOGIN
 

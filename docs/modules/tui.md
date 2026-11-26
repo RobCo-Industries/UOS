@@ -106,6 +106,9 @@ Rules:
 | `tui_give_header` | Answers `TUI_ACT_LOAD_HEADER` with the file text. |
 | `tui_give_error` | Answers any action with a failure line. |
 | `tui_done` | Ends a text, command, device or holotape action, with an optional result line. |
+| `tui_set_close` | Close mode: BACK at the top asks to close the menu, not to log out. |
+| `tui_map_key` | The held-key rule: which key events reach `tui_key`. |
+| `tui_act_name`, `tui_state_name` | Names of actions and states, for markers. |
 | `tui_rows` | Rows of entries in the window. |
 | `tui_layout` | Fills a caller buffer with the screen lines. |
 
@@ -123,6 +126,7 @@ The model keeps a stack of up to 8 menus, the selection and the scroll window of
 | `TUI_ACT_DEVICE` | `name`, `word` | acts on the device, calls `tui_done` with one result line |
 | `TUI_ACT_HOLOTAPE` | `name`, empty for the list | runs the holotape reader, calls `tui_done` |
 | `TUI_ACT_LOGOUT` | | logs the user out |
+| `TUI_ACT_CLOSE` | | close mode only: closes the menu |
 
 While an action is out, keys are ignored. After it the menu comes back with the selection kept. A result or error line shows until the next key. That key also does its normal job.
 
@@ -142,6 +146,10 @@ In a menu:
 Choosing a `menu` entry at depth 8 shows `Menus nest 8 deep at most` and loads nothing.
 
 At the log out question: ENTER or SELECT logs out, BACK or LEFT returns to the menu. Other keys are ignored.
+
+In close mode, set with `tui_set_close()` after `tui_init()`, the question is `Close the menu? ENTER: yes  BACK: no` and ENTER returns `TUI_ACT_CLOSE`. A `logout` entry still returns `TUI_ACT_LOGOUT`.
+
+`tui_map_key(is_char, code, repeat)` applies the held-key rule before `tui_key()`. Key presses pass. Repeats pass for UP and DOWN only, so a held ENTER chooses once and a held BACK goes up one level. Typed `1` to `9` give `TUI_CHAR()`, CR and LF give SELECT, and other characters are dropped. It returns 0 for an event to drop.
 
 ## Layout
 
@@ -166,12 +174,12 @@ Footer hints:
 
 | State | Hint |
 |---|---|
-| menu, top level | `UP/DOWN: move  1-9: pick  ENTER: choose  BACK: log out` |
+| menu, top level | `UP/DOWN: move  1-9: pick  ENTER: choose  BACK: log out`, or `BACK: close` in close mode |
 | menu, sub-menu | `UP/DOWN: move  1-9: pick  ENTER: choose  BACK: up a level` |
 | no entries | `BACK: log out` or `BACK: up a level` |
-| log out question | `ENTER: log out  BACK: stay` |
+| log out question | `ENTER: log out  BACK: stay`, or `ENTER: close  BACK: stay` |
 | action out | `Please wait` |
-| logged out | `Logged out` |
+| logged out | `Logged out`, or `Closed` |
 
 ## The pager
 
@@ -210,10 +218,16 @@ The pager screen in `src/console/pager.c` leaves only on a pressed BACK. A held 
 
 Errors: `PG_E_ARG` (-1), `PG_E_SPACE` (-2), `PG_E_RANGE` (-3, no such line).
 
+## The screen
+
+`src/tui/tuiscr.c` is the glue: the `menu` service, its screen and the `menu` maintenance command. It loads the files the model asks for from the user's home, runs each action and draws the layout. [ARCHITECTURE.md](../ARCHITECTURE.md#terminal-menu) describes when it opens, each action, its markers and its command.
+
+A user whose home holds `TERMINAL.CFG` gets the menu after the login. `RUN TERMINAL` opens it over the shell in close mode. Header `src/tui/tuiscr.h`: `menu_active()` and `menu_screen()`, any context.
+
 ## Example content
 
-`card/UOS/HOME/ADMIN`, `OPER` and `GUEST` each hold a `TERMINAL.CFG` with sub-menus, text files and device entries for `DOOR1`, `LIGHT1` and `VAULT`, the devices of the shipped `DEVICES.CFG`. The motion sensor `MOTION1` takes no command, so `CONTROL.CFG` reads it with the command `TYPE DEV:MOTION1`. `tests/host/test_card_menus.c` checks every device entry against `DEVICES.CFG` and `dv_command()`.
+Only `card/UOS/HOME/OPER` holds a `TERMINAL.CFG`, so OPER is the one default user who gets the menu. It has one entry of each type: the rounds checklist, the `CONTROL.CFG` sub-menu, `SHOW SYSTEM`, the `LIGHT1` device, the holotape list and log out. `CONTROL.CFG` holds device entries for `DOOR1`, `LIGHT1` and `VAULT`, the devices of the shipped `DEVICES.CFG`. The motion sensor `MOTION1` takes no command, so `CONTROL.CFG` reads it with the command `TYPE DEV:MOTION1`. `tests/host/test_card_menus.c` checks every device entry against `DEVICES.CFG` and `dv_command()`. `test_tui_cfg.c` checks that OPER's menu has every type and that ADMIN and GUEST have none.
 
 ## Tests
 
-`make test-host` runs `test_tui`, `test_tui_cfg` and `test_tui_pager` from the repository root, so the content test reads `card/UOS/HOME`. See [TESTING.md](../TESTING.md).
+`make test-host` runs `test_tui`, `test_tui_cfg` and `test_tui_pager` from the repository root, so the content test reads `card/UOS/HOME`. `tests/test_menu.py` drives the screen on the four boards. See [TESTING.md](../TESTING.md).

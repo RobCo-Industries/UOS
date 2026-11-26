@@ -23,7 +23,7 @@
  *
  * Markers:
  *   sh state=prompt kind=<cmd|contin|param|confirm|line|password> n=
- *   cmd state=start verb= src=<shell|port|api>
+ *   cmd state=start verb= src=<shell|port|api|host screen name>
  *   cmd file= op= result=         one per file of a file loop
  *   cmd state=end verb= rc=<IDENT> sev= files= skipped= failed= steps= maxticks=
  *   cmd output=<written|kept|toobig|failed> verb=   /OUTPUT, before the end
@@ -184,18 +184,26 @@ static const char *ask_kind;        /* a command's read: its kind, else NULL */
 static con_line_fn ask_cb;
 
 static uos_screen_t shell_screen;
+static sess_next_fn first_fn;       /* asked first for the session's screen */
+static char *cap_view;              /* SH_RUN_CAPTURE text during the callback */
+static size_t cap_view_len;
 
-/* 1 when the shell is the session's screen and another one covers it.
- * The shell's own children, its reads and its pager, are part of it: a
- * command the API starts while the `$` read waits runs under it. */
+/* 1 when the job's screen is on and another one covers it. The shell
+ * is on while it is the session's screen; a host of sh_run_line_on() is
+ * on until sh_host_gone(), which makes the job an orphan. The screen's
+ * own children, its reads and its pager, are part of it: a command the
+ * API starts while the `$` read waits runs under it. */
 static int covered(void)
 {
+    if (sh_job.host != NULL) {
+        return sh_job_waits(1, uos_screen_unit_on_top(sh_job.host));
+    }
     return sh_job_waits(shp.on, uos_screen_unit_on_top(&shell_screen));
 }
 
 uos_screen_t *sh_screen(void)
 {
-    return &shell_screen;
+    return sh_job.active && sh_job.host != NULL ? sh_job.host : &shell_screen;
 }
 
 static const char *const owe_name[] = { "none", "step", "end" };
@@ -209,8 +217,8 @@ static void owe(int what)
 }
 
 static void on_line(int result, const char *text, unsigned len, void *ctx);
-static int launch(const char *line, unsigned flags, const char *src, sh_done_fn cb, void *ctx,
-                  char *need, size_t need_size);
+static int launch(uos_screen_t *host, const char *line, unsigned flags, const char *src,
+                  sh_done_fn cb, void *ctx, char *need, size_t need_size);
 
 static void prompt_start(int kind)
 {
@@ -256,7 +264,7 @@ static void shell_done(int status, const char *result, void *ctx)
 static void begin_line(void)
 {
     char need[48];
-    int rc = launch(shp.line, 0, "shell", shell_done, NULL, need, sizeof(need));
+    int rc = launch(NULL, shp.line, 0, "shell", shell_done, NULL, need, sizeof(need));
 
     if (rc == 1) {
         /* A missing parameter: ask for it and parse again. */
@@ -383,14 +391,7 @@ static int shell_event(uos_screen_t *s, const uos_event_t *ev)
 {
     (void)s;
     if (ev->type == UOS_EV_CHAR && ev->code == 3u && sh_job.active) {
-        sh_job.cancel = 1;
-        /* A job that waits on a program with no screen of its own: no
-         * step is posted to see the flag, so post one. A read or a pager
-         * on top takes Ctrl-C itself. */
-        if (!sh_job.posted && (sh_job.prog_wait || test_held) && !con_line_active() &&
-            !con_page_active()) {
-            sh_resume(&sh_job, SH_MORE);
-        }
+        sh_cancel();
         return 1;
     }
     return ev->type == UOS_EV_KEY || ev->type == UOS_EV_CHAR;
@@ -398,22 +399,63 @@ static int shell_event(uos_screen_t *s, const uos_event_t *ev)
 
 static void finish(void);
 
+void sh_cancel(void)
+{
+    if (!sh_job.active) {
+        return;
+    }
+    sh_job.cancel = 1;
+    /* A job that waits on a program with no screen of its own: no step is
+     * posted to see the flag, so post one. A read or a pager on top takes
+     * Ctrl-C itself. */
+    if (!sh_job.posted && (sh_job.prog_wait || test_held) && !con_line_active() &&
+        !con_page_active()) {
+        sh_resume(&sh_job, SH_MORE);
+    }
+}
+
+/* Runs the work a covered job owes: its end, or its next step. 1 when
+ * there was some. */
+static int pay_owed(void)
+{
+    int what = sh_owe_take(&owed);
+
+    if (what == SH_OWE_NONE || !sh_job.active) {
+        return 0;
+    }
+    UOS_MARK("sh op=resume id=%u owe=%s", (unsigned)sh_job.id, owe_name[what]);
+    if (what == SH_OWE_END) {
+        finish();
+    } else {
+        sh_resume(&sh_job, SH_MORE);
+    }
+    return 1;
+}
+
+int sh_host_uncover(uos_screen_t *host)
+{
+    if (host == NULL || !sh_job.active || sh_job.host != host) {
+        return 0;
+    }
+    return pay_owed();
+}
+
+void sh_host_gone(uos_screen_t *host)
+{
+    if (host != NULL && sh_job.active && sh_job.host == host) {
+        orphan = 1;
+    }
+}
+
 /* On top again. A job that waited runs on: its owed end, or its next step.
  * sh_owe_take() clears the debt before the work, and sh_resume() posts
  * at most one step, so the work runs once. With no job, the `$` read a
  * covered shell_idle() could not start. */
 static void shell_uncover(uos_screen_t *s)
 {
-    int what = sh_owe_take(&owed);
-
     (void)s;
-    if (what != SH_OWE_NONE && sh_job.active) {
-        UOS_MARK("sh op=resume id=%u owe=%s", (unsigned)sh_job.id, owe_name[what]);
-        if (what == SH_OWE_END) {
-            finish();
-        } else {
-            sh_resume(&sh_job, SH_MORE);
-        }
+    /* A job of another host pays its debt in that host's uncover(). */
+    if (sh_job.active && sh_job.host == NULL && pay_owed()) {
         return;
     }
     shell_idle(NULL);
@@ -431,10 +473,70 @@ static uos_screen_t shell_screen = {
 
 static uos_screen_t *shell_next(void)
 {
-    return &shell_screen;
+    uos_screen_t *s = first_fn != NULL ? first_fn() : NULL;
+
+    return s != NULL ? s : &shell_screen;
+}
+
+int sh_session_screen_register(sess_next_fn fn)
+{
+    if (!sh_up) {
+        return SH_ERR_DOWN;
+    }
+    if (fn == NULL) {
+        return SH_ERR_ARG;
+    }
+    if (first_fn != NULL) {
+        return SH_ERR_DUP;
+    }
+    first_fn = fn;
+    return 0;
 }
 
 /* ---- Output for the commands ---- */
+
+/* SH_RUN_CAPTURE: appends one line. Past SH_CAPTURE_MAX the rest is cut. */
+static void cap_add(sh_job_t *j, const char *text)
+{
+    size_t n = k_strlen(text);
+
+    if (j->capfull) {
+        return;
+    }
+    if (j->caplen + n + 1u > SH_CAPTURE_MAX) {
+        j->capfull = 1;
+        return;
+    }
+    if (j->cap == NULL || j->caplen + n + 1u > j->capcap) {
+        size_t cap = j->capcap == 0 ? 1024u : j->capcap * 2u;
+        char *nb;
+
+        while (cap < j->caplen + n + 1u) {
+            cap *= 2u;
+        }
+        if (cap > SH_CAPTURE_MAX) {
+            cap = SH_CAPTURE_MAX;
+        }
+        nb = k_realloc(j->cap, cap);
+        if (nb == NULL) {
+            j->capfull = 1;
+            return;
+        }
+        j->cap = nb;
+        j->capcap = cap;
+    }
+    k_memcpy(j->cap + j->caplen, text, n);
+    j->caplen += n;
+    j->cap[j->caplen++] = '\n';
+}
+
+const char *sh_output(size_t *len)
+{
+    if (len != NULL) {
+        *len = cap_view != NULL ? cap_view_len : 0;
+    }
+    return cap_view;
+}
 
 void sh_out(sh_job_t *j, const char *text)
 {
@@ -468,14 +570,22 @@ void sh_out(sh_job_t *j, const char *text)
         j->obuf[j->olen++] = '\n';
         return;
     }
-    if (!(j->flags & SH_RUN_QUIET)) {
+    if (j->flags & SH_RUN_CAPTURE) {
+        cap_add(j, text);
+    } else if (!(j->flags & SH_RUN_QUIET)) {
         put_line(text, CONSOLE_ATTR_NORMAL);
     }
 }
 
 void sh_say(sh_job_t *j, dcl_msg_t id, const char *arg, uint32_t num)
 {
-    if (!(j->flags & SH_RUN_QUIET)) {
+    if (j->flags & SH_RUN_CAPTURE) {
+        char buf[DCL_MSG_SIZE];
+
+        if (dcl_format_message(buf, sizeof(buf), id, arg, num) >= 0) {
+            cap_add(j, buf);
+        }
+    } else if (!(j->flags & SH_RUN_QUIET)) {
         put_msg(id, arg, num);
     }
 }
@@ -525,7 +635,7 @@ int sh_ask(const char *kind, const char *prompt, unsigned flags, unsigned max, c
 
     ask_kind = kind;
     ask_cb = cb;
-    rc = con_read_line(&shell_screen, prompt, flags | CON_RL_NOHIST, max, ask_done, sh_job_tag(&sh_job));
+    rc = con_read_line(sh_screen(), prompt, flags | CON_RL_NOHIST, max, ask_done, sh_job_tag(&sh_job));
     if (rc != 0) {
         ask_kind = NULL;
         ask_cb = NULL;
@@ -655,6 +765,8 @@ static void finish(void)
     void *cbctx = j->cbctx;
     int after = j->after;
     int status;
+    char *cap;
+    size_t caplen;
 
     owed = SH_OWE_NONE;
     orphan = 0;
@@ -681,7 +793,9 @@ static void finish(void)
     if (j->res_text[0] != '\0') {
         /* A program's own result line. */
         k_snprintf(res, sizeof(res), "%s", j->res_text);
-        if (j->msg_print && !(j->flags & SH_RUN_QUIET)) {
+        if (j->msg_print && (j->flags & SH_RUN_CAPTURE)) {
+            cap_add(j, res);
+        } else if (j->msg_print && !(j->flags & SH_RUN_QUIET)) {
             put_line(res, CONSOLE_ATTR_NORMAL);
         }
     } else {
@@ -703,9 +817,18 @@ static void finish(void)
              "maxticks=%u", j->verb, dcl_msg_ident(j->msg), dcl_msg_severity(j->msg),
              (unsigned)j->tally.done, (unsigned)(j->tally.refused + j->tally.declined),
              (unsigned)j->tally.failed, (unsigned)j->steps, (unsigned)j->maxticks);
+    cap = j->cap;
+    caplen = j->caplen;
     k_memset(j, 0, sizeof(*j));
     if (cb != NULL) {
+        cap_view = cap;
+        cap_view_len = caplen;
         cb(status, res, cbctx);
+        cap_view = NULL;
+        cap_view_len = 0;
+    }
+    if (cap != NULL) {
+        k_free(cap);
     }
     switch (after) {
     case SH_AFTER_LOGOUT:
@@ -751,8 +874,8 @@ const sh_impl_t *sh_impl_find(const dcl_cmd_t *cmd)
  * when a parameter is missing and `need` names it (interactive callers
  * only), 2 for an empty line from the prompt, or SH_ERR_*.
  */
-static int launch(const char *line, unsigned flags, const char *src, sh_done_fn cb, void *ctx,
-                  char *need, size_t need_size)
+static int launch(uos_screen_t *host, const char *line, unsigned flags, const char *src,
+                  sh_done_fn cb, void *ctx, char *need, size_t need_size)
 {
     sh_job_t *j = &sh_job;
     dcl_msg_t rc;
@@ -770,7 +893,8 @@ static int launch(const char *line, unsigned flags, const char *src, sh_done_fn 
     if (!sess_logged_in()) {
         return SH_ERR_NOUSER;
     }
-    if (!sh_takes_job(shp.on, uos_screen_unit_on_top(&shell_screen))) {
+    if (host != NULL ? !sh_takes_job(1, uos_screen_unit_on_top(host))
+                     : !sh_takes_job(shp.on, uos_screen_unit_on_top(&shell_screen))) {
         /* start() may ask, page or start a program's screen. A shell
          * covered by another screen, or not on the stack yet, such as
          * during the welcome, takes no job. */
@@ -783,6 +907,7 @@ static int launch(const char *line, unsigned flags, const char *src, sh_done_fn 
         job_seq = 1;
     }
     j->id = job_seq;
+    j->host = host;
     k_snprintf(j->line, sizeof(j->line), "%s", line);
     rc = dcl_parse(j->line, &dcl_uos_table, &j->cmd);
     if (rc == DCL_NORMAL && j->cmd.verb == NULL) {
@@ -795,6 +920,7 @@ static int launch(const char *line, unsigned flags, const char *src, sh_done_fn 
         return 1;
     }
     j->active = 1;
+    j->host = host;
     j->flags = flags;
     j->src = src;
     j->cb = cb;
@@ -830,7 +956,16 @@ static int launch(const char *line, unsigned flags, const char *src, sh_done_fn 
 
 int sh_run_line(const char *line, unsigned flags, sh_done_fn cb, void *ctx)
 {
-    return launch(line, flags, "api", cb, ctx, NULL, 0);
+    return launch(NULL, line, flags, "api", cb, ctx, NULL, 0);
+}
+
+int sh_run_line_on(uos_screen_t *host, const char *line, unsigned flags, sh_done_fn cb,
+                   void *ctx)
+{
+    if (host == NULL) {
+        return SH_ERR_ARG;
+    }
+    return launch(host, line, flags, host->name != NULL ? host->name : "api", cb, ctx, NULL, 0);
 }
 
 int sh_busy(void)
@@ -883,7 +1018,7 @@ static void port_run(void *arg)
         shp.reading = 0;
         dcl_line_reset(&shp.ln);
     }
-    rc = launch(port_line, 0, "port", port_done, NULL, NULL, 0);
+    rc = launch(NULL, port_line, 0, "port", port_done, NULL, NULL, 0);
     if (rc == SH_ERR_COVERED) {
         UOS_MARK("sh run=refused why=covered");
     } else if (rc != 0) {

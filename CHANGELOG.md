@@ -6,6 +6,8 @@ All notable changes to UOS are recorded here. The format follows [Keep a Changel
 
 ### Changed
 
+- Only OPER has a `TERMINAL.CFG` on the default card, with one entry of each type. ADMIN's and GUEST's menus and `ADMIN/MAINT.CFG` are gone, so they get the shell.
+
 - Rebuilt UOS on RobCo-Core. The prototype is gone.
 - `AUTHORIZE`'s `/PASSWORD` takes no value: the command asks for the password, masked.
 - The shell replaces the placeholder screen after login. The placeholder is gone: with no screen registered, the session ends with `session screen=none`.
@@ -25,6 +27,12 @@ All notable changes to UOS are recorded here. The format follows [Keep a Changel
 - RobCo-Core moved to `4249632`. The library's two-pass `test-host-gccwarn` and its `make ci-local` replace UOS's own `test-host-gccwarn-ci` and `tools/ci_local.sh`.
 
 ### Added
+
+- The terminal menu screen, `src/tui/tuiscr.c`, and its `menu` service. A user whose home holds `TERMINAL.CFG` gets it after the login; others get the shell. Every entry type works: text in the pager, sub-menus to 8 deep, commands with their output in the pager, devices, holotapes, logout. Each failure shows one line and leaves the menu usable. Frames are drawn with lines. Markers `ev=tui`, command `menu state|msg|show|list|pick|back`.
+- `RUN TERMINAL` opens the menu over the shell. BACK at the top closes it.
+- `sh_run_line_on()`, `sh_host_uncover()`, `sh_host_gone()`, `sh_cancel()`, `SH_RUN_CAPTURE` with `sh_output()`, and `sh_session_screen_register()` in `sh.h`.
+- `holo_screen_start_tape()` opens the holotape reader on a named tape.
+- `tui_set_close()`, `tui_map_key()`, `tui_act_name()`, `tui_state_name()` and `TUI_ACT_CLOSE` in the menu model.
 
 - `SET HALT /MAINTENANCE` writes the maintenance request `/ROBCO/MAINT.REQ`, then restarts with `RESTART` or halts without it. A failed write ends with `%UOS-E-NOMAINT` and the reason, and nothing halts. `/NOMAINTENANCE` removes a request. Marker `ev=maint_req`.
 - `vfs_maint_request()` and `vfs_maint_clear()`, the only writes UOS makes in the boot tree.
