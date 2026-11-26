@@ -9,6 +9,10 @@ All notable changes to UOS are recorded here. The format follows [Keep a Changel
 - `RUN HOLOTAPE` and the `HOLOTAPE` verb open the holotape reader; `HOLOTAPE <tape>` opens one tape. `RUN HACK` opens the password game's screen, which from a session shows the `busy` refusal. Both end the command at once, as `RUN TERMINAL` does.
 - `LOGIN <user>` ends the session and asks only for that user's password, with the login's retries and lockout.
 
+### Fixed
+
+- A logout or `LOGIN <user>` queued right after `RUN HACK`, `RUN HOLOTAPE` or `RUN TERMINAL` no longer opens that screen over the login prompt. The password game no longer starts there for real. The dropped call prints `sh stale=post`.
+
 ### Removed
 
 - The `MAIL` verb, its keywords and `SYS$HELP:MAIL.HLP`. It was never installed.

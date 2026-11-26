@@ -51,6 +51,11 @@ const char *sess_user(void)
     return sess.in ? sess.user : "";
 }
 
+uint32_t sess_id(void)
+{
+    return sess.in ? sess.serial : 0u;
+}
+
 uint32_t sess_privs(void)
 {
     return sess.in ? sess.privs : 0u;
@@ -123,6 +128,7 @@ void sess_begin(int idx, const char *how)
     const uaf_rec_t *r = &sess.uaf.rec[idx];
 
     sess.in = 1;
+    sess.serial = lg_serial_next(sess.serial);
     sess.idx = idx;
     lg_rec_name(r, sess.user);
     lg_rec_home(r, sess.home);
@@ -145,6 +151,7 @@ int sess_logout(int reason)
     }
     UOS_MARK("session state=end user=%s reason=%s", sess.user, sess_end_name(reason));
     sess.in = 0;
+    sess.serial = lg_serial_next(sess.serial);
     sess.idx = -1;
     k_memset(sess.user, 0, sizeof(sess.user));
     k_memset(sess.home, 0, sizeof(sess.home));

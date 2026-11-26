@@ -661,12 +661,14 @@ static int cmd_holo(int argc, char **argv)
 static char prog_tape[16];          /* an 8.3 name with room to spare */
 static int prog_posted;
 
-static void push_program(void *arg)
+static void push_program(int live)
 {
     int rc;
 
-    (void)arg;
     prog_posted = 0;
+    if (!live) {
+        return;
+    }
     rc = holo_screen_start_tape(prog_tape, NULL, NULL);
     UOS_MARK("holo op=program tape=%s rc=%d", prog_tape[0] != '\0' ? prog_tape : "-", rc);
 }
@@ -685,7 +687,7 @@ static int prog_start(const char *args, sh_prog_done_fn done, void *tag)
         return 1;
     }
     k_memcpy(prog_tape, n != 0 ? args : "", n + 1u);
-    if (uos_post(push_program, NULL) != 0) {
+    if (sh_program_post(push_program) != 0) {
         return 1;
     }
     prog_posted = 1;

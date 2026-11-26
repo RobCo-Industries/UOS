@@ -43,6 +43,12 @@ int sess_logged_in(void);
  * characters; "" when nobody is logged in. */
 const char *sess_user(void);
 
+/* any: the identity of the running session, 0 when nobody is logged in.
+ * It changes at each login and each logout, so a value kept by a posted
+ * call names one session: a logout, a LOGIN <user> or the same user's
+ * next login all give a new value. */
+uint32_t sess_id(void);
+
 /* any: the privilege mask, bits of src/kernel/uos_privs.h; 0 when nobody
  * is logged in. */
 uint32_t sess_privs(void);

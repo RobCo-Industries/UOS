@@ -135,4 +135,17 @@ int sh_busy(void);
  */
 int sh_program_register(const char *name, sh_prog_start_fn start);
 
+/*
+ * A program's start() that opens its screen later posts that call with
+ * sh_program_post(), never with uos_post(). The call keeps the session
+ * serial of the run, sess_id(). On its pass the shell calls fn(1)
+ * when that session still runs, else fn(0) with the marker
+ * "ev=sh stale=post id=<serial> cur=<serial>": the session that asked is
+ * gone, through a logout, a LOGIN <user> or a new login of the same user.
+ * fn(0) only clears the program's own count and acts on nothing. Loop.
+ * Returns 0, or non-zero when no slot or queue room is free.
+ */
+typedef void (*sh_prog_call_fn)(int live);
+int sh_program_post(sh_prog_call_fn fn);
+
 #endif

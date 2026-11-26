@@ -652,10 +652,12 @@ static int cmd_hack(int argc, char **argv)
 
 static int prog_posted;
 
-static void push_program(void *arg)
+static void push_program(int live)
 {
-    (void)arg;
     prog_posted = 0;
+    if (!live) {
+        return;
+    }
     UOS_MARK("hack op=program rc=%d", hack_screen_start(NULL, NULL));
 }
 
@@ -667,7 +669,7 @@ static void push_program(void *arg)
 static int prog_start(const char *args, sh_prog_done_fn done, void *tag)
 {
     (void)args;
-    if (hack_screen_active() || prog_posted || uos_post(push_program, NULL) != 0) {
+    if (hack_screen_active() || prog_posted || sh_program_post(push_program) != 0) {
         return 1;
     }
     prog_posted = 1;

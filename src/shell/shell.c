@@ -20,6 +20,8 @@
  *                             "ev=sh api=done n= status= result="
  *   sh hold <1|0>             1: the next step of a command waits ("ev=sh
  *                             held=1"); 0: it runs. Ctrl-C still cancels.
+ *   sh park <1|0>             1: a program's posted call waits; 0: it is
+ *                             posted, so a test orders it after a logout.
  *
  * Markers:
  *   sh state=prompt kind=<cmd|contin|param|confirm|line|password> n=
@@ -28,6 +30,7 @@
  *   cmd state=end verb= rc=<IDENT> sev= files= skipped= failed= steps= maxticks=
  *   cmd output=<written|kept|toobig|failed> verb=   /OUTPUT, before the end
  *   sh stale=<step|read|pager|prog> id= cur=         a late callback ignored
+ *   sh stale=post id= cur=                           a program call dropped: its session ended
  *   sh op=wait why=covered id= owe=<step|end>        a job waits under a screen, once
  *   sh op=resume id= owe=<step|end>                  the shell is on top again
  *   sh prog=<reg|start|done> n=                      test programs only
@@ -96,6 +99,52 @@ int sh_job_live(void *tag, const char *kind)
     }
     UOS_MARK("sh stale=%s id=%u cur=%u", kind, (unsigned)t,
              sh_job.active ? (unsigned)sh_job.id : 0u);
+    return 0;
+}
+
+/* ---- Program calls posted past their run: they keep the session ---- */
+
+#define SH_PCALL_MAX 4
+
+static struct {
+    sh_prog_call_fn fn;     /* NULL: the slot is free */
+    uint32_t serial;        /* sess_id() when posted */
+    int parked;             /* sh park: test builds only, not posted yet */
+} pcalls[SH_PCALL_MAX];
+static int test_park;       /* sh park 1: program calls wait for sh park 0 */
+
+static void prog_call(void *arg)
+{
+    uintptr_t i = (uintptr_t)arg;
+    sh_prog_call_fn fn = pcalls[i].fn;
+    uint32_t t = pcalls[i].serial;
+    int live = sh_tag_live(sess_logged_in(), sess_id(), t);
+
+    pcalls[i].fn = NULL;
+    if (!live) {
+        UOS_MARK("sh stale=post id=%u cur=%u", (unsigned)t, (unsigned)sess_id());
+    }
+    fn(live);
+}
+
+int sh_program_post(sh_prog_call_fn fn)
+{
+    uintptr_t i;
+
+    if (fn == NULL || sess_id() == 0) {
+        return SH_ERR_ARG;
+    }
+    for (i = 0; i < SH_PCALL_MAX; i++) {
+        if (pcalls[i].fn == NULL) {
+            break;
+        }
+    }
+    if (i == SH_PCALL_MAX || (!test_park && uos_post(prog_call, (void *)i) != 0)) {
+        return SH_ERR_FULL;
+    }
+    pcalls[i].parked = test_park;
+    pcalls[i].fn = fn;
+    pcalls[i].serial = sess_id();
     return 0;
 }
 
@@ -1233,6 +1282,21 @@ static int cmd_sh(int argc, char **argv)
             return 0;
         }
         return uos_post(test_release, NULL) == 0 ? 0 : uos_maint_fail("full");
+    }
+    if (argc == 2 && k_strcmp(argv[0], "park") == 0) {
+        /* 1 keeps program calls back; 0 posts them, in slot order. */
+        uintptr_t i;
+
+        test_park = k_strcmp(argv[1], "1") == 0;
+        for (i = 0; !test_park && i < SH_PCALL_MAX; i++) {
+            if (pcalls[i].fn != NULL && pcalls[i].parked) {
+                if (uos_post(prog_call, (void *)i) != 0) {
+                    return uos_maint_fail("full");
+                }
+                pcalls[i].parked = 0;
+            }
+        }
+        return 0;
     }
 #endif
     if (argc >= 2 && k_strcmp(argv[0], "run") == 0) {

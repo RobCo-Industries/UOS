@@ -576,14 +576,16 @@ static uos_screen_t *menu_next(void)
 
 /* ---- RUN TERMINAL ---- */
 
-static void push_program(void *arg)
+static void push_program(int live)
 {
     int rc;
 
-    (void)arg;
     ms.posted--;
-    if (ms.open || !sess_logged_in()) {
-        UOS_MARK("tui result=%s", ms.open ? "busy" : "gone");
+    if (!live) {
+        return;
+    }
+    if (ms.open) {
+        UOS_MARK("tui result=busy");
         return;
     }
     ms.prog = 1;
@@ -606,7 +608,7 @@ static int prog_start(const char *args, sh_prog_done_fn done, void *t)
     if (ms.open) {
         return 1;
     }
-    if (uos_post(push_program, NULL) != 0) {
+    if (sh_program_post(push_program) != 0) {
         return 1;
     }
     ms.posted++;
