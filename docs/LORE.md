@@ -12,7 +12,7 @@ UOS takes names and ideas from the terminals of the Fallout games. All text here
 | Default accounts ADMIN, OPER and GUEST with printed passwords | True. They are ordinary records of `SYSUAF.DAT` and can be changed or disabled. | [ADMIN_GUIDE](ADMIN_GUIDE.md#users) |
 | 3 wrong passwords lock the terminal for 30 seconds | True by default. `UOS.CFG [login]` sets both numbers. | [ADMIN_GUIDE](ADMIN_GUIDE.md#login-rules) |
 | No network, only a serial service port | True. Networking is out of scope. | [README](../README.md#out-of-scope) |
-| A password crosses the serial port as stars | True | [session](modules/session.md#secrets) |
+| The service port hides a password | Half true. UOS echoes one star per character. A password typed on the serial port still arrives as text, so anyone who reads both directions of the cable reads it. | [session](modules/session.md#secrets) |
 | Messages name facility, severity and code | True: `%UOS-E-NOPRIV, not enough privilege for this operation` | [COMMANDS](COMMANDS.md#how-commands-read) |
 | Holotapes cannot hold a backup | True. A holotape is a read-only text archive. | [ADMIN_GUIDE](ADMIN_GUIDE.md#holotapes) |
 | A memory dump hides the password, and a likeness count guides the guess | The password game: it logs in one chosen account, `GUEST` by default | [USER_MANUAL](USER_MANUAL.md#the-password-game) |

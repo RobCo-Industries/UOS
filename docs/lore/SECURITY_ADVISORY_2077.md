@@ -163,10 +163,11 @@ Username and password input buffers can potentially be overflowed with specially
 **SEVERITY:** LOW
 
 **Description:**  
-This terminal model has no network. Its only wire is the serial service port, which carries the terminal's messages in plaintext. A password crosses it as one star per character, never as text.
+This terminal model has no network. Its only wire is the serial service port, which carries the terminal's messages in plaintext. The terminal answers a typed password with one star per character. A password typed on the service port still travels to the terminal as text.
 
 **Impact:**
-- Anyone on the wire reads the session, but no password
+- Anyone on the wire reads the session
+- Anyone on the wire reads a password typed on the service port. A password typed on the terminal's own keyboard never crosses the wire
 - Anyone on the wire can type into the terminal
 - No protection for file contents shown on screen
 

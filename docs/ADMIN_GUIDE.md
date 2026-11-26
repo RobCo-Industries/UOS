@@ -226,7 +226,7 @@ A holotape is a `.HTP` file in `/UOS/HOLO`, which users see as `SYS$HOLO`. Every
 - A tape holds 1 to 32 entries. An entry is at most 65536 bytes of text, its name at most 31 characters. A tape title is at most 63 characters.
 - A tape up to 2 MiB loads. UOS reads it whole into memory each time it opens.
 
-Build a tape from a folder of `.TXT` files. The first line of each file is the entry's name, the rest its text. Files go in name order, or in the order of an `ORDER.TXT` file whose lines read `FILE.TXT Entry name`. The tool needs RobCo-Core's `tools/rimg.py`, through `--rimg` or `ROBCO_CORE`:
+Build a tape from a folder of `.TXT` files, in one of two forms. Without an `ORDER.TXT` file, the first line of each file is the entry's name, the rest is its text, and files go in name order. With an `ORDER.TXT` file, each of its lines reads `FILE.TXT Entry name` and gives the order and the name, and the whole `.TXT` file is the entry's text: do not repeat the name on its first line. `ORDER.TXT` must list every `.TXT` file. The tool needs RobCo-Core's `tools/rimg.py`, through `--rimg` or `ROBCO_CORE`:
 
 ```
 $ export ROBCO_CORE=$PWD/external/robco-core
