@@ -2,6 +2,8 @@
 
 This manual is for the person at the terminal. Nothing in UOS is validated on real hardware yet: what follows is how it behaves in the QEMU emulator.
 
+The [quick reference](QUICK_REFERENCE.md) fits on two screens. The person who prepares the card reads the [administrator guide](ADMIN_GUIDE.md).
+
 ## Logging in
 
 ### What you see
