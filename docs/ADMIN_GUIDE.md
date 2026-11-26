@@ -170,7 +170,8 @@ Limits and rules:
 - At most 24 devices. UOS reads at most 8 KiB of the file.
 - Free Pi pins: 4, 12, 13, 16, 19, 20, 21, 23, 24 and 25. Any other pin is refused with `PINUSED`. The GPIO button driver is not started today. If it is, pins 16, 23 and 24 are refused too.
 - GPIO 0 to 8 are pulled up at reset. An `active = high` output on GPIO 4 loads with the warning `PULLUP`, since it may switch on before UOS starts.
-- A device with a bad key is skipped. The others load.
+- A device with a bad value is skipped. The others load.
+- A key UOS does not know is ignored and counted. The device still loads, with that key's default. So `actve = low` for `active = low` leaves the device at `active = high`, the opposite level. After a change, read the `unknown=` count of the `devcfg` marker on the serial line: it must be 0.
 - A user with `SYSTEM` can change every device. Others need every bit of its `privs`.
 
 Each device type takes its own words. `SHOW DEVICES` lists them all, `DEVICE <name> <word>` acts on one:
