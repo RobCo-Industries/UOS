@@ -34,7 +34,7 @@ SERVICE_COMMANDS = {"uptime": ["uptime"], "vfs": ["fs"], "console": ["readline",
                     "session": ["sess"], "shell": ["sh"], "devices": ["dev"],
                     "holo": ["holo"], "hack": ["hack"], "menu": ["menu"]}
 BOOT_ORDER = ["boot", "handoff", "maint", "board", "mbox", "mmu", "screen", "tick", "heap",
-              "input", "selfcheck", "mount", "config", "rtc"] + ["service"] * len(SERVICES) + \
+              "input", "selfcheck", "mount", "config", "buttons", "rtc"] + ["service"] * len(SERVICES) + \
              ["ready"]
 
 READY = re.compile(r"@RC stage=uos ev=ready [^\n]*\n")
@@ -80,10 +80,11 @@ def uos_card(tmp_path, cfg=DEFAULT_CFG, extra=None, name="sd.img"):
 
 
 @contextlib.contextmanager
-def alone(image, board, sd=None, extra_args=None, qtest=False):
+def alone(image, board, sd=None, extra_args=None, qtest=False, gpio_high=()):
     """Boots UOS with no earlier stage: QEMU loads it at its link address, and
     a two-word image at 0x8000 jumps to it with no boot info in r3. qtest=True
-    lets a test drive device inputs with vm.qmp.set_irq_in()."""
+    lets a test drive device inputs with vm.qmp.set_irq_in(). gpio_high lists
+    Pi pins driven high before the guest starts; it needs qtest=True."""
     with tempfile.TemporaryDirectory(prefix="uos") as tmp:
         tramp = os.path.join(tmp, "tramp.img")
         with open(tramp, "wb") as f:
@@ -91,6 +92,7 @@ def alone(image, board, sd=None, extra_args=None, qtest=False):
         args = ["-device", f"loader,file={image},addr={OS_SLOT:#x},force-raw=on"]
         with boot(tramp, board, sd=sd, serial2=True,
                   extra_args=args + list(extra_args or []), qtest=qtest,
+                  gpio_high=gpio_high,
                   elf=os.path.splitext(image)[0] + ".elf") as vm:
             yield vm
 
