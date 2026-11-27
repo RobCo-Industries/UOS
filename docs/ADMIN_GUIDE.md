@@ -398,7 +398,7 @@ A bad entry inside a good file is skipped and the rest of the menu works. To giv
 | `watchdog` | `timeout_ms` | 8000 | 1000 to 15000 |
 | `input` | `buttons` | on | The six panel buttons on GPIO 5, 6, 17, 22, 26 and 27 |
 | `audio` | `sound` | off | Turns the sound on. Each key the line editor takes clicks. |
-| `audio` | `fan` | off | Read and kept for a later release. It does nothing yet. |
+| `audio` | `fan` | off | A quiet fan loop under the other sounds. Needs `sound = on`. Under volume 50 the loop turns to grit, so keep the volume at 50 or more with the fan on. |
 | `audio` | `volume` | 80 | 0 to 100 |
 | `audio` | `trace` | off | Prints one `ev=audio` line on the serial line for each sound. Leave it off when you work over serial: every key would print a line. |
 

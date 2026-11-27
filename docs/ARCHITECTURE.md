@@ -924,11 +924,23 @@ The service's shutdown calls `audio_stop()` before a reboot, a halt and from the
 
 The tick has 4 callback slots. With everything on, UOS takes all 4: the GPIO button sampling, the key repeat, the device watchdog and audio.
 
-`[audio] fan` is read and shown in the `config` marker. Nothing uses it yet.
+### The fan
+
+With `[audio] fan = on` the fan loops under the other sounds. The driver plays one buffer at a time and mixes nothing, so the service follows one rule: a sound over the fan is a head, with the fan's rest queued behind it.
+
+- Once the rest ramp has ended, the service mixes each of the five one-shots with the fan's first bytes into RAM: `head[i] = clamp(shot[i] + fan[i] - 128, 0, 255)`. `sfx_mix_head()` in `src/sfx/sfxrules.c` is the pure mix. The heads live in one static buffer of 21 877 bytes, the sum of the header's `_HEAD_LEN` macros.
+- The service then starts the whole fan table with `audio_play_pcm()` and queues a second pass with `audio_pcm_queue()`.
+- To play a one-shot of `n` bytes, it starts the head with `AUDIO_PRIORITY` and queues the fan's rest, `fan[n .. end)`. A new start drops the buffer that waited behind the old play. The rank lane, the scroll gap and the key pick keep their rules.
+- The service's poll in the event loop runs the top-up every 500 ms. `sfx_topup()` gives the step: a free queue takes the next pass of the fan, and when nothing plays the fan starts again. The top-up takes no tick slot and no kernel timer.
+- A stop, at a reboot, a halt, a panic or the device watchdog's reset, also ends the top-up, so the fan stays off.
+
+With `fan = off` every sound plays its plain table, as before. In the trace a head is `op=pcm` and a queued rest or pass is `op=pcm_next`. The generator's `--bed fan` writes each head's and rest's length and CRC-32 into the header, and a host test compares the C mix with them. The loudest one-shot and the fan sum to 102 steps, under the clamp. The rest behind the longest head lasts more than 500 ms, so a top-up always comes before it ends.
+
+A new start sounds at the next 10 ms tick, so up to 10 ms of silence can come before a sound over the fan. A board must say whether that is heard.
 
 ### The sounds
 
-All sounds are original synthesis from the parameters in `src/sfx/sfx_models.json`. The library's `tools/sfx_table.py` renders that model into `src/sfx/sfx_table.c` and `sfx_table.h`: one 8-bit table per sound at 37500 Hz, with its length, peak and CRC-32. Both files are committed. `make sfx-table` writes them, and `make sfx-table-check`, which every build runs first, stops the build when the model changed and the table did not. The model holds six sounds. Five of them play now; the fan does not.
+All sounds are original synthesis from the parameters in `src/sfx/sfx_models.json`. The library's `tools/sfx_table.py` renders that model into `src/sfx/sfx_table.c` and `sfx_table.h`: one 8-bit table per sound at 37500 Hz, with its length, peak and CRC-32. Both files are committed. `make sfx-table` writes them, and `make sfx-table-check`, which every build runs first, stops the build when the model changed and the table did not. The model holds six sounds, and all six play. With `--bed fan` the header also holds the length and CRC-32 of each one-shot's head and rest.
 
 `uos_sfx(id)` plays one table with `audio_play_pcm()` at 37500 Hz and `AUDIO_PRIORITY`, so a new sound replaces the one that plays. It never blocks. With the sound off it does nothing, and a play the driver refuses is dropped. A new play starts at the next tick, so two keys within 10 ms give one play. A priority play also replaces one that still waits for its tick, so the service ranks its sounds: the password sounds first, then `char_scroll`, then the key sounds. In the tick of a waiting play, a lower rank is dropped and the same or a higher rank replaces it, so a key never erases a result sound.
 
