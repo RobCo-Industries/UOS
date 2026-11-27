@@ -4,7 +4,8 @@
  *
  * Bring-up runs in a fixed order with one marker per step, see
  * docs/ARCHITECTURE.md: boot, handoff, maint, board, mbox, mmu, screen,
- * tick, heap, input, selfcheck, mount, config, rtc, one service line per
+ * tick, heap, input, selfcheck, mount, config, buttons, rtc, one service
+ * line per
  * service, then the first screen and ready.
  */
 
@@ -18,7 +19,9 @@
 #include <robco/console.h>
 #include <robco/fb.h>
 #include <robco/fs.h>
+#include <robco/gpio.h>
 #include <robco/i2c.h>
+#include <robco/input.h>
 #include <robco/irq.h>
 #include <robco/klibc.h>
 #include <robco/mbox.h>
@@ -32,6 +35,7 @@
 #include <robco/uart_mini.h>
 
 #include "uos.h"
+#include "uos_buttons.h"
 #include "uos_service.h"
 
 #define SCREEN_W 640
@@ -63,7 +67,7 @@ void uos_serial_break(void)
 
 void uos_mark(const char *fmt, ...)
 {
-    char buf[224];
+    char buf[UOS_MARK_MAX];
     va_list ap;
 
     va_start(ap, fmt);
@@ -188,6 +192,20 @@ static void mount_card(void)
     UOS_MARK("mount result=ok lba=%u", (unsigned)vol.start_lba);
 }
 
+/*
+ * The full config marker, the longest one. Its worst case: the format's own
+ * text, which counts each conversion as two characters, plus every field at
+ * its widest. 12 numbers at 11 characters, the name and the hack user at
+ * their limits, and 22 for result, scheme and difficulty. A new field must
+ * fit too, or the build fails here.
+ */
+#define CONFIG_FMT                                                                  \
+    "config result=%s line=%u keys=%u bad=%u clamped=%u unknown=%u name=%s "        \
+    "scheme=%s retries=%u login_lockout=%u hack=%d user=%s attempts=%u "            \
+    "difficulty=%s hack_lockout=%u console=%u buttons=%d"
+#define CONFIG_MARK_WORST (sizeof(CONFIG_FMT) + 12 * 11 + UOS_NAME_MAX + UOS_USER_MAX + 22)
+_Static_assert(CONFIG_MARK_WORST < UOS_MARK_MAX, "the config marker can be cut");
+
 /* UOS.CFG, when the card has one. The scheme applies unless the boot info gave one. */
 static void read_config(void)
 {
@@ -197,18 +215,20 @@ static void read_config(void)
 
     uos_settings_default(&settings);
     if (uos.card != UOS_CARD_OK) {
-        UOS_MARK("config result=skipped name=%s", name_word());
+        UOS_MARK("config result=skipped name=%s buttons=%d", name_word(),
+                 settings.buttons_enabled);
         return;
     }
     rc = fs_read_file(UOS_CFG_PATH, cfg_text, sizeof(cfg_text), &len);
     if (rc == FS_ERR_NOENT) {
-        UOS_MARK("config result=missing name=%s", name_word());
+        UOS_MARK("config result=missing name=%s buttons=%d", name_word(),
+                 settings.buttons_enabled);
         return;
     }
     if (rc != 0) {
         uos.cfg_bad = 1;
         uos_set_error("config");
-        UOS_MARK("config result=bad why=read rc=%d", rc);
+        UOS_MARK("config result=bad why=read rc=%d buttons=%d", rc, settings.buttons_enabled);
         return;
     }
     rc = uos_settings_parse(cfg_text, len, &settings, &r);
@@ -219,15 +239,13 @@ static void read_config(void)
     if (settings.scheme != UOS_SCHEME_UNSET && inherited_scheme() < 0 && uos.fb_ok) {
         console_set_scheme((unsigned)settings.scheme);
     }
-    UOS_MARK("config result=%s line=%u keys=%u bad=%u clamped=%u unknown=%u name=%s "
-             "scheme=%s retries=%u login_lockout=%u hack=%d user=%s attempts=%u "
-             "difficulty=%s hack_lockout=%u console=%u",
+    UOS_MARK(CONFIG_FMT,
              rc == UOS_CFG_OK ? "ok" : "syntax", r.err_line, r.keys, r.bad, r.clamped,
              r.unknown, name_word(), uos_scheme_name(settings.scheme),
              settings.login_retries, settings.login_lockout_s, settings.hack_enabled,
              settings.hack_user, settings.hack_attempts,
              uos_difficulty_name(settings.hack_difficulty), settings.hack_lockout_s,
-             uos.fb_ok ? console_scheme() : 0u);
+             uos.fb_ok ? console_scheme() : 0u, settings.buttons_enabled);
 }
 
 /* The MMU with the library's identity map, and the caches. Before the
@@ -240,6 +258,52 @@ static void init_mmu(void)
         mmu_enable();
     }
     UOS_MARK("mmu result=%s rc=%d", rc != 0 ? "err" : mmu_enabled() ? "on" : "off", rc);
+}
+
+/*
+ * The six panel buttons, unless UOS.CFG switches them off. The library's
+ * stuck-line guard samples for 10 ticks; the boot sleeps in wfi until it
+ * ends, 30 ticks at most. Repeat is set before the guard, so a press the
+ * guard reports at its end repeats, and is turned off again unless active.
+ */
+static void start_buttons(void)
+{
+    const char *repeat = "none";
+    char rbuf[12];
+    int setting = settings.buttons_enabled;
+    int rc = 0, rrc = 0, status = INPUT_GPIO_OFF;
+    uint32_t t0 = uos_ticks(), waited = 0;
+    size_t i;
+
+    if (setting) {
+        /* Before the guard: a button held through it repeats from its first press. */
+        rrc = input_set_repeat(UOS_BUTTONS_REPEAT_MS, UOS_BUTTONS_RATE_MS);
+        for (i = 0; i < UOS_BUTTONS_COUNT && rc == 0; i++) {
+            rc = input_gpio_add_button(uos_buttons[i].pin, uos_buttons[i].code, 0, GPIO_PULL_UP);
+        }
+        if (rc == 0) {
+            rc = input_gpio_start(UOS_TICK_HZ, UOS_BUTTONS_DEBOUNCE_MS);
+        }
+        status = input_gpio_status();
+        while (rc == 0 && status == INPUT_GPIO_CHECKING &&
+               uos_ticks() - t0 < UOS_BUTTONS_WAIT_TICKS) {
+            __asm__ volatile("wfi");
+            status = input_gpio_status();
+        }
+        waited = uos_ticks() - t0;
+    }
+    uos.buttons = uos_buttons_result(setting, rc, status);
+    if (uos.buttons == UOS_BUTTONS_ERROR) {
+        uos_set_error("buttons");
+    }
+    if (uos.buttons == UOS_BUTTONS_ACTIVE) {
+        k_snprintf(rbuf, sizeof(rbuf), "%d", rrc);
+        repeat = rbuf;
+    } else if (setting) {
+        (void)input_set_repeat(0, 0);   /* repeat stays off unless active */
+    }
+    UOS_MARK("buttons result=%s rc=%d setting=%d repeat=%s ticks=%u",
+             uos_buttons_result_name(uos.buttons), rc, setting, repeat, (unsigned)waited);
 }
 
 static void init_rtc(void)
@@ -335,6 +399,7 @@ void robco_main(void)
 
     mount_card();
     read_config();
+    start_buttons();
     init_rtc();
     uos_services_init();
 

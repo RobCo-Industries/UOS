@@ -28,10 +28,12 @@ def test_markers_in_order_alone(board, uos_image, need_mtools, tmp_path):
         heap = one(vm, "heap")
         assert heap["base"] == "0x01000000" and int(heap["size"]) > 0, heap
         inp = one(vm, "input")
-        assert (inp["serial"], inp["script"], inp["gpio"]) == ("0", "0", "off"), inp
+        assert (inp["serial"], inp["script"], inp["gpio"]) == ("0", "0", "later"), inp
         assert one(vm, "selfcheck")["rc"] == "ok"
         assert one(vm, "mount")["result"] == "ok"
         assert one(vm, "config")["result"] == "ok"
+        # QEMU drives no button line: all six read pressed through the guard.
+        assert one(vm, "buttons")["result"] == "disabled_stuck"
         # QEMU has no clock chip on I2C.
         assert one(vm, "rtc")["present"] == "0"
         ready = one(vm, "ready")

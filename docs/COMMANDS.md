@@ -206,7 +206,7 @@ Format: `SHOW keyword [/OUTPUT=file]`. `/OUTPUT` writes the text to a file, only
 |---|---|
 | `DEFAULT` | The current folder |
 | `USERS` | The session of this terminal: user, terminal, home, privileges |
-| `SYSTEM` | Version, system name, uptime, card state, devices, users |
+| `SYSTEM` | Version, system name, uptime, card state, devices, users, and a `Buttons` line with the boot step's result: `active`, `disabled_stuck`, `off`, `error` or `checking` |
 | `TIME` | The date from the clock chip. With no chip, the uptime and `%UOS-W-NOCLOCK`. |
 | `DEVICES [name]` | The device header and one status line per device, read through `DEV:`. When `DEVICES.CFG` had errors or could not be read, the list ends with a `%DEVICE-W-CFGERR` line, such as `%DEVICE-W-CFGERR, DEVICES.CFG has N errors: the serial line names each`. The [admin guide](ADMIN_GUIDE.md) lists its four texts |
 | `TERMINAL` | Columns, rows, text rows and the color scheme |

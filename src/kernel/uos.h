@@ -24,7 +24,10 @@
 
 /* ---- Markers and text ------------------------------------------------- */
 
-/* Prints "@RC stage=uos ev=<fmt>" as one line on the PL011. Any context. */
+/* Prints "@RC stage=uos ev=<fmt>" as one line on the PL011. Any context.
+ * The text is cut at UOS_MARK_MAX - 1 characters. The longest marker is
+ * config; main.c checks at build time that it fits. */
+#define UOS_MARK_MAX            448
 void uos_mark(const char *fmt, ...) __attribute__((format(printf, 1, 2)));
 #define UOS_MARK(...) uos_mark(__VA_ARGS__)
 
@@ -80,6 +83,7 @@ typedef struct {
     int card;                   /* UOS_CARD_* */
     int cfg_bad;                /* UOS.CFG had bad, clamped or unknown values, or a bad line */
     int rtc;                    /* a real-time clock answered */
+    int buttons;                /* UOS_BUTTONS_*: the panel buttons after the boot step */
     char user[UOS_USER_NAME_MAX + 1];   /* logged-in user, "" for none */
     char error[32];             /* last error, short, no spaces; "" for none */
 } uos_state_t;

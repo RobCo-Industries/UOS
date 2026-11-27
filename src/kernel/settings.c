@@ -218,6 +218,12 @@ static int on_key(const char *section, const char *key, const char *value, unsig
         } else {
             c->r->unknown++;
         }
+    } else if (same(section, "input")) {
+        if (same(key, "buttons")) {
+            set_bool(c, value, &s->buttons_enabled);
+        } else {
+            c->r->unknown++;
+        }
     } else {
         c->r->unknown++;
     }
@@ -242,6 +248,7 @@ void uos_settings_default(uos_settings_t *s)
     s->hack_lockout_s = UOS_HACK_LOCK_DEF;
     s->hwdog_enabled = 0;
     s->hwdog_timeout_ms = UOS_HWDOG_MS_DEF;
+    s->buttons_enabled = 1;
 }
 
 int uos_settings_parse(const char *text, size_t len, uos_settings_t *s,

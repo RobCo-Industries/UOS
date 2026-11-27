@@ -171,7 +171,7 @@ privs = 0
 Limits and rules:
 
 - At most 24 devices. UOS reads at most 8 KiB of the file.
-- Free Pi pins: 4, 12, 13, 16, 19, 20, 21, 23, 24 and 25. Any other pin is refused with `PINUSED`. The GPIO button driver is not started today. If it is, pins 16, 23 and 24 are refused too.
+- Free Pi pins: 4, 12, 13, 16, 19, 20, 21, 23, 24 and 25. Any other pin is refused with `PINUSED`. The six button pins 5, 6, 17, 22, 26 and 27 stay refused even with `[input] buttons = off`, so turning the buttons on later cannot clash with a device.
 - GPIO 0 to 8 are pulled up at reset. An `active = high` output on GPIO 4 loads with the warning `PULLUP`, since it may switch on before UOS starts.
 - A device with a bad value is skipped. The others load.
 - A key UOS does not know refuses its whole section with `BADKEY`. So `actve = low` for `active = low` skips the device, and its pin is never driven. Key names are lower-case: `Active` is refused too.
@@ -381,8 +381,11 @@ A bad entry inside a good file is skipped and the rest of the menu works. To giv
 | `hack` | `lockout_s` | 60 | Seconds of lock after a lost game, 0 to 3600 |
 | `watchdog` | `enabled` | off | The hardware watchdog. Keep it off in QEMU. |
 | `watchdog` | `timeout_ms` | 8000 | 1000 to 15000 |
+| `input` | `buttons` | on | The six panel buttons on GPIO 5, 6, 17, 22, 26 and 27 |
 
 A bad value keeps the default. A number out of range is brought to the nearest limit. A line that does not parse stops the reader, and the keys before it apply. In each of these cases, and for an unknown key, the first screen and the login screen show `SETTINGS: SOME VALUES IGNORED`. The serial line's `config` marker counts each kind. An old card that still has `mode = shell` counts one unknown key: delete the line. A missing file uses every default.
+
+The buttons are active low: wire each one between its pin and ground. UOS turns on the pull-ups. At boot it waits up to 30 ticks for the stuck-line check. When every line reads pressed for the whole check, as on a terminal with no button panel, UOS turns the buttons off until the next boot and the serial console still works. `SHOW SYSTEM` gives the result on its `Buttons` line.
 
 ## Maintenance
 

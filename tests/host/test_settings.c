@@ -27,6 +27,23 @@ TEST(defaults)
     CHECK_EQ(s.hack_lockout_s, 60u);
     CHECK_EQ(s.hwdog_enabled, 0);
     CHECK_EQ(s.hwdog_timeout_ms, 8000u);
+    CHECK_EQ(s.buttons_enabled, 1);
+}
+
+TEST(input_buttons_key)
+{
+    uos_settings_t s;
+    uos_settings_report_t r;
+
+    CHECK_EQ(parse("[input]\nbuttons = off\n", &s, &r), UOS_CFG_OK);
+    CHECK_EQ(r.keys, 1u);
+    CHECK_EQ(s.buttons_enabled, 0);
+    CHECK_EQ(parse("[input]\nbuttons = no\nbuttons = on\n", &s, &r), UOS_CFG_OK);
+    CHECK_EQ(s.buttons_enabled, 1);
+    CHECK_EQ(parse("[input]\nbuttons = maybe\ndial = on\n", &s, &r), UOS_CFG_OK);
+    CHECK_EQ(r.bad, 1u);
+    CHECK_EQ(r.unknown, 1u);
+    CHECK_EQ(s.buttons_enabled, 1);
 }
 
 TEST(watchdog_keys)
@@ -260,4 +277,5 @@ TEST(shipped_card_keeps_watchdog_off)
     CHECK_EQ(r.bad + r.clamped + r.unknown, 0u);
     CHECK_EQ(s.hwdog_enabled, 0);
     CHECK_EQ(s.hwdog_timeout_ms, 8000u);
+    CHECK_EQ(s.buttons_enabled, 1);
 }

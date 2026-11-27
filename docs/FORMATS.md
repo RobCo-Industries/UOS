@@ -40,6 +40,9 @@ lockout_s = 60
 [watchdog]
 enabled = off
 timeout_ms = 8000
+
+[input]
+buttons = on
 ```
 
 | Section | Key | Value | Default |
@@ -56,6 +59,7 @@ timeout_ms = 8000
 | `hack` | `lockout_s` | 0 to 3600 | 60 |
 | `watchdog` | `enabled` | as `hack` `enabled`. Turns the hardware watchdog on. Keep it off in QEMU, which resets at once when it starts | off |
 | `watchdog` | `timeout_ms` | 1000 to 15000: the time without a loop tick before the board resets | 8000 |
+| `input` | `buttons` | as `hack` `enabled`. Starts the six panel buttons at boot | on |
 
 Rules:
 
@@ -66,7 +70,7 @@ Rules:
 - When a key repeats, the last one wins.
 - A line that does not parse stops the reader. The keys before it apply.
 
-The kernel reads `UOS.CFG` at boot. The session service applies `[login]`, see [session](modules/session.md#the-session-service). The device service reads `[watchdog]`, see [The watchdogs](ARCHITECTURE.md#the-watchdogs). The password game reads `[hack]` each time it starts, see [hack](modules/hack.md#the-screen):
+The kernel reads `UOS.CFG` at boot. The session service applies `[login]`, see [session](modules/session.md#the-session-service). The device service reads `[watchdog]`, see [The watchdogs](ARCHITECTURE.md#the-watchdogs). The `buttons` boot step reads `[input]`, see [Boot order](ARCHITECTURE.md#boot-order). The password game reads `[hack]` each time it starts, see [hack](modules/hack.md#the-screen):
 
 - `enabled = no` refuses the game.
 - `user` is the account a won game logs in. The game refuses an account that does not exist, is disabled or has the `NOHACK` flag. The shipped default is `GUEST`, the account with no privilege. `ADMIN` and `OPER` carry `NOHACK` on the default card.
