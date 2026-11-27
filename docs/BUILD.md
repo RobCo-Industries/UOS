@@ -46,6 +46,16 @@ make sdimage CHAIN=1 RETROS_IMG=path/to/RETROS.IMG MFBOOT_SYS=path/to/MFBOOT.SYS
 
 This adds RETROS-BIOS as the first stage with its `config.txt`, `/ROBCO/MFBOOT.SYS`, and a `/ROBCO/BOOT.CFG` whose only entry is `/ROBCO/UOS.SYS` with a 3 second timeout. `make run CHAIN=1 RETROS_IMG=...` boots it.
 
+Three more variables give the card the boot agent's other images and a full config:
+
+| Variable | Effect |
+|---|---|
+| `MAINT_SYS=<file>` | Copies the maintenance image to `/ROBCO/MAINT.SYS` |
+| `DIAG_SYS=<file>` | Copies the diagnostics image to `/ROBCO/DIAG.SYS` |
+| `BOOT_CFG=<file>` | With `CHAIN=1`, copies the file to `/ROBCO/BOOT.CFG` in place of the one-entry config |
+
+The agent's menu finds the two images through `[entry MAINT]` and `[entry DIAG]` in `BOOT.CFG`. RETROS-BIOS's `boot/BOOT.CFG` has both entries, so the nightly run passes it as `BOOT_CFG`. The card gets no `[maint]` section unless the given file has one. Without it, the maintenance image keeps restore users off.
+
 ## Where module sources go
 
 The Makefile finds sources by wildcard. A module branch only adds files:

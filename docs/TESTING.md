@@ -74,6 +74,7 @@ The tests run from the repository root, so the ones that read the default card o
 
 | File | Covers |
 |---|---|
+| `test_chain_card.py` | `make sdimage CHAIN=1` from stand-in files: `MAINT_SYS`, `DIAG_SYS` and `BOOT_CFG` land in `/ROBCO` with their bytes, and without them the card keeps the one-entry `BOOT.CFG` |
 | `test_mkuaf.py` | `tools/mkuaf.py`: build, check, the shared vectors, every bad input, the default card's file |
 | `test_mkwords.py` | `tools/mkwords.py`: check, `check --strict`, sort and sample over good and bad lists, the default card's lists |
 | `test_build_deps.py` | The image build rebuilds an object after a header it includes changes, with `BUILD` spelled relative then absolute and the other way round. It compiles one object into `build/deptest` with the cross compiler and asks `make -q`. |
@@ -115,6 +116,7 @@ The tests run from the repository root, so the ones that read the default card o
 - Alone: QEMU loads the image at `0x00400000`. A two-word image at `0x8000` jumps there with no boot info.
 - After `examples/chain1`: the library's first stage builds a boot info and an amber console, then enters a sealed two-word image at `0x00200000`. That image jumps to UOS and keeps the registers, so UOS gets chain1's boot info.
 - The whole chain: with `--retros-img` and `--mfboot-sys`, or `RETROS_IMG=` and `MFBOOT_SYS=` for make, RETROS-BIOS boots from a card that holds MFBootAgent and UOS. Without both, the test is skipped.
+- A built chain card: `--chain-card <file>`, or the variable `ROBCO_CHAIN_CARD` when the option is not given, names a card from `make sdimage CHAIN=1`. The nightly run passes the card this way. The `chain_card` fixture copies it to the test's temp folder, so a test can write to the copy. Without a card, a test that takes the fixture is skipped. `after_chain(retros, board, sd, qtest=True)` also opens QEMU's test port, for pin reads.
 
 ### Test builds
 

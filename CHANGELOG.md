@@ -6,6 +6,7 @@ All notable changes to UOS are recorded here. The format follows [Keep a Changel
 
 ### Added
 
+- The chain card for the nightly run. `make sdimage CHAIN=1` takes `MAINT_SYS` and `DIAG_SYS`, copied to `/ROBCO/MAINT.SYS` and `/ROBCO/DIAG.SYS`, and `BOOT_CFG`, a file that replaces the one-entry `BOOT.CFG`. The tests take `--chain-card`, with `ROBCO_CHAIN_CARD` as its default, and a `chain_card` fixture that copies the card or skips. `after_chain()` takes `qtest=`. `tests/tools/test_chain_card.py` checks the card from stand-in files.
 - `check-pins` now runs `make check-workflows`, the library's workflow guard, so CI runs it in `test-host`. The target itself comes from the library's `mk/robco.mk`.
 - The fan. With `[audio] sound = on` and `fan = on` a quiet fan loops under the other sounds. Each sound over it plays a head, the sound mixed with the fan's first bytes, then the rest of the fan. The heads take 21 877 bytes of RAM. The service's poll keeps the fan going every 500 ms. With `fan = off` nothing changes. `make sfx-preview` now renders the session over the fan.
 
@@ -65,6 +66,7 @@ All notable changes to UOS are recorded here. The format follows [Keep a Changel
 
 ### Added
 
+- The chain card for the nightly run. `make sdimage CHAIN=1` takes `MAINT_SYS` and `DIAG_SYS`, copied to `/ROBCO/MAINT.SYS` and `/ROBCO/DIAG.SYS`, and `BOOT_CFG`, a file that replaces the one-entry `BOOT.CFG`. The tests take `--chain-card`, with `ROBCO_CHAIN_CARD` as its default, and a `chain_card` fixture that copies the card or skips. `after_chain()` takes `qtest=`. `tests/tools/test_chain_card.py` checks the card from stand-in files.
 - The terminal menu screen, `src/tui/tuiscr.c`, and its `menu` service. A user whose home holds `TERMINAL.CFG` gets it after the login; others get the shell. Every entry type works: text in the pager, sub-menus to 8 deep, commands with their output in the pager, devices, holotapes, logout. Each failure shows one line and leaves the menu usable. Frames are drawn with lines. Markers `ev=tui`, command `menu state|msg|show|list|pick|back`.
 - `RUN TERMINAL` opens the menu over the shell. BACK at the top closes it.
 - `sh_run_line_on()`, `sh_host_uncover()`, `sh_host_gone()`, `sh_cancel()`, `SH_RUN_CAPTURE` with `sh_output()`, and `sh_session_screen_register()` in `sh.h`.
