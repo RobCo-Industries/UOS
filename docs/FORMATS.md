@@ -91,6 +91,7 @@ The maintenance request, `/ROBCO/MAINT.REQ` on the boot volume. Its presence ask
 One `[device NAME]` section per device, up to 24, and one `[expander N]` section per I2C expander chip, up to 4. `gpio = <n>` names a Pi pin. `gpio = X<chip>.<pin>` names an expander pin. Layout and rules: [dev](modules/dev.md#file-format).
 
 - A repeated `[device NAME]` or `[expander N]` header is refused, even when the first section was empty or bad. The first one wins.
+- Keys are case-sensitive. An unknown key, or a key given twice, refuses its whole section with `BADKEY` or `DUPKEY`. Keys outside a section are counted and ignored.
 - An expander output needs a relay named `ARM` on a Pi pin that is off at reset, such as `gpio = 25` with `active = high`. Without one, every expander output is refused with `NOARM` and never driven. Expander inputs still work.
 
 ## TERMINAL.CFG
