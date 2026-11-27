@@ -37,6 +37,8 @@ ITER_MAX = 100000
 ITER_DEFAULT = 2000
 PRIVS = ["SYSTEM", "OPER", "SECURITY", "READALL"]
 FLAGS = ["DISABLED", "NOHACK"]
+PRIV_BITS = {n: 1 << i for i, n in enumerate(PRIVS)}
+FLAG_BITS = {n: 1 << i for i, n in enumerate(FLAGS)}
 NAME_RE = re.compile(r"^[A-Z0-9$_]{1,16}$")
 HOME_RE = re.compile(r"^[A-Z0-9$_-]{1,8}$")
 
@@ -79,7 +81,10 @@ def parse_bits(text, names, what):
     return bits
 
 
-def parse_users(text):
+def parse_users(text, notes=None):
+    """Parse USERS.INI. Each name or home folded to upper case adds a note."""
+    if notes is None:
+        notes = []
     cp = configparser.ConfigParser(interpolation=None, inline_comment_prefixes=(";", "#"))
     cp.optionxform = str.lower
     try:
@@ -95,6 +100,8 @@ def parse_users(text):
         if name in seen:
             raise UafError(f"[{section}]: user appears twice")
         seen.add(name)
+        if section.strip() != name:
+            notes.append(f"[{section}]: note: stored as {name}")
         sec = cp[section]
         unknown = set(sec.keys()) - {"password", "privs", "home", "flags"}
         if unknown:
@@ -110,6 +117,8 @@ def parse_users(text):
         if privs > 0xFFFFFFFF or flags > 0xFFFFFFFF:
             raise UafError(f"[{section}]: privs and flags must fit 32 bits")
         home = sec.get("home", name).strip().upper()
+        if "home" in sec and sec["home"].strip() != home:
+            notes.append(f"[{section}]: note: stored as {home}")
         if not HOME_RE.match(home):
             raise UafError(f"[{section}]: home must be 1 to 8 of A-Z 0-9 $ _ -")
         users.append({"name": name, "password": sec["password"], "privs": privs,
@@ -266,7 +275,16 @@ def main(argv=None):
                 return fail(f"cannot read {args.ini}: {e.strerror}")
             except UnicodeDecodeError:
                 return fail(f"{args.ini}: not ASCII")
-            data = build(parse_users(text), args.iterations, args.seed)
+            notes = []
+            users = parse_users(text, notes)
+            admin = PRIV_BITS["SYSTEM"] | PRIV_BITS["SECURITY"]
+            if not any(u["privs"] & admin and not u["flags"] & FLAG_BITS["DISABLED"]
+                       for u in users):
+                notes.append("note: no enabled user holds SYSTEM or SECURITY, "
+                             "nobody can run AUTHORIZE")
+            for note in notes:
+                print(f"mkuaf: {args.ini}: {note}", file=sys.stderr)
+            data = build(users, args.iterations, args.seed)
             with open(args.output, "wb") as f:
                 f.write(data)
             return 0

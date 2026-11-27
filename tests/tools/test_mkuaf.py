@@ -257,3 +257,32 @@ def test_default_card_users():
 
 def test_no_users_ini_on_card():
     assert not list((ROOT / "card").rglob("*.INI")) and not list((ROOT / "card").rglob("*.ini"))
+
+
+def test_lower_case_name_and_home_build_with_notes(tmp_path):
+    r, out = build_file(tmp_path, "[bob]\npassword = pw\nprivs = SYSTEM\nhome = bobby\n",
+                        "--seed", "x", "--iterations", "1")
+    assert r.returncode == 0, r.stderr
+    ini = tmp_path / "users.ini"
+    assert f"mkuaf: {ini}: [bob]: note: stored as BOB\n" in r.stderr
+    assert f"mkuaf: {ini}: [bob]: note: stored as BOBBY\n" in r.stderr
+    _, users = mkuaf.parse_image(out.read_bytes())
+    assert users[0]["name"] == "BOB" and users[0]["home"] == "BOBBY"
+
+
+def test_upper_case_file_has_no_notes(tmp_path):
+    r, _ = build_file(tmp_path, "[BOB]\npassword = pw\nprivs = SECURITY\nhome = BOBBY\n",
+                      "--iterations", "1")
+    assert r.returncode == 0 and r.stderr == ""
+
+
+@pytest.mark.parametrize("text", [
+    "[GUEST]\npassword = pw\nprivs = OPER\n",
+    "[ADMIN]\npassword = pw\nprivs = SYSTEM\nflags = DISABLED\n",
+])
+def test_no_enabled_administrator_builds_with_note(tmp_path, text):
+    r, out = build_file(tmp_path, text, "--iterations", "1")
+    assert r.returncode == 0, r.stderr
+    assert r.stderr == (f"mkuaf: {tmp_path / 'users.ini'}: note: no enabled user holds "
+                        "SYSTEM or SECURITY, nobody can run AUTHORIZE\n")
+    assert out.is_file()
