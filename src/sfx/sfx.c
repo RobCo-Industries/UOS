@@ -35,6 +35,7 @@ static int line_start = 1;
 static sfx_pick_t pick;
 static sfx_rest_t rest;
 static sfx_gap_t gap;
+static sfx_lane_t lane;
 static const sfx_rest_ops_t rest_ops = { audio_rest_mid, audio_busy, audio_stop };
 
 /* The k_printf() hook while the trace is on. */
@@ -86,8 +87,15 @@ void uos_sfx(unsigned id)
     if (!sfx_rest_ready(&rest, &rest_ops)) {
         return;
     }
+    /* A priority play replaces one that waits for its tick: the lane keeps
+     * a result sound from being erased that way by a key or a scroll. */
+    if (!sfx_lane_may(&lane, id, tick_count())) {
+        return;
+    }
     /* A refused play is dropped: a sound is never worth a wait. */
-    (void)audio_play_pcm(t->data, t->len, UOS_SFX_RATE_HZ, AUDIO_PRIORITY);
+    if (audio_play_pcm(t->data, t->len, UOS_SFX_RATE_HZ, AUDIO_PRIORITY) == 0) {
+        sfx_lane_took(&lane, id, tick_count());
+    }
 }
 
 void uos_sfx_key(void)
@@ -130,6 +138,7 @@ static int sfx_init(void)
     trace = s->trace_enabled;
     sfx_pick_init(&pick);
     sfx_gap_init(&gap);
+    sfx_lane_init(&lane);
     if (s->sound_enabled) {
         rc = audio_init();
         if (rc == 0) {
