@@ -13,8 +13,10 @@ bytes written, two spaces and the path, as `shasum -a 256` prints it.
   it is kept and named, and its old record stays. --replace writes it.
 - A stage file in DIR that the list does not name stops the run.
 - A file no run wrote that the stage does not hold is left alone.
-- A listed file the stage no longer holds stops the run. --clean
-  removes it when its bytes match the record and keeps it otherwise.
+- A listed file with other bytes is always kept, named and keeps its
+  record, whether the stage holds it or not. It never stops a run.
+- A listed file the stage no longer holds, with the bytes the list
+  records, stops the run. --clean removes it.
 - A file named by --outside is left alone: never stale, never removed,
   and its record stays. `make bootdir FIRMWARE=0` names the firmware.
 
@@ -98,20 +100,19 @@ def main():
     clash = {n for n in want & have if n not in rec}
     if clash:
         stop("files in DIR that no run wrote clash with files of this run", clash)
-    stale = {n for n in rec if n in have and n not in want and n not in outside}
+    gone = {n for n in rec if n in have and n not in want and n not in outside}
+    changed = {n for n in (want | gone) & have if digest(d(n)) != rec[n]}
+    stale = gone - changed
     if stale and not a.clean:
         stop("an earlier run wrote files this run does not; CLEAN=1 removes them", stale)
 
-    changed = {n for n in (want | stale) & have if digest(d(n)) != rec[n]}
     new_rec = {n: h for n, h in rec.items() if n in have or n in outside}
 
+    for n in sorted(gone & changed):
+        print(f"syncbootdir: kept {n}: changed since the last run")
     for n in sorted(stale):
-        if n in changed:
-            print(f"syncbootdir: kept {n}: changed since the last run")
-            del new_rec[n]
-        else:
-            os.remove(d(n))
-            del new_rec[n]
+        os.remove(d(n))
+        del new_rec[n]
     for n in sorted(want):
         if n in changed and not a.replace:
             print(f"syncbootdir: kept {n}: changed since the last run")

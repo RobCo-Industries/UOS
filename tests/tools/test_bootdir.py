@@ -153,9 +153,11 @@ def test_bootdir_stale_files_and_clean(stand_ins, tmp_path):  # noqa: F811
     (dest / "ROBCO" / "DIAG.SYS").write_bytes(b"changed")
     before = tree(dest)
 
-    # Without MAINT_SYS and DIAG_SYS both are stale: stop, nothing changes.
+    # Without MAINT_SYS and DIAG_SYS: the unchanged one stops the run,
+    # the changed one is not named as stale. Nothing changes.
     r = bootdir(build, files, dest, ok=False)
     assert "ROBCO/MAINT.SYS" in r.stderr and "CLEAN=1" in r.stderr
+    assert "ROBCO/DIAG.SYS" not in r.stderr
     assert tree(dest) == before
 
     # CLEAN=1 removes the unchanged one and keeps the changed one.
@@ -164,6 +166,26 @@ def test_bootdir_stale_files_and_clean(stand_ins, tmp_path):  # noqa: F811
     assert (dest / "ROBCO" / "DIAG.SYS").read_bytes() == b"changed"
     assert "kept ROBCO/DIAG.SYS: changed since the last run" in r.stdout
     assert (dest / "UOS" / "HOME" / "GUEST").is_dir()
+    assert "ROBCO/DIAG.SYS" in listed(dest)
+    assert "ROBCO/MAINT.SYS" not in listed(dest)
+
+
+def test_bootdir_changed_stale_file_keeps_its_record(stand_ins, tmp_path):  # noqa: F811
+    build, files = stand_ins
+    dest = tmp_path / "card"
+    bootdir(build, files, dest, f"DIAG_SYS={files['DIAG.SYS']}")
+    (dest / "ROBCO" / "DIAG.SYS").write_bytes(b"changed")
+
+    # Gone from the stage and changed: kept and named, no CLEAN=1 needed.
+    r = bootdir(build, files, dest)
+    assert "kept ROBCO/DIAG.SYS: changed since the last run" in r.stdout
+    assert "ROBCO/DIAG.SYS" in listed(dest)
+
+    # Back in the stage: a changed listed file, kept, then REPLACE=1 writes it.
+    r = bootdir(build, files, dest, f"DIAG_SYS={files['DIAG.SYS']}")
+    assert (dest / "ROBCO" / "DIAG.SYS").read_bytes() == b"changed"
+    bootdir(build, files, dest, f"DIAG_SYS={files['DIAG.SYS']}", "REPLACE=1")
+    assert (dest / "ROBCO" / "DIAG.SYS").read_bytes() == files["DIAG.SYS"].read_bytes()
 
 
 def test_bootdir_refuses_a_folder_it_did_not_make(stand_ins, tmp_path):  # noqa: F811

@@ -84,7 +84,8 @@ You can run `make bootdir` again with `DIR` set to the card itself, or to a copy
 - It keeps a file it wrote that has changed since, such as `UOS/SYSUAF.DAT` after a password change or an edited `UOS/UOS.CFG`, and prints a line that names it. The next run keeps it again. `REPLACE=1` writes the shipped file over it.
 - It leaves alone every file no run wrote that it does not ship, such as a file a user saved in a home folder. It says nothing about them.
 - It stops when a file it would write is already there and no run wrote it, and names the file.
-- It stops when a file it wrote last time is no longer part of the card, such as `ROBCO/MAINT.SYS` after a run without `MAINT_SYS`. `CLEAN=1` removes that file if nobody changed it, and keeps it with a line if somebody did.
+- It stops when a file it wrote last time is no longer part of the card and nobody changed it, such as `ROBCO/MAINT.SYS` after a run without `MAINT_SYS`. `CLEAN=1` removes that file.
+- A changed file never stops a run, whether the card still ships it or not. The run keeps it, names it and keeps its line in `UOSBOOT.LST`, so a later run that ships it again treats it as a changed file: kept, or replaced with `REPLACE=1`.
 - It never deletes or moves a folder, so home folders stay.
 - With `FIRMWARE=0` it leaves the firmware files alone. It does not stop on them, `CLEAN=1` does not remove them, and their lines stay in `UOSBOOT.LST`, so a later run with the firmware still knows them.
 

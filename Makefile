@@ -19,7 +19,7 @@
 #                             the files of a real card for the whole chain,
 #                             with the Pi firmware unless FIRMWARE=0.
 #                             MAINT_SYS, DIAG_SYS and BOOT_CFG as for sdimage;
-#                             CLEAN=1 removes files of an earlier run,
+#                             CLEAN=1 removes unchanged files of an earlier run,
 #                             REPLACE=1 replaces files changed since
 #   make run BOARD=raspi2b   boot build/sd.img in QEMU on this terminal
 #                             (WINDOW=1 also opens the display window)
@@ -259,8 +259,9 @@ endif
 # leaves the firmware out. It never writes a device. tools/syncbootdir.py
 # keeps DIR/UOSBOOT.LST, each file a run wrote with its hash. A re-run
 # replaces files nobody changed, keeps changed ones unless REPLACE=1,
-# leaves the terminal's own files alone and stops on a clash. CLEAN=1
-# removes unchanged files an earlier run wrote that this run does not.
+# leaves the terminal's own files alone and stops on a clash. A changed
+# file never stops a run and keeps its record. CLEAN=1 removes unchanged
+# files an earlier run wrote that this run does not.
 # DIR may hold spaces, as a mounted card often does: the recipe quotes it
 # and passes it through no make function that splits words.
 # See docs/BUILD.md.
