@@ -33,6 +33,7 @@ All notable changes to UOS are recorded here. The format follows [Keep a Changel
 
 ### Changed
 
+- RobCo-Core moved to `c0bee99`. It brings the audio preview tool, `tools/audio_preview.py`, and a `loop=1` field on the trace line of a looped play. UOS plays no looped sample yet, so its trace lines do not change.
 - RobCo-Core moved to `815e1fc`. Its audio driver now plays samples up to 37500 Hz, rests the pin at the midpoint with `audio_rest_mid()`, plays one overlay over a play, and centres tones after that ramp.
 - The card tools fit what UOS does. `mkuaf.py build` notes a name or home it folds to upper case, and a file with no enabled `SYSTEM` or `SECURITY` user, and still exits 0. `mkholo.py` finds `rimg.py` in the checkout when neither `--rimg` nor `ROBCO_CORE` is given. A `--rimg` path or a `ROBCO_CORE` folder without `rimg.py` now stops it with exit code 3 instead of falling back. `mkwords.py check` fails only on what UOS refuses, now including a list file over 7232 bytes, and prints the rest as notes; `check --strict` keeps the old rules. The holotape sources moved from `card/UOS/HOLO/SRC/` to `tools/holotapes/`, so `make sdimage` no longer copies them to the card. The `.HTP` files are unchanged.
 - A card taken out while UOS runs gives `%UOS-E-NODEV`, not a read or write error. `vfs_from_fs()` maps the library's new `FS_ERR_GONE` to `VFS_E_NOCARD`, and a host test fails for any library error code with no mapping.
