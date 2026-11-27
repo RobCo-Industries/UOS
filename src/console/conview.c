@@ -29,8 +29,11 @@ int cv_opens_osk(const input_event_t *ev, int osk_open)
 int cv_alt_key(const input_event_t *ev, int alt, unsigned len, int osk_open)
 {
     if (ev == NULL || !alt || len != 0 || osk_open || ev->type != INPUT_EV_KEY ||
-        ev->value != INPUT_PRESS || ev->source == INPUT_SRC_GPIO) {
+        ev->value != INPUT_PRESS) {
         return 0;
+    }
+    if (ev->source == INPUT_SRC_GPIO) {
+        return ev->code == CV_ALT_BUTTON;
     }
     return ev->code == CV_ALT_KEY;
 }
