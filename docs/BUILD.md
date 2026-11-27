@@ -71,17 +71,26 @@ Copy the files to the root of a FAT32 card. The target writes a folder. It never
 |---|---|
 | `DIR=<dir>` | The folder to write. Required |
 | `FIRMWARE=0` | Leaves the firmware files out and needs no network |
-| `CLEAN=1` | Removes files an earlier run wrote that this run does not |
 
 ### Running bootdir again
 
-Use a new, empty folder and it is one command. `bootdir` writes `UOSBOOT.LST` in `DIR`, the list of files it wrote. The card does not need it, but it does no harm there. A later run into the same folder checks the folder against the list before it changes anything:
+Use a new, empty folder for the first run. A first run stops when `DIR` holds files and no `UOSBOOT.LST`, and changes nothing. `UOSBOOT.LST` has one line per file a run wrote: the SHA-256 of the bytes written, two spaces and the path, as `shasum -a 256` prints it. The card does not need it, but it does no harm there.
 
-- A file no run wrote stops the run, and the run names it. `bootdir` never removes or replaces such a file.
-- A file an earlier run wrote that this run does not, such as `ROBCO/MAINT.SYS` after a run without `MAINT_SYS`, stops the run. `CLEAN=1` removes it.
-- Every other file is replaced, even one you edited, such as `ROBCO/BOOT.CFG` or `UOS/UOS.CFG`. Keep your edits outside `DIR`, or pass them as `BOOT_CFG`.
+### Updating a card in use
 
-Pip-OS keeps edited settings files across runs with a helper of its own. RobCo-Core has no such helper, so UOS takes this smaller rule.
+You can run `make bootdir` again with `DIR` set to the card itself, or to a copy of it. The run checks everything before it writes anything, so a run that stops has changed nothing.
+
+- It replaces a file it wrote last time when nobody changed it since, such as `ROBCO/UOS.SYS`.
+- It keeps a file it wrote that has changed since, such as `UOS/SYSUAF.DAT` after a password change or an edited `UOS/UOS.CFG`, and prints a line that names it. The next run keeps it again. `REPLACE=1` writes the shipped file over it.
+- It leaves alone every file no run wrote that it does not ship, such as a file a user saved in a home folder. It says nothing about them.
+- It stops when a file it would write is already there and no run wrote it, and names the file.
+- It stops when a file it wrote last time is no longer part of the card, such as `ROBCO/MAINT.SYS` after a run without `MAINT_SYS`. `CLEAN=1` removes that file if nobody changed it, and keeps it with a line if somebody did.
+- It never deletes or moves a folder, so home folders stay.
+
+| Variable | Effect |
+|---|---|
+| `CLEAN=1` | Removes unchanged files an earlier run wrote that this run does not |
+| `REPLACE=1` | Also replaces files changed since the last run. Never touches a file no run wrote |
 
 ## Where module sources go
 

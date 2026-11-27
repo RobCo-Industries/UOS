@@ -19,7 +19,8 @@
 #                             the files of a real card for the whole chain,
 #                             with the Pi firmware unless FIRMWARE=0.
 #                             MAINT_SYS, DIAG_SYS and BOOT_CFG as for sdimage;
-#                             CLEAN=1 removes files of an earlier run
+#                             CLEAN=1 removes files of an earlier run,
+#                             REPLACE=1 replaces files changed since
 #   make run BOARD=raspi2b   boot build/sd.img in QEMU on this terminal
 #                             (WINDOW=1 also opens the display window)
 #   make check-pins           CI workflow pins and doc links match the submodule,
@@ -256,9 +257,11 @@ endif
 # chain into a folder: the stage of `make sdimage CHAIN=1`, so the same
 # files, plus the Pi firmware from the library's mkbootdir.sh. FIRMWARE=0
 # leaves the firmware out. It never writes a device. tools/syncbootdir.py
-# keeps DIR/UOSBOOT.LST, the files a run wrote, stops on a file no run
-# wrote, and with CLEAN=1 removes files an earlier run wrote that this
-# run does not. See docs/BUILD.md.
+# keeps DIR/UOSBOOT.LST, each file a run wrote with its hash. A re-run
+# replaces files nobody changed, keeps changed ones unless REPLACE=1,
+# leaves the terminal's own files alone and stops on a clash. CLEAN=1
+# removes unchanged files an earlier run wrote that this run does not.
+# See docs/BUILD.md.
 BOOT_STAGE := $(BUILD)/bootstage
 
 .PHONY: bootdir
@@ -272,7 +275,7 @@ bootdir:
 ifneq ($(FIRMWARE),0)
 	$(ROBCO_CORE)/tools/mkbootdir.sh $(RETROS_IMG) $(BOOT_STAGE) --kernel-name RETROS.IMG
 endif
-	$(PYTHON) -I tools/syncbootdir.py $(BOOT_STAGE) $(DIR) $(if $(filter 1,$(CLEAN)),--clean)
+	$(PYTHON) -I tools/syncbootdir.py $(BOOT_STAGE) $(DIR) $(if $(filter 1,$(CLEAN)),--clean) $(if $(filter 1,$(REPLACE)),--replace)
 
 # Alone, a two-word image at 0x8000 jumps to UOS at its link address.
 $(BUILD)/tramp.img:

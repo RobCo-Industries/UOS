@@ -74,7 +74,7 @@ The tests run from the repository root, so the ones that read the default card o
 
 | File | Covers |
 |---|---|
-| `test_bootdir.py` | `make bootdir` from stand-in files with `FIRMWARE=0`: the folder holds the names and bytes of the chain card and equals the files of the `make sdimage CHAIN=1` image made from the same inputs, plus `UOSBOOT.LST`. Without `RETROS_IMG` or `MFBOOT_SYS` it stops and writes nothing. A second run changes nothing, a file no run wrote stops it, and `CLEAN=1` removes a file of an earlier run |
+| `test_bootdir.py` | `make bootdir` from stand-in files with `FIRMWARE=0`: the folder holds the names and bytes of the chain card and equals the files of the `make sdimage CHAIN=1` image made from the same inputs, plus `UOSBOOT.LST` with each file's hash. Without `RETROS_IMG` or `MFBOOT_SYS` it stops and writes nothing. On a re-run a changed user database is kept and named, an unchanged image is replaced by new bytes, a saved home file is left alone, a clash stops the run with nothing changed, `CLEAN=1` removes an unchanged stale file and keeps a changed one, `REPLACE=1` writes the shipped file back, and a first run into a folder it did not make stops |
 | `test_chain_card.py` | `make sdimage CHAIN=1` from stand-in files: `MAINT_SYS`, `DIAG_SYS` and `BOOT_CFG` land in `/ROBCO` with their bytes, and without them the card keeps the one-entry `BOOT.CFG` |
 | `test_mkuaf.py` | `tools/mkuaf.py`: build, check, the shared vectors, every bad input, the default card's file |
 | `test_mkwords.py` | `tools/mkwords.py`: check, `check --strict`, sort and sample over good and bad lists, the default card's lists |

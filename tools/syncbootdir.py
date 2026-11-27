@@ -1,22 +1,27 @@
 #!/usr/bin/env python3
-"""Copy a staged card into the folder of `make bootdir`.
+"""Copy a staged card into the folder of `make bootdir`, safe for a card in use.
 
-  syncbootdir.py STAGE DIR [--clean]
+  syncbootdir.py STAGE DIR [--clean] [--replace]
 
-DIR/UOSBOOT.LST names every file a run wrote. A later run checks DIR
-against it before it changes anything:
+DIR/UOSBOOT.LST has one line per file a run wrote: the SHA-256 of the
+bytes written, two spaces and the path, as `shasum -a 256` prints it.
 
-- DIR missing or empty: every file of STAGE is copied.
-- A file in DIR that no run wrote: the run stops and names it. The tool
-  never removes or replaces a file it did not write.
-- A file an earlier run wrote that STAGE no longer has: the run stops
-  and names it. --clean removes it.
-- Otherwise every file of STAGE replaces the one in DIR, edited or not.
+- No list: DIR must be empty or missing, or the run stops.
+- A stage file not in DIR is written.
+- A stage file in DIR with the bytes the list records is replaced.
+- A stage file in DIR with other bytes was changed since the last run:
+  it is kept and named, and its old record stays. --replace writes it.
+- A stage file in DIR that the list does not name stops the run.
+- A file no run wrote that the stage does not hold is left alone.
+- A listed file the stage no longer holds stops the run. --clean
+  removes it when its bytes match the record and keeps it otherwise.
 
+Every check comes before the first write. No folder is ever removed.
 Exit codes: 0 done, 1 stopped, 2 bad usage.
 """
 
 import argparse
+import hashlib
 import os
 import shutil
 import sys
@@ -26,11 +31,15 @@ LIST = "UOSBOOT.LST"
 
 def files_under(root):
     out = set()
-    for top, dirs, names in os.walk(root):
-        dirs.sort()
+    for top, _, names in os.walk(root):
         for n in names:
             out.add(os.path.relpath(os.path.join(top, n), root).replace(os.sep, "/"))
     return out
+
+
+def digest(path):
+    with open(path, "rb") as f:
+        return hashlib.sha256(f.read()).hexdigest()
 
 
 def stop(msg, names):
@@ -40,46 +49,73 @@ def stop(msg, names):
     sys.exit(1)
 
 
+def read_list(path):
+    rec = {}
+    with open(path, encoding="utf-8") as f:
+        for line in f:
+            line = line.rstrip("\n")
+            if line:
+                h, _, name = line.partition("  ")
+                rec[name] = h
+    return rec
+
+
 def main():
     ap = argparse.ArgumentParser(description="Copy a staged card into a boot folder.")
     ap.add_argument("stage")
     ap.add_argument("dir")
     ap.add_argument("--clean", action="store_true",
-                    help="remove files an earlier run wrote that this run does not")
+                    help="remove unchanged files an earlier run wrote that this run does not")
+    ap.add_argument("--replace", action="store_true",
+                    help="also replace files changed since the last run")
     a = ap.parse_args()
 
-    if a.dir.startswith("/dev/") or a.dir == "/dev":
+    if a.dir == "/dev" or a.dir.startswith("/dev/"):
         print("syncbootdir: refusing a device path: this tool writes a folder", file=sys.stderr)
         sys.exit(1)
     if os.path.exists(a.dir) and not os.path.isdir(a.dir):
         print(f"syncbootdir: {a.dir} exists and is not a folder", file=sys.stderr)
         sys.exit(1)
 
+    d = lambda n: os.path.join(a.dir, n)  # noqa: E731
     want = files_under(a.stage)
     have = files_under(a.dir) if os.path.isdir(a.dir) else set()
-    listed = set()
-    list_path = os.path.join(a.dir, LIST)
+    list_path = d(LIST)
     if os.path.isfile(list_path):
-        with open(list_path, encoding="ascii") as f:
-            listed = {line.strip() for line in f if line.strip()}
-    have.discard(LIST)
+        rec = read_list(list_path)
+        have.discard(LIST)
+    else:
+        if have:
+            stop(f"{a.dir} is not empty and has no {LIST}; pick an empty DIR", have)
+        rec = {}
 
-    foreign = have - listed
-    if foreign:
-        stop(f"{a.dir} holds files no earlier run wrote; move them or pick an empty DIR",
-             foreign)
-    stale = (listed & have) - want
+    # Checks, before any write.
+    clash = {n for n in want & have if n not in rec}
+    if clash:
+        stop("files in DIR that no run wrote clash with files of this run", clash)
+    stale = {n for n in rec if n in have and n not in want}
     if stale and not a.clean:
         stop("an earlier run wrote files this run does not; CLEAN=1 removes them", stale)
 
-    for n in stale:
-        os.remove(os.path.join(a.dir, n))
+    changed = {n for n in (want | stale) & have if digest(d(n)) != rec[n]}
+    new_rec = {n: h for n, h in rec.items() if n in have}
+
+    for n in sorted(stale):
+        if n in changed:
+            print(f"syncbootdir: kept {n}: changed since the last run")
+            del new_rec[n]
+        else:
+            os.remove(d(n))
+            del new_rec[n]
     for n in sorted(want):
-        dst = os.path.join(a.dir, n)
-        os.makedirs(os.path.dirname(dst), exist_ok=True)
-        shutil.copyfile(os.path.join(a.stage, n), dst)
-    with open(list_path, "w", encoding="ascii") as f:
-        f.write("".join(n + "\n" for n in sorted(want)))
+        if n in changed and not a.replace:
+            print(f"syncbootdir: kept {n}: changed since the last run")
+            continue
+        os.makedirs(os.path.dirname(d(n)), exist_ok=True)
+        shutil.copyfile(os.path.join(a.stage, n), d(n))
+        new_rec[n] = digest(d(n))
+    with open(list_path, "w", encoding="utf-8") as f:
+        f.write("".join(f"{new_rec[n]}  {n}\n" for n in sorted(new_rec)))
     print(f"syncbootdir: {a.dir} is ready. Copy its files to the root of a FAT32 card.")
 
 
