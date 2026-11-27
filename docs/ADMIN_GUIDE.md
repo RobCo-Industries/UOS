@@ -172,7 +172,10 @@ Limits and rules:
 - Free Pi pins: 4, 12, 13, 16, 19, 20, 21, 23, 24 and 25. Any other pin is refused with `PINUSED`. The GPIO button driver is not started today. If it is, pins 16, 23 and 24 are refused too.
 - GPIO 0 to 8 are pulled up at reset. An `active = high` output on GPIO 4 loads with the warning `PULLUP`, since it may switch on before UOS starts.
 - A device with a bad value is skipped. The others load.
-- A key UOS does not know is ignored and counted. The device still loads, with that key's default. So `actve = low` for `active = low` leaves the device at `active = high`, the opposite level. After a change, read the `unknown=` count of the `devcfg` marker on the serial line: it must be 0.
+- A key UOS does not know refuses its whole section with `BADKEY`. So `actve = low` for `active = low` skips the device, and its pin is never driven. Key names are lower-case: `Active` is refused too.
+- A key given twice in one section refuses that section with `DUPKEY`.
+- Both rules apply to `[expander N]` sections. The devices of a refused chip are skipped with `NOCHIP`.
+- Keys outside a `[device NAME]` or `[expander N]` section are counted and ignored.
 - A user with `SYSTEM` can change every device. Others need every bit of its `privs`.
 
 Each device type takes its own words. `SHOW DEVICES` lists them all, `DEVICE <name> <word>` acts on one:
@@ -217,7 +220,23 @@ gpio = 13
 
 ### When the file is wrong
 
-UOS reports each problem on the serial line only, one line per device, such as `deverr name=D2 line=8 why=PINSHARED`. `tests/test_dev.py` checks a file with five bad devices: the two good ones load. A missing `DEVICES.CFG` loads no device and is not an error.
+UOS reports each problem on the serial line, one line per device or chip, such as `deverr name=D2 line=8 why=PINSHARED` or `deverr name=X0 line=15 why=BADKEY`. A key error carries the key's line. `tests/test_dev.py` checks a file with five bad devices: the two good ones load.
+
+When the file has errors, or cannot be read, two places say so:
+
+- The login screen shows `DEVICES: SOME DEVICES REFUSED` on its last header row.
+- `SHOW DEVICES` ends with a `%DEVICE-W-CFGERR` line:
+
+| Case | Line |
+|---|---|
+| The file cannot be read | `%DEVICE-W-CFGERR, DEVICES.CFG cannot be read` |
+| One error | `%DEVICE-W-CFGERR, DEVICES.CFG has 1 error: the serial line names it` |
+| 2 to 8 errors | `%DEVICE-W-CFGERR, DEVICES.CFG has N errors: the serial line names each` |
+| More than 8 errors | `%DEVICE-W-CFGERR, DEVICES.CFG has N errors: the serial line names the first 8` |
+
+The serial line names at most 8 errors. A file that cannot be read gets no `deverr` line, only `devcfg result=bad`. A file over 8192 bytes cannot be read. When no device loads, `SHOW DEVICES` prints the line before `%UOS-E-NODEV`.
+
+A missing `DEVICES.CFG` loads no device and is not an error.
 
 ## Holotapes
 

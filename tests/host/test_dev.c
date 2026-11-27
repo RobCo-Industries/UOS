@@ -15,12 +15,18 @@ static int parse(const char *text)
     return rc;
 }
 
-/* One device with every key good, then `extra` lines appended. */
+/*
+ * One good door on pin 4, then `extra` lines appended. When `extra`
+ * starts with type or gpio, that key replaces the good one: a key given
+ * twice refuses the section.
+ */
 static int parse_one(const char *extra)
 {
     static char buf[1024];
+    const char *type = strncmp(extra, "type", 4) == 0 ? "" : "type = door\n";
+    const char *gpio = strncmp(extra, "gpio", 4) == 0 ? "" : "gpio = 4\n";
 
-    snprintf(buf, sizeof(buf), "[device D1]\ntype = door\ngpio = 4\n%s\n", extra);
+    snprintf(buf, sizeof(buf), "[device D1]\n%s%s%s\n", type, gpio, extra);
     return parse(buf);
 }
 
@@ -386,14 +392,80 @@ TEST(cfg_warnings_counted_past_the_details)
 
 TEST(cfg_unknown_keys)
 {
-    CHECK_EQ(parse("top = 1\n[general]\nx = 2\n[device A]\ntype = door\ngpio = 4\n"
-                   "colour = red\nGPIO = 5\n"), DV_OK);
+    /* Keys outside a device section are counted and ignored. */
+    CHECK_EQ(parse("top = 1\n[general]\nx = 2\n[device A]\ntype = door\ngpio = 4\n"), DV_OK);
     CHECK_EQ(g_res.loaded, 1);
-    CHECK_EQ(g_res.unknown, 4);
+    CHECK_EQ(g_res.unknown, 2);
+    CHECK_EQ(g_res.err_count, 0);
     CHECK_EQ(g_set.dev[0].pin, 4);
     CHECK_EQ(parse("[device]\ntype = door\n[devices A]\ngpio = 4\n"), DV_OK);
     CHECK_EQ(g_res.loaded, 0);
     CHECK_EQ(g_res.unknown, 2);
+    /* Inside one, an unknown key refuses the section, and is still counted. */
+    CHECK_EQ(parse("[device A]\ntype = door\ngpio = 4\ncolour = red\n"), DV_OK);
+    CHECK_EQ(g_res.loaded, 0);
+    CHECK_EQ(g_res.skipped, 1);
+    CHECK_EQ(g_res.unknown, 1);
+    CHECK_EQ(g_res.errs[0].code, DV_ERR_KEY);
+    CHECK_EQ(g_res.errs[0].line, 4);
+}
+
+TEST(cfg_bad_key_refuses_device)
+{
+    static const char *const text[] = {
+        "[device LIGHT1]\ntype = light\ngpio = 4\nactve = low\n"
+        "[device DOOR1]\ntype = door\ngpio = 25\n",
+        "[device LIGHT1]\ntype = light\ngpio = 4\nActive = low\n"
+        "[device DOOR1]\ntype = door\ngpio = 25\n",
+    };
+    unsigned i;
+
+    for (i = 0; i < 2; i++) {
+        CHECK_EQ(parse(text[i]), DV_OK);
+        CHECK_EQ(g_res.loaded, 1);
+        CHECK_EQ(g_res.skipped, 1);
+        CHECK_EQ(g_res.unknown, 1);
+        CHECK_EQ(g_res.err_count, 1);
+        CHECK_EQ(g_res.errs[0].code, DV_ERR_KEY);
+        CHECK_EQ(g_res.errs[0].line, 4);
+        CHECK_STR(g_res.errs[0].name, "LIGHT1");
+        CHECK_STR(g_set.dev[0].name, "DOOR1");
+    }
+    CHECK_STR(dv_strerror(DV_ERR_KEY), "%DEVICE-E-BADKEY, unknown key in the section");
+}
+
+TEST(cfg_dup_key_refuses_device)
+{
+    CHECK_EQ(parse("[device LIGHT1]\ntype = light\ngpio = 4\nactive = low\nactive = high\n"
+                   "[device DOOR1]\ntype = door\ngpio = 25\n"), DV_OK);
+    CHECK_EQ(g_res.loaded, 1);
+    CHECK_EQ(g_res.skipped, 1);
+    CHECK_EQ(g_res.unknown, 0);
+    CHECK_EQ(g_res.err_count, 1);
+    CHECK_EQ(g_res.errs[0].code, DV_ERR_DUPKEY);
+    CHECK_EQ(g_res.errs[0].line, 5);
+    CHECK_STR(g_res.errs[0].name, "LIGHT1");
+    CHECK_STR(g_set.dev[0].name, "DOOR1");
+    CHECK_STR(dv_strerror(DV_ERR_DUPKEY), "%DEVICE-E-DUPKEY, key given twice in the section");
+}
+
+TEST(cfg_bad_key_refuses_expander)
+{
+    CHECK_EQ(parse("[device ARM]\ntype = relay\ngpio = 4\n"
+                   "[expander 0]\naddr = 0x20\nspeed = 100\n"
+                   "[device LAMP]\ntype = light\ngpio = X0.3\n"
+                   "[device DOOR1]\ntype = door\ngpio = 25\n"), DV_OK);
+    CHECK_EQ(g_set.exp[0].declared, 0);
+    CHECK_EQ(g_res.loaded, 2);
+    CHECK_EQ(g_res.unknown, 1);
+    CHECK_EQ(g_res.err_count, 2);
+    CHECK_EQ(g_res.errs[0].code, DV_ERR_KEY);
+    CHECK_EQ(g_res.errs[0].line, 6);
+    CHECK_STR(g_res.errs[0].name, "X0");
+    CHECK_EQ(g_res.errs[1].code, DV_ERR_NOCHIP);
+    CHECK_STR(g_res.errs[1].name, "LAMP");
+    CHECK_STR(g_set.dev[0].name, "ARM");
+    CHECK_STR(g_set.dev[1].name, "DOOR1");
 }
 
 TEST(cfg_empty_and_comments)
@@ -459,6 +531,33 @@ TEST(cfg_summary)
     CHECK_EQ(dv_cfg_summary(&g_res, small, sizeof(small)), DV_ERR_SPACE);
     CHECK_STR(small, "");
     CHECK_EQ(dv_cfg_summary(NULL, buf, sizeof(buf)), DV_ERR_ARG);
+}
+
+TEST(cfg_err_tail)
+{
+    char buf[64];
+    char want[64];
+    char small[8];
+
+    CHECK(dv_cfg_err_tail(1, 1, buf, sizeof(buf)) > 0);
+    CHECK_STR(buf, "cannot be read");
+    CHECK(dv_cfg_err_tail(1, 0, buf, sizeof(buf)) > 0);
+    CHECK_STR(buf, "has 1 error: the serial line names it");
+    CHECK(dv_cfg_err_tail(2, 0, buf, sizeof(buf)) > 0);
+    CHECK_STR(buf, "has 2 errors: the serial line names each");
+    /* K, the last count the markers name in full. */
+    CHECK(dv_cfg_err_tail(DV_MAX_ERRORS, 0, buf, sizeof(buf)) > 0);
+    snprintf(want, sizeof(want), "has %u errors: the serial line names each",
+             (unsigned)DV_MAX_ERRORS);
+    CHECK_STR(buf, want);
+    /* K + 1, the first count the markers cut. */
+    CHECK(dv_cfg_err_tail(DV_MAX_ERRORS + 1, 0, buf, sizeof(buf)) > 0);
+    snprintf(want, sizeof(want), "has %u errors: the serial line names the first %u",
+             (unsigned)DV_MAX_ERRORS + 1, (unsigned)DV_MAX_ERRORS);
+    CHECK_STR(buf, want);
+    CHECK_EQ(dv_cfg_err_tail(2, 0, small, sizeof(small)), DV_ERR_SPACE);
+    CHECK_STR(small, "");
+    CHECK_EQ(dv_cfg_err_tail(2, 0, NULL, 4), DV_ERR_ARG);
 }
 
 /* ---- expander pins ---- */
@@ -560,13 +659,13 @@ TEST(cfg_expander_addresses)
         CHECK_EQ(g_res.err_count, 1);
         CHECK_EQ(g_res.errs[0].code, DV_ERR_EXPADDR);
     }
-    /* No addr key, and a second addr key. */
-    CHECK_EQ(parse("[expander 1]\nother = 1\n"), DV_OK);
-    CHECK_EQ(g_res.errs[0].code, DV_ERR_EXPADDR);
+    /* An unknown key, and a second addr key. */
+    CHECK_EQ(parse("[expander 1]\naddr = 0x20\nother = 1\n"), DV_OK);
+    CHECK_EQ(g_res.errs[0].code, DV_ERR_KEY);
     CHECK_EQ(g_res.unknown, 1);
     CHECK_EQ(g_set.exp[1].declared, 0);
     CHECK_EQ(parse("[expander 1]\naddr = 0x20\naddr = 0x21\n"), DV_OK);
-    CHECK_EQ(g_res.errs[0].code, DV_ERR_EXPADDR);
+    CHECK_EQ(g_res.errs[0].code, DV_ERR_DUPKEY);
     CHECK_EQ(g_res.errs[0].line, 3);
     CHECK_EQ(g_set.exp[1].declared, 0);
 }
@@ -1198,10 +1297,10 @@ TEST(messages_every_code_distinct)
     int c;
     int d;
 
-    for (c = DV_OK; c >= DV_ERR_NOCHIP; c--) {
+    for (c = DV_OK; c >= DV_ERR_DUPKEY; c--) {
         CHECK(strncmp(dv_strerror(c), "%DEVICE-", 8) == 0);
         CHECK(strcmp(dv_strerror(c), dv_strerror(1)) != 0);
-        for (d = c - 1; d >= DV_ERR_NOCHIP; d--) {
+        for (d = c - 1; d >= DV_ERR_DUPKEY; d--) {
             CHECK(strcmp(dv_strerror(c), dv_strerror(d)) != 0);
         }
     }

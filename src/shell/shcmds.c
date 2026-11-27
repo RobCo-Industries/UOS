@@ -732,6 +732,19 @@ static int dev_line(sh_job_t *j, const char *name)
     return 0;
 }
 
+/* The CFGERR line, when DEVICES.CFG had errors or could not be read. */
+static void cfgerr_line(sh_job_t *j)
+{
+    char line[UOS_LINE_MAX + 1];
+    char tail[64];
+
+    if (devs_cfg_errors() != 0 &&
+        dv_cfg_err_tail(devs_cfg_errors(), devs_cfg_unreadable(), tail, sizeof(tail)) >= 0 &&
+        dcl_format_message(line, sizeof(line), DCL_SYS_CFGERR, tail, 0) >= 0) {
+        sh_out(j, line);
+    }
+}
+
 static int show_devices(sh_job_t *j)
 {
     char line[UOS_LINE_MAX + 1];
@@ -753,6 +766,8 @@ static int show_devices(sh_job_t *j)
     }
     rc = vfs_list(j->ctx, j->privs, "DEV:", j->ents, 32u, &j->ecount, &j->etotal);
     if (rc != VFS_OK) {
+        /* No device loaded: the reason may be the file. */
+        cfgerr_line(j);
         return sh_end_err(j, SH_SRC_DEV, rc, NULL);
     }
     for (i = 0; i < j->ecount; i++) {
@@ -761,6 +776,7 @@ static int show_devices(sh_job_t *j)
             sh_say(j, sh_err_msg(SH_SRC_DEV, rc, -1, 0), j->ents[i].name, 0);
         }
     }
+    cfgerr_line(j);
     return sh_end(j, DCL_NORMAL, NULL, 0, 0);
 }
 

@@ -208,7 +208,7 @@ Format: `SHOW keyword [/OUTPUT=file]`. `/OUTPUT` writes the text to a file, only
 | `USERS` | The session of this terminal: user, terminal, home, privileges |
 | `SYSTEM` | Version, system name, uptime, card state, devices, users |
 | `TIME` | The date from the clock chip. With no chip, the uptime and `%UOS-W-NOCLOCK`. |
-| `DEVICES [name]` | The device header and one status line per device, read through `DEV:` |
+| `DEVICES [name]` | The device header and one status line per device, read through `DEV:`. When `DEVICES.CFG` had errors or could not be read, the list ends with a `%DEVICE-W-CFGERR` line, such as `%DEVICE-W-CFGERR, DEVICES.CFG has N errors: the serial line names each`. The [admin guide](ADMIN_GUIDE.md) lists its four texts |
 | `TERMINAL` | Columns, rows, text rows and the color scheme |
 | `MEMORY` | The kernel heap: total, used, free, largest free block, blocks |
 

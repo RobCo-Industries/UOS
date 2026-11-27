@@ -105,6 +105,7 @@ typedef enum {
     DCL_SYS_FILREN,
     DCL_SYS_PROGERR,
     DCL_SYS_SKIPPED,
+    DCL_SYS_CFGERR,
     DCL_MSG_COUNT
 } dcl_msg_t;
 

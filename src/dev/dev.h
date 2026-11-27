@@ -90,6 +90,8 @@ _Static_assert(DV_PRIV_SYSTEM == 0x1u && DV_PRIV_OPER == 0x2u,
 #define DV_ERR_NOCHIP       (-22)   /* expander pin on a chip with no good [expander N] */
 #define DV_ERR_EMPTY        (-23)   /* a device or expander section with no keys */
 #define DV_ERR_NOARM        (-24)   /* expander output and no ARM relay on a Pi pin off at reset */
+#define DV_ERR_KEY          (-25)   /* unknown key in a device or expander section */
+#define DV_ERR_DUPKEY       (-26)   /* key given twice in a device or expander section */
 
 /* Warning codes: the device loads, the result counts and names it. */
 #define DV_WARN_PULLUP      (-30)   /* active-high output on a pin pulled up at reset */
@@ -255,6 +257,14 @@ int dv_arm_ok(const dv_set_t *set);
  * with `buf` set to "" when size > 0.
  */
 int dv_cfg_summary(const dv_cfg_result_t *res, char *buf, size_t size);
+
+/*
+ * The tail of the CFGERR line after "DEVICES.CFG ": "cannot be read" when
+ * `unreadable`, else "has N errors" and what the serial line names. The
+ * deverr markers name the first DV_MAX_ERRORS errors. Length, DV_ERR_ARG
+ * or DV_ERR_SPACE, with `buf` set to "" when size > 0.
+ */
+int dv_cfg_err_tail(unsigned count, int unreadable, char *buf, size_t size);
 
 /* ---- devstate.c ---- */
 

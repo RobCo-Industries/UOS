@@ -31,7 +31,10 @@ privs = 2
 Keys are lower-case. Rules:
 
 - A device with a bad field is skipped. The others still load. Each skipped device adds one error with its code, line and name.
-- Unknown keys are skipped and counted. Keys outside a `[device NAME]` section count as unknown.
+- An unknown key in a `[device NAME]` or `[expander N]` section refuses the whole section with `DV_ERR_KEY`, `%DEVICE-E-BADKEY, unknown key in the section`. It still counts in `unknown`. Key names are case-sensitive, so `Active` is unknown.
+- A key given twice in one section refuses it with `DV_ERR_DUPKEY`, `%DEVICE-E-DUPKEY, key given twice in the section`. A second `addr` is a `DV_ERR_DUPKEY` too.
+- A refused `[expander N]` declares no chip, so its devices are skipped with `DV_ERR_NOCHIP`.
+- Keys outside a `[device NAME]` or `[expander N]` section count as unknown and change nothing.
 - Only the first 24 device sections are read, `DV_MAX_DEVICES`. Later ones are ignored and counted without checks.
 - Two devices may not share a name or a pin. The later one is skipped.
 - A sensor with `pulse_ms` other than 0 is skipped.
@@ -43,6 +46,8 @@ Keys are lower-case. Rules:
 - An output with `active = high` on a pin pulled up at reset loads with a warning. Each warning adds its code, line and name to `warns`, and `warn_count` counts them all.
 
 `dv_cfg_summary()` formats the result for the `ev=config` marker: `loaded=4 skipped=0 unknown=0 ignored=0 errors=0 parse=0 warnings=0`.
+
+`devs_cfg_errors()` in `devglue.c` gives the error count of the last load, or 1 when the file exists and could not be read. A missing file gives 0. `devs_cfg_unreadable()` gives 1 when the file could not be read. The login screen's notice reads the count. The last line of `SHOW DEVICES`, `%DEVICE-W-CFGERR`, reads both, and `dv_cfg_err_tail()` in `devcfg.c` picks its text. Past `DV_MAX_ERRORS` errors, the text says the serial line names only the first `DV_MAX_ERRORS`, because `mark_cfg_lists()` prints no more `deverr` markers.
 
 ## Expander pins
 

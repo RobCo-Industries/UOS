@@ -17,6 +17,8 @@ All notable changes to UOS are recorded here. The format follows [Keep a Changel
 - A logout or `LOGIN <user>` queued right after `RUN HACK`, `RUN HOLOTAPE` or `RUN TERMINAL` no longer opens that screen over the login prompt. The password game no longer starts there for real. The dropped call prints `sh stale=post`.
 - `HOLOTAPE ABCDEFGH.HTPX` no longer opens `ABCDEFGH.HTP`. A typed tape name is used whole or refused: 1 to 8 of `A-Z 0-9 $ _ -`, then nothing or `.HTP`, else `%UOS-E-IVSPEC`. A menu's `holotape` target follows the same rule.
 
+- An unknown key or a key given twice in a `[device NAME]` or `[expander N]` section of `DEVICES.CFG` now refuses that section with `BADKEY` or `DUPKEY`. Before, the device loaded with a default nobody chose, so `actve = low` drove the opposite level. The login screen shows `DEVICES: SOME DEVICES REFUSED` and `SHOW DEVICES` ends with `%DEVICE-W-CFGERR` when the file has errors or cannot be read. The line gives the count, says when the serial line names only the first 8, and says when the file cannot be read.
+
 ### Removed
 
 - The `[system] mode` key. Nothing acted on it. A card that still has it counts one unknown key, and the `config` marker has no `mode=` field. The login screen now shows `SETTINGS: SOME VALUES IGNORED` on its last header row, so the notice no longer vanishes when the login replaces the first screen. The serial line gets it too, from the first login on.

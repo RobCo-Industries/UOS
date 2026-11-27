@@ -21,6 +21,7 @@
 #include <robco/uart.h>
 
 #include "con.h"
+#include "devs.h"
 #include "sessint.h"
 
 /* Rows of the login screen. */
@@ -70,8 +71,7 @@ static void put_row(unsigned row, const char *text, unsigned attr)
 /* The settings notice for the last header row; empty when all is well. */
 static void notice_line(char *buf, size_t size)
 {
-    /* The device errors join here later; 0 for now. */
-    (void)lg_notice_line(uos.cfg_bad, 0, buf, size);
+    (void)lg_notice_line(uos.cfg_bad, devs_cfg_errors() != 0, buf, size);
 }
 
 static void header(int serial)

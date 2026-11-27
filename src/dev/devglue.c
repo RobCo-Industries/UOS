@@ -54,6 +54,7 @@ static dv_cfg_result_t res;
 static dv_rec_t rec;
 static devs_deb_t deb[DV_MAX_DEVICES];
 static uint32_t last_poll;
+static int cfg_unread;          /* DEVICES.CFG exists but could not be read */
 static int down_done;
 
 /* The software watchdog: a tick callback, IRQ context. */
@@ -411,6 +412,7 @@ static void load(void)
 
     k_memset(&set, 0, sizeof(set));
     k_memset(&res, 0, sizeof(res));
+    cfg_unread = 0;
     if (uos.card != UOS_CARD_OK) {
         UOS_MARK("devcfg result=skipped loaded=0");
         return;
@@ -422,6 +424,7 @@ static void load(void)
     }
     if (rc != VFS_OK) {
         UOS_MARK("devcfg result=bad why=%s loaded=0", vfs_strerror(rc));
+        cfg_unread = 1;
         return;
     }
     rc = dv_cfg_parse_pins(buf, len, refused_mask(), &set, &res);
@@ -583,6 +586,16 @@ int devs_command(const char *name, const char *action, uint32_t privs, const cha
 unsigned devs_count(void)
 {
     return set.count;
+}
+
+unsigned devs_cfg_errors(void)
+{
+    return cfg_unread ? 1u : res.err_count;
+}
+
+int devs_cfg_unreadable(void)
+{
+    return cfg_unread;
 }
 
 int devs_status_header(char *buf, size_t size)
