@@ -701,6 +701,7 @@ stateDiagram-v2
 | `sh op=resume id= owe=<step\|end>` | The shell is on top again and runs what it owed |
 | `term scheme=<name>` | `SET TERMINAL /SCHEME` |
 | `uaf result=written users=` | `SYSUAF.DAT` was written |
+| `uaf result=refused why=lastadmin user=` | `AUTHORIZE` refused a change that left no enabled user with `SYSTEM` or `SECURITY`. Nothing was written |
 | `maint_req op=<write\|clear> result=<written\|kept\|removed\|none\|failed> rc=` | `SET HALT /MAINTENANCE` or `/NOMAINTENANCE` changed the request file, before the halt or restart |
 | `sh run=done status= result=<quoted>`, `sh run=refused rc=`, `sh run=refused why=covered` | The end of `sh run`. `covered`: another screen covers the shell |
 

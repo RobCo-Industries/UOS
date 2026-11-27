@@ -262,9 +262,9 @@ Format: `AUTHORIZE keyword`. Needs `SECURITY`; `SYSTEM` grants it.
 | Keyword | Does |
 |---|---|
 | `LIST [user]` | Name, home, privileges and flags. Never a salt or a hash. |
-| `ADD user` | Adds a user. Asks `Password:` and `Verification:`, masked. The home defaults to the user name; a name longer than 8 characters needs `/HOME`. The shell then makes `SD0:[HOME.<home>]` with the caller's rights and reports a refusal without undoing the add. |
-| `MODIFY user` | Changes the qualifiers given |
-| `REMOVE user` | Removes a user. The logged-in user cannot remove itself: `%UAF-E-SELF`. |
+| `ADD user` | Adds a user. Asks `Password:` and `Verification:`, masked. The home defaults to the user name; a name longer than 8 characters needs `/HOME`. The shell then makes `SD0:[HOME.<home>]` with the caller's rights and reports a refusal without undoing the add. A folder that is there already becomes the home as it is: `%UAF-I-HOMEUSED`. |
+| `MODIFY user` | Changes the qualifiers given. A new `/HOME` moves no folder: `%UAF-I-NOMOVE` names the old one, then the new folder is made as `ADD` makes it. |
+| `REMOVE user` | Removes a user. The logged-in user cannot remove itself: `%UAF-E-SELF`. The home folder stays on the card: `%UAF-I-HOMEKEPT`. |
 
 Qualifiers of `ADD` and `MODIFY`:
 
@@ -276,7 +276,7 @@ Qualifiers of `ADD` and `MODIFY`:
 | `/DISABLED`, neg | The user cannot log in |
 | `/HACKABLE`, neg | `/NOHACKABLE` sets `NOHACK`: never a target of the password game |
 
-Every change builds a new database in memory, writes it with `vfs_sys_write_all()`, the library's atomic write, and calls `sess_reload()`. Changes apply at the user's next login. Messages: `%UAF-S-ADDED`, `%UAF-S-MODIFIED`, `%UAF-S-REMOVED`, `%UAF-E-EXISTS`, `%UAF-E-FULL`, `%UAF-E-IVNAME`, `%UAF-E-IVHOME`, `%UAF-E-IVPWD`, `%UOS-E-NOUSER`, `%SET-E-PWDNOTVER`.
+Every change builds a new database in memory, writes it with `vfs_sys_write_all()`, the library's atomic write, and calls `sess_reload()`. Changes apply at the user's next login. A `REMOVE`, `/PRIVS`, `/NOPRIVS` or `/DISABLED` that would leave no enabled user with `SYSTEM` or `SECURITY` is refused with `%UAF-E-LASTADMIN` and writes nothing. A file that has no such user already stays as it is. Messages: `%UAF-S-ADDED`, `%UAF-S-MODIFIED`, `%UAF-S-REMOVED`, `%UAF-E-EXISTS`, `%UAF-E-FULL`, `%UAF-E-IVNAME`, `%UAF-E-IVHOME`, `%UAF-E-IVPWD`, `%UAF-E-LASTADMIN`, `%UAF-I-HOMEKEPT`, `%UAF-I-HOMEUSED`, `%UAF-I-NOMOVE`, `%UOS-E-NOUSER`, `%SET-E-PWDNOTVER`. The three `I` lines come before the success line.
 
 ```
 $ AUTHORIZE ADD BOB /PRIVS=(OPER) /NOHACKABLE

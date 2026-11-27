@@ -115,14 +115,16 @@ Verification: *************
 $ AUTHORIZE MODIFY BOB /DISABLED
 %UAF-S-MODIFIED, user BOB modified
 $ AUTHORIZE REMOVE BOB
+%UAF-I-HOMEKEPT, SD0:[HOME.BOB] is not deleted
 %UAF-S-REMOVED, user BOB removed
 ```
 
 - `ADD` also makes `SD0:[HOME.<home>]` with the rights of the user who types it. A user with `SECURITY` alone may not create folders in `HOME`, so the folder is not made. The command prints why, and the user stays added. Make the folder as a `SYSTEM` user.
 - A name longer than 8 characters needs `/HOME=`, since a home is at most 8 characters: `AUTHORIZE ADD LONGNAMEUSER` gives `%UAF-E-IVHOME, invalid home folder name`.
-- `MODIFY /HOME=` changes the home in the user file only. It neither makes nor moves a folder.
-- `REMOVE` leaves the home folder on the card. You cannot remove yourself: `%UAF-E-SELF, the user who is logged in cannot be removed`.
-- Nothing stops you from removing or demoting the last user with `SECURITY` or `SYSTEM`. Keep one.
+- When the home folder is there already, `ADD` uses it as it is and says `%UAF-I-HOMEUSED, SD0:[HOME.<home>] exists already and becomes the home as it is`. Two users may share a home.
+- `MODIFY /HOME=` with a new value never moves the old folder. It prints `%UAF-I-NOMOVE, SD0:[HOME.<old>] is not moved: copy its files by hand`, then makes the new folder as `ADD` does. The same value prints nothing new.
+- `REMOVE` never deletes the home folder and says `%UAF-I-HOMEKEPT, SD0:[HOME.<home>] is not deleted`. Delete it by hand when nobody else uses it. You cannot remove yourself: `%UAF-E-SELF, the user who is logged in cannot be removed`.
+- UOS keeps at least one enabled user with `SYSTEM` or `SECURITY`. A `REMOVE`, `/PRIVS`, `/NOPRIVS` or `/DISABLED` that would leave none is refused with `%UAF-E-LASTADMIN, <NAME> is the last user who can run AUTHORIZE`, and the file is not written. Give a second user `SYSTEM` or `SECURITY` first. A file that has no such user already stays as it is.
 - A user at the command prompt changes their own password with `SET PASSWORD`.
 - A user who logs into a menu has no prompt. On the shipped card that is `OPER`, whose menu has no password entry. Change such a password as a user with `SECURITY` or `SYSTEM`: `AUTHORIZE MODIFY OPER /PASSWORD` asks for the new one twice.
 
@@ -437,6 +439,7 @@ At the command line:
 | `%DEVICE-E-IVACT, action not valid for this device` | A word the device type does not take |
 | `%UAF-E-UAFERR, the user database cannot be changed` | The write of `SYSUAF.DAT` failed, or no user file is loaded |
 | `%UAF-E-FULL, the user database is full` | 32 users already |
+| `%UAF-E-LASTADMIN, <NAME> is the last user who can run AUTHORIZE` | The change would leave no enabled user with `SYSTEM` or `SECURITY`. Nothing is written |
 | `%UOS-E-NOMAINT, maintenance request not written: ...` | No `/ROBCO` folder, a folder named `MAINT.REQ`, a read-only card or a card error |
 | `%UOS-E-MREQKEPT, maintenance request not removed: ...` | `/NOMAINTENANCE` could not delete the old request |
 
