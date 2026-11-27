@@ -29,6 +29,7 @@ typedef struct {
     unsigned lines[DV_MAX_DEVICES];  /* first line of each loaded device */
     int over;               /* past the DV_MAX_DEVICES-th device section: ignored */
     unsigned nkeys;         /* keys in the current section */
+    unsigned key_seen;      /* bit per known key given in the current section */
     unsigned sections;      /* device sections seen so far */
     char seen[DV_MAX_DEVICES][DV_NAME_MAX + 1];  /* every good device name in a header */
     unsigned nseen;
@@ -217,6 +218,7 @@ static void dv_start(dv_parse_t *p, const char *section, unsigned line)
     p->exp_addr = 0;
     p->over = 0;
     p->nkeys = 0;
+    p->key_seen = 0;
     p->err = 0;
     p->err_line = 0;
     p->first_line = line;
@@ -325,10 +327,47 @@ static int dv_parse_u32(const char *s, int allow_hex, uint32_t *out)
     return 0;
 }
 
+/* Keys of a [device NAME] section, case-sensitive. */
+static const char *const dv_key_names[] = {
+    "type", "gpio", "active", "initial", "pulse_ms", "label", "privs",
+};
+
+/*
+ * Marks `key` seen in the current section. An unknown key, or one given
+ * twice, refuses the section. Returns 1 when the key may be read.
+ */
+static int dv_key_check(dv_parse_t *p, const char *const *names, unsigned count,
+                        const char *key, unsigned line)
+{
+    unsigned i;
+
+    for (i = 0; i < count; i++) {
+        if (k_strcmp(key, names[i]) == 0) {
+            break;
+        }
+    }
+    if (i == count) {
+        p->res->unknown++;
+        dv_field_err(p, DV_ERR_KEY, line);
+        return 0;
+    }
+    if (p->key_seen & (1u << i)) {
+        dv_field_err(p, DV_ERR_DUPKEY, line);
+        return 0;
+    }
+    p->key_seen |= 1u << i;
+    return 1;
+}
+
 static void dv_key(dv_parse_t *p, const char *key, const char *value, unsigned line)
 {
     uint32_t v;
     unsigned i;
+
+    if (!dv_key_check(p, dv_key_names, sizeof(dv_key_names) / sizeof(dv_key_names[0]),
+                      key, line)) {
+        return;
+    }
 
     if (k_strcmp(key, "type") == 0) {
         p->seen_type = 1;
@@ -402,8 +441,6 @@ static void dv_key(dv_parse_t *p, const char *key, const char *value, unsigned l
         } else {
             p->d.privs = v;
         }
-    } else {
-        p->res->unknown++;
     }
 }
 
@@ -504,13 +541,10 @@ static int dv_handler(const char *section, const char *key, const char *value,
     }
     p->nkeys++;
     if (p->is_expander) {
+        static const char *const exp_keys[] = { "addr" };
         uint32_t v;
 
-        if (k_strcmp(key, "addr") != 0) {
-            p->res->unknown++;
-        } else if (p->seen_addr) {
-            dv_field_err(p, DV_ERR_EXPADDR, line);
-        } else {
+        if (dv_key_check(p, exp_keys, 1, key, line)) {
             p->seen_addr = 1;
             if (k_strlen(value) > 4 || dv_parse_u32(value, 1, &v) != 0 || !gpiox_addr_valid(v)) {
                 dv_field_err(p, DV_ERR_EXPADDR, line);

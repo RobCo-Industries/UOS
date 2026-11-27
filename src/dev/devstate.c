@@ -392,6 +392,10 @@ const char *dv_strerror(int code)
         return "%DEVICE-E-NOCHIP, expander pin on an undeclared chip";
     case DV_ERR_EMPTY:
         return "%DEVICE-E-EMPTY, section has no keys";
+    case DV_ERR_KEY:
+        return "%DEVICE-E-BADKEY, unknown key in the section";
+    case DV_ERR_DUPKEY:
+        return "%DEVICE-E-DUPKEY, key given twice in the section";
     case DV_ERR_NOARM:
         return "%DEVICE-E-NOARM, expander output needs an ARM relay on a Pi pin off at reset";
     case DV_WARN_PULLUP:

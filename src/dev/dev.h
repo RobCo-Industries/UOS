@@ -90,6 +90,8 @@ _Static_assert(DV_PRIV_SYSTEM == 0x1u && DV_PRIV_OPER == 0x2u,
 #define DV_ERR_NOCHIP       (-22)   /* expander pin on a chip with no good [expander N] */
 #define DV_ERR_EMPTY        (-23)   /* a device or expander section with no keys */
 #define DV_ERR_NOARM        (-24)   /* expander output and no ARM relay on a Pi pin off at reset */
+#define DV_ERR_KEY          (-25)   /* unknown key in a device or expander section */
+#define DV_ERR_DUPKEY       (-26)   /* key given twice in a device or expander section */
 
 /* Warning codes: the device loads, the result counts and names it. */
 #define DV_WARN_PULLUP      (-30)   /* active-high output on a pin pulled up at reset */
