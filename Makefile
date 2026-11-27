@@ -16,7 +16,8 @@
 #                             (WINDOW=1 also opens the display window)
 #   make check-pins           CI workflow pins and doc links match the submodule
 #   make sfx-table            src/sfx/sfx_table.c and .h from src/sfx/sfx_models.json
-#   make sfx-table-check      the committed table matches the model; the build runs it
+#   make sfx-table-check      the committed table matches the model; every image
+#                             build runs it once per change of its inputs
 #   make ci-local             the CI build job in the robco-ci container
 #                             (CI_LOCAL_CPUS=4 by default)
 #   make clean
@@ -110,8 +111,9 @@ ROBCO_CFLAGS += $(addprefix -I,$(SRC_INCLUDES))
 # Target tests boot the images built here; keep top-level targets serial.
 .NOTPARALLEL:
 
-# The card name of the image. A stale sound table stops the build.
-all: sfx-table-check $(BUILD)/UOS.SYS
+# The card name of the image. A stale sound table stops the build: see
+# the stamp below, which every path to the image goes through.
+all: $(BUILD)/UOS.SYS
 
 # ---- Sound tables -----------------------------------------------------
 
@@ -129,6 +131,17 @@ sfx-table:
 
 sfx-table-check:
 	$(PYTHON) $(SFX_TABLE) $(SFX_TABLE_ARGS) --check
+
+# The objects that read the tables wait for a passed check, so `make`,
+# `make sdimage` and `make run` all stop on a stale table. The stamp
+# runs the check again only when one of its inputs changes.
+SFX_STAMP := $(BUILD)/sfx-table.ok
+$(SFX_STAMP): src/sfx/sfx_models.json src/sfx/sfx_table.c src/sfx/sfx_table.h $(SFX_TABLE)
+	$(PYTHON) $(SFX_TABLE) $(SFX_TABLE_ARGS) --check
+	@mkdir -p $(@D)
+	@touch $@
+
+$(BUILD)/obj/src/sfx/sfx_table.o $(BUILD)/obj/src/sfx/sfx.o: $(SFX_STAMP)
 
 $(BUILD)/UOS.SYS: $(BUILD)/$(IMAGE).img
 	cp $< $@

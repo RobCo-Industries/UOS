@@ -23,7 +23,7 @@ The library lives in the submodule `external/robco-core`. Run `git submodule upd
 | `make run BOARD=raspi2b` | Boots `build/sd.img` in QEMU on this terminal. `WINDOW=1` opens the display. |
 | `make check-pins` | Checks that the CI workflow pins match the submodule, and the doc links |
 | `make sfx-table` | Writes `src/sfx/sfx_table.c` and `.h` from `src/sfx/sfx_models.json` with the library's `tools/sfx_table.py`. Commit both files. |
-| `make sfx-table-check` | Checks that the committed table matches the model's hash and the generator's revision. `make all` runs it first. |
+| `make sfx-table-check` | Checks that the committed table matches the model's hash and the generator's revision. Every image build, `make`, `make sdimage` and `make run` included, runs it before it compiles the table and stops on a stale one. A passed check leaves the stamp `build/sfx-table.ok` and runs again only when the model, the table or the generator changes. |
 | `make ci-local` | Runs the CI build job, `make CI=1 all test-host`, in the robco-ci container. `CI_LOCAL_CPUS` caps the CPUs, 4 by default |
 | `make ci-local-image` | Builds the robco-ci image locally from the library's `ci/Dockerfile` |
 | `make clean` | Removes `build/` |

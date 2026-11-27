@@ -2,13 +2,15 @@
 
 src/sfx/sfx_table.c and .h come from src/sfx/sfx_models.json through the
 library's tools/sfx_table.py. `make sfx-table-check` compares only the
-model's hash before each build. Here the generator renders every table
-again and compares bytes, and tools/sfx_check.py measures the dumped
+model's hash; every image build runs it once per change of its inputs.
+Here the generator renders every table again and compares bytes, and tools/sfx_check.py measures the dumped
 tables against what the model predicts.
 """
 import os
 import subprocess
 import sys
+
+import pytest
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 CORE = os.environ.get("ROBCO_CORE", os.path.join(ROOT, "external", "robco-core"))
@@ -39,3 +41,17 @@ def test_dumped_tables_pass_the_checker(tmp_path):
     assert len(lines) == len(SOUNDS), r.stdout
     for name, line in zip(SOUNDS, lines):
         assert line.startswith(name + " ") and line.endswith(": ok"), r.stdout
+
+
+@pytest.mark.parametrize("goal", ["all", "sdimage", "run"])
+def test_every_image_path_checks_the_table(tmp_path, goal):
+    """`make -n` from an empty build folder: each goal runs the table check
+    before it compiles the table, so no path packages a stale one."""
+    env = {"PATH": os.environ.get("PATH", ""), "HOME": os.environ.get("HOME", "")}
+    r = subprocess.run(["make", "-n", "-C", ROOT, f"BUILD={tmp_path}", "BOARD=raspi2b", goal],
+                       env=env, capture_output=True, text=True, timeout=150)
+    assert r.returncode == 0, r.stderr
+    lines = r.stdout.splitlines()
+    check = [i for i, l in enumerate(lines) if "sfx_table.py" in l and "--check" in l]
+    table = [i for i, l in enumerate(lines) if "sfx/sfx_table.o" in l and " -c " in l]
+    assert check and table and check[0] < table[0], r.stdout

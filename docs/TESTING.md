@@ -77,7 +77,7 @@ The tests run from the repository root, so the ones that read the default card o
 | `test_mkuaf.py` | `tools/mkuaf.py`: build, check, the shared vectors, every bad input, the default card's file |
 | `test_mkwords.py` | `tools/mkwords.py`: check, `check --strict`, sort and sample over good and bad lists, the default card's lists |
 | `test_build_deps.py` | The image build rebuilds an object after a header it includes changes, with `BUILD` spelled relative then absolute and the other way round. It compiles one object into `build/deptest` with the cross compiler and asks `make -q`. |
-| `test_sfx_table.py` | The committed sound tables: `sfx_table.py --check --full` renders them again and compares bytes, and `sfx_check.py` measures the dumped tables against the model |
+| `test_sfx_table.py` | The committed sound tables: `sfx_table.py --check --full` renders them again and compares bytes, and `sfx_check.py` measures the dumped tables against the model. `make -n` shows that `make`, `make sdimage` and `make run` each run the check before they compile the table |
 | `test_mkholo.py` | `tools/mkholo.py`: build, list, check, the `rimg.py` lookup, every bad input, agreement with `holocheck`, a card `HOLO` folder with only `.HTP` files, each shipped tape against its source |
 
 ## Target tests
