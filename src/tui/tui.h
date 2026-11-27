@@ -242,6 +242,34 @@ const char *tui_state_name(int state);
 /* Rows of entries in the window for the current level. */
 unsigned tui_rows(const tui_t *t);
 
+/* ---- The choice at login ---- */
+
+/* Why a root menu file is refused. */
+enum {
+    TUI_WHY_NONE = 0,       /* no file, or a good one */
+    TUI_WHY_READ,           /* the file cannot be read */
+    TUI_WHY_SYNTAX,         /* tui_cfg_parse() returned TUI_E_SYNTAX */
+    TUI_WHY_EMPTY,          /* it parses with no entry this user can see */
+};
+
+#define TUI_OPEN_SHELL      0
+#define TUI_OPEN_MENU       1
+
+/*
+ * What opens at login. `has_file`: the home holds the root menu file.
+ * `read_ok`: it was read. `parse_rc`: what tui_cfg_parse() returned.
+ * `visible`: the entries it left for this user. No file opens the command
+ * line; a good file opens the menu. A refused file opens the menu screen,
+ * which shows the error and can only log out, unless `privs` holds SYSTEM
+ * or SECURITY: then the command line opens. `*why` (if not NULL) gets a
+ * TUI_WHY_*. Returns TUI_OPEN_MENU or TUI_OPEN_SHELL.
+ */
+int tui_login_choice(int has_file, int read_ok, int parse_rc, unsigned visible,
+                     uint32_t privs, int *why);
+
+/* "none", "read", "syntax", "empty"; "?" for others. */
+const char *tui_why_name(int why);
+
 /* ---- Layout ---- */
 
 #define TUI_A_NORMAL        0       /* CONSOLE_ATTR_NORMAL */

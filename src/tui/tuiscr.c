@@ -15,7 +15,9 @@
  *   menu pick <n>   moves the selection to entry n (from 0), then ENTER
  *   menu back       BACK, as the key
  * Markers:
- *   tui op=check user= result=<menu|shell> rc=     at each login
+ *   tui op=check user= result=<menu|shell> rc=<1|0|error> why=<none|read|syntax|empty>
+ *       line=                                      at each login: what opens, rc 1 for
+ *                                                  read, 0 for no file; line of a syntax error
  *   tui op=open mode=<session|program> user=
  *   tui op=exit
  *   tui menu=<FILE|none> sel= level= state= msg=   after each change
@@ -33,6 +35,7 @@
 #include <robco/uart.h>
 
 #include "con.h"
+#include "dcl.h"
 #include "devs.h"
 #include "holofmt.h"
 #include "holoscr.h"
@@ -562,14 +565,55 @@ uos_screen_t *menu_screen(void)
 
 /* ---- The session's screen ---- */
 
-/* At each login: the menu when the home holds TERMINAL.CFG, else the shell. */
+/* No card, no /UOS tree, no home folder or no file: no menu, as
+ * vfs_exists() said before. Any other failure is a file that cannot be
+ * read. */
+static int no_file(int rc)
+{
+    return rc == VFS_E_NOTFOUND || rc == VFS_E_DIRNF || rc == VFS_E_NOCARD ||
+           rc == VFS_E_NOTREE;
+}
+
+/* At each login: TERMINAL.CFG is read and parsed first. No file gives the
+ * shell, a good one the menu. A refused file gives the menu screen with
+ * its error, or the shell with a warning for SYSTEM or SECURITY. */
 static uos_screen_t *menu_next(void)
 {
-    vp_ctx_t ctx;
-    int rc = user_ctx(&ctx) == 0 ? vfs_exists(&ctx, sess_privs(), MENU_ROOT) : VFS_E_NOPRIV;
+    static tui_menu_t check;        /* about 3 KB: static, as tui.h asks */
+    char line[UOS_LINE_MAX + 1];
+    char text[40];
+    char *buf;
+    size_t len;
+    unsigned err_line = 0;
+    int parse_rc = TUI_OK;
+    int why;
+    int open;
+    int rc = read_home(MENU_ROOT, &buf, &len);
 
-    UOS_MARK("tui op=check user=%s result=%s rc=%d", sess_user(), rc == 1 ? "menu" : "shell", rc);
-    if (rc != 1 || ms.open) {
+    if (rc == VFS_OK) {
+        parse_rc = tui_cfg_parse(buf, len, sess_privs(), &check, &err_line);
+        vfs_free(buf);
+    }
+    open = tui_login_choice(!no_file(rc), rc == VFS_OK, parse_rc,
+                            parse_rc == TUI_OK ? check.count : 0u, sess_privs(), &why);
+    UOS_MARK("tui op=check user=%s result=%s rc=%d why=%s line=%u", sess_user(),
+             open == TUI_OPEN_MENU ? "menu" : "shell",
+             rc == VFS_OK ? 1 : rc == VFS_E_NOTFOUND ? 0 : rc, tui_why_name(why), err_line);
+    if (open != TUI_OPEN_MENU) {
+        if (why != TUI_WHY_NONE) {
+            if (why == TUI_WHY_SYNTAX) {
+                k_snprintf(text, sizeof(text), "does not parse at line %u", err_line);
+            } else {
+                k_snprintf(text, sizeof(text), "%s",
+                           why == TUI_WHY_READ ? "cannot be read" : "has no usable entry");
+            }
+            if (dcl_format_message(line, sizeof(line), DCL_SYS_BADMENU, text, 0) >= 0) {
+                sh_session_notice(line);
+            }
+        }
+        return NULL;
+    }
+    if (ms.open) {
         return NULL;
     }
     ms.prog = 0;

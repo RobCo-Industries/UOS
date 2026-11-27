@@ -234,6 +234,7 @@ static con_line_fn ask_cb;
 
 static uos_screen_t shell_screen;
 static sess_next_fn first_fn;       /* asked first for the session's screen */
+static char notice[UOS_LINE_MAX + 1]; /* printed under the next banner, "" for none */
 static char *cap_view;              /* SH_RUN_CAPTURE text during the callback */
 static size_t cap_view_len;
 
@@ -423,6 +424,10 @@ static void shell_enter(uos_screen_t *s)
     k_snprintf(row, sizeof(row), "UOS V%s command shell. Type HELP for the commands.",
                UOS_VERSION_STR);
     put_line(row, CONSOLE_ATTR_DIM);
+    if (notice[0] != '\0') {
+        put_line(notice, CONSOLE_ATTR_BRIGHT);
+        notice[0] = '\0';
+    }
     later(shell_idle);
 }
 
@@ -525,6 +530,11 @@ static uos_screen_t *shell_next(void)
     uos_screen_t *s = first_fn != NULL ? first_fn() : NULL;
 
     return s != NULL ? s : &shell_screen;
+}
+
+void sh_session_notice(const char *line)
+{
+    k_snprintf(notice, sizeof(notice), "%s", line != NULL ? line : "");
 }
 
 int sh_session_screen_register(sess_next_fn fn)

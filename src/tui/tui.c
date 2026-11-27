@@ -244,6 +244,39 @@ const char *tui_state_name(int state)
     return state >= 0 && state <= TUI_ST_DONE ? names[state] : "?";
 }
 
+int tui_login_choice(int has_file, int read_ok, int parse_rc, unsigned visible,
+                     uint32_t privs, int *why)
+{
+    int w = TUI_WHY_NONE;
+
+    if (has_file) {
+        if (!read_ok) {
+            w = TUI_WHY_READ;
+        } else if (parse_rc != TUI_OK) {
+            w = TUI_WHY_SYNTAX;
+        } else if (visible == 0) {
+            w = TUI_WHY_EMPTY;
+        }
+    }
+    if (why != 0) {
+        *why = w;
+    }
+    if (!has_file) {
+        return TUI_OPEN_SHELL;
+    }
+    if (w != TUI_WHY_NONE && (privs & (UOS_PRIV_SYSTEM | UOS_PRIV_SECURITY)) != 0) {
+        return TUI_OPEN_SHELL;
+    }
+    return TUI_OPEN_MENU;
+}
+
+const char *tui_why_name(int why)
+{
+    static const char *const names[] = { "none", "read", "syntax", "empty" };
+
+    return why >= 0 && why <= TUI_WHY_EMPTY ? names[why] : "?";
+}
+
 int tui_event(tui_t *t, const input_event_t *ev)
 {
     if (t == 0 || ev == 0) {

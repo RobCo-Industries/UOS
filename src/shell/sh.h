@@ -112,6 +112,12 @@ const char *sh_output(size_t *len);
  */
 int sh_session_screen_register(sess_next_fn fn);
 
+/*
+ * loop: one line the shell prints bright under its banner the next time
+ * it opens, then clears. NULL or "" clears it. A longer line is cut.
+ */
+void sh_session_notice(const char *line);
+
 /* any: non-zero while a command runs. */
 int sh_busy(void);
 

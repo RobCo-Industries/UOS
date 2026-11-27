@@ -89,6 +89,7 @@ static const dcl_msgdef_t msgs[DCL_MSG_COUNT] = {
     [DCL_SYS_HOMEUSED] = { "UAF", 'I', "HOMEUSED",
                            "SD0:[HOME.!S] exists already and becomes the home as it is" },
     [DCL_SYS_NOMOVE] = { "UAF", 'I', "NOMOVE", "SD0:[HOME.!S] is not moved: copy its files by hand" },
+    [DCL_SYS_BADMENU] = { "UOS", 'W', "BADMENU", "TERMINAL.CFG !S: command line opened" },
 };
 
 static const dcl_msgdef_t *def_of(dcl_msg_t id)
