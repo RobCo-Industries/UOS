@@ -4,15 +4,18 @@ copies a file, OPER works the shipped menu. Every input goes through the
 maintenance port."""
 
 import configparser
+import contextlib
 import os
+import re
 
 from harness.pigpio import PiGpio
 
+from test_hack import ROW_MSG, guess, likeness, state, win
 from test_login import DEFAULT_USERS, SHELL_BANNER, login
 from test_menu import labels, pick, wait_menu
 from test_shell import expect, marks, wait_marker
-from uos import BOOT_ORDER, ROOT, TIMEOUT, _mtools, after_chain, answer, dump_until, events, one, \
-    order, wait_ready
+from uos import BOOT_ORDER, ROOT, TIMEOUT, _mtools, after_chain, answer, card_put, dump_until, \
+    events, key, one, order, wait_ready
 
 POST = ["memory", "video", "timer", "sd", "fat", "rng", "rtc", "audio"]
 
@@ -54,6 +57,45 @@ def boot_cfg(sd, tmp_path):
     names = [s.split()[1] for s in cfg.sections() if s.startswith("entry ")]
     default = cfg["boot"]["default"]
     return names, default, cfg["boot"]["timeout"], cfg[f"entry {default}"]["path"]
+
+
+def hack_cfg(**keys):
+    """The shipped UOS.CFG with only the given [hack] keys changed, as a person
+    edits the card on a computer."""
+    out, section = [], None
+    for line in shipped("UOS/UOS.CFG").decode().splitlines():
+        head = re.match(r"\[(\w+)\]", line)
+        if head:
+            section = head.group(1)
+        kv = re.match(r"(\w+)\s*=", line)
+        if section == "hack" and kv and kv.group(1) in keys:
+            line = f"{kv.group(1)} = {keys.pop(kv.group(1))}"
+        out.append(line)
+    assert not keys, f"not in the shipped [hack]: {keys}"
+    return ("\n".join(out) + "\n").encode()
+
+
+def game_card(sd, tmp_path, attempts):
+    card_put(sd, "UOS/UOS.CFG", hack_cfg(difficulty="novice", attempts=attempts, lockout_s=3),
+             tmp_path)
+
+
+def guesses(vm):
+    return [m for m in events(vm, "hack") if m.get("op") == "guess"]
+
+
+@contextlib.contextmanager
+def no_password(vm):
+    """Raises a failure again with every winning word blanked: a timeout report
+    quotes the serial line, where a won game's guess names the password."""
+    try:
+        yield
+    except Exception as e:
+        text = str(e)
+        for m in guesses(vm):
+            if m["result"] == "win":
+                text = text.replace(m["word"], "*" * len(m["word"]))
+        raise AssertionError(text) from None
 
 
 def pin_level(on, active):
@@ -167,3 +209,80 @@ def test_whole_chain_terminal(board, chain_card, chain_images, need_mtools, tmp_
     leaked = [user for user, password in DEFAULT_USERS.items()
               if (password in log and password != user) or f"PASSWORD: {password}" in log]
     assert not leaked, f"a password of {leaked} is on the serial lines"
+
+
+def test_whole_chain_game_win(board, chain_card, chain_images, need_mtools, tmp_path):
+    """The shipped chain with novice, 9 attempts: F2 at the login starts the game
+    seeded from the hardware, the board's words in order reach the password, and the
+    win starts a GUEST session."""
+    retros, _ = chain_images
+    game_card(chain_card, tmp_path, 9)
+    with after_chain(retros, board, chain_card) as vm:
+        with no_password(vm):
+            wait_ready(vm)
+            wait_marker(vm, "login state=user", 1)
+            key(vm, "f2")
+            wait_marker(vm, "login state=hack", 1)
+            start = wait_marker(vm, "hack op=start", 1)
+            assert (start["result"], start["words"], start["attempts"], start["difficulty"]) == \
+                ("ok", "8", "9", "novice"), start
+            assert start["seed"] != "fixed", start
+            dump_until(vm, lambda r: r[0].startswith("UOS PASSWORD RECOVERY"))
+            win(vm)
+            made = guesses(vm)
+            # The last guess holds the password: no message names it.
+            assert made[-1]["result"] == "win", "the last guess did not win"
+            for m in made[:-1]:
+                assert m["result"] == "denied", m
+                assert int(m["likeness"]) == likeness(m["word"], made[-1]["word"]), \
+                    f"likeness of guess {m['word']} does not match the password"
+            assert wait_marker(vm, "hack op=end", 1)["result"] == "won"
+            s = wait_marker(vm, "session state=start", 1)
+            assert (s["user"], s["how"]) == ("GUEST", "hack"), s
+            wait_marker(vm, "session screen=shell", 1)
+            answer(vm, "sess logout")
+            wait_marker(vm, "session state=end", 1)
+
+
+def test_whole_chain_game_lockout(board, chain_card, chain_images, need_mtools, tmp_path):
+    """The shipped chain with novice, 2 attempts and a 3 s lockout: two wrong
+    guesses lock the terminal, the lockout ends and GUEST logs in."""
+    retros, _ = chain_images
+    game_card(chain_card, tmp_path, 2)
+    with after_chain(retros, board, chain_card) as vm:
+        with no_password(vm):
+            wait_ready(vm)
+            prompts = 1
+            wait_marker(vm, "login state=user", prompts)
+            # The hardware seeds the game: the first two words win with chance 2 in 8,
+            # so ten wins in a row come about once in a million runs.
+            for game in range(1, 11):
+                answer(vm, "hack start")
+                assert wait_marker(vm, "hack op=start", game)["attempts"] == "2"
+                words = sorted(state(vm).words)
+                first = guess(vm, words[0], len(guesses(vm)) + 1)
+                last = first
+                if first["result"] == "denied":
+                    last = guess(vm, words[1], len(guesses(vm)) + 1)
+                if last["result"] != "win":
+                    break
+                wait_marker(vm, "session state=start user=GUEST how=hack", game)
+                wait_marker(vm, "session screen=shell", game)
+                answer(vm, "sess logout")
+                wait_marker(vm, "session state=end", game)
+                prompts += 1
+                wait_marker(vm, "login state=user", prompts)
+            else:
+                raise AssertionError("ten won games in a row")
+            assert first["result"] == "denied", first
+            assert (last["result"], last["attempts"]) == ("lockout", "0"), last
+            assert wait_marker(vm, "hack op=end result=lost", 1)
+            start = wait_marker(vm, "lockout state=start", 1)
+            assert (start["why"], start["s"]) == ("hack", "3"), start
+            dump_until(vm, lambda r: r[ROW_MSG] == "TERMINAL LOCKED: PASSWORD RECOVERY FAILED.")
+            st = dict(x.split("=", 1) for x in answer(vm, "sess state")[0].split()[1:])
+            assert st["state"] == "locked", st
+            wait_marker(vm, "lockout state=end", 1)
+            dump_until(vm, lambda r: r[ROW_MSG].startswith("TERMINAL UNLOCKED"))
+            login(vm, "GUEST", DEFAULT_USERS["GUEST"])
+            assert wait_marker(vm, "session state=start user=GUEST how=login", 1)
