@@ -197,18 +197,23 @@ def test_settings_notice_on_the_login_screen(board, uos_image, need_mtools, tmp_
     with alone(uos_image, board, uaf_card(tmp_path, cfg=cfg)) as vm:
         wait_ready(vm)
         assert one(vm, "config")["unknown"] == "1"
+        # sess_serial() writes to port 0, the PL011; dumps travel on port 1.
+        vm.wait_for(NOTICE, timeout=TIMEOUT)
+        assert vm.serial.count(NOTICE) == 1
         wait_user_prompt(vm)
         dump_until(vm, lambda r: r[ROW_NOTICE].strip() == NOTICE)
-        assert NOTICE in vm.serial + vm.serial2
+        assert vm.serial.count(NOTICE) == 1
         login(vm, "ADMIN", "WRONG-PASSWORD!", expect="bad")
         rows = dump_until(vm, lambda r: r[ROW_MSG] == DENIED.format(2, "S"))
         assert rows[ROW_NOTICE].strip() == NOTICE, rows
     with alone(uos_image, board, uaf_card(tmp_path, name="good.img")) as vm:
         wait_ready(vm)
+        # The user prompt's marker comes after the login header on port 0.
+        prompt(vm, "user", 1)
+        assert NOTICE not in vm.serial
         wait_user_prompt(vm)
         rows = dump_until(vm, lambda r: "TEST TERMINAL" in r[1])
         assert rows[ROW_NOTICE].strip() == "", rows
-        assert NOTICE not in vm.serial + vm.serial2
 
 
 def test_lockout_and_its_end(board, uos_image, need_mtools, tmp_path):

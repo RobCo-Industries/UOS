@@ -68,6 +68,12 @@ static void put_row(unsigned row, const char *text, unsigned attr)
     }
 }
 
+/* The settings notice for the last header row; empty when all is well. */
+static void notice_line(char *buf, size_t size)
+{
+    (void)lg_notice_line(uos.cfg_bad, devs_cfg_errors() != 0, buf, size);
+}
+
 static void header(int serial)
 {
     char line[UOS_LINE_MAX + 1];
@@ -80,7 +86,7 @@ static void header(int serial)
     }
     for (i = 0; i < LG_HEADER_ROWS; i++) {
         if (i == LG_HEADER_ROWS - 1) {
-            (void)lg_notice_line(uos.cfg_bad, devs_cfg_errors() != 0, line, sizeof(line));
+            notice_line(line, sizeof(line));
         } else {
             (void)lg_header_line(uos_settings()->name, i, line, sizeof(line));
         }
@@ -341,7 +347,14 @@ static void login_enter(uos_screen_t *s)
     (void)s;
     if (sess.st == LG_S_OFF) {
         /* From the first screen: the state machine starts on the next pass. */
+        char line[UOS_LINE_MAX + 1];
+
         header(0);
+        /* The first screen printed the banner; only the notice is new. */
+        notice_line(line, sizeof(line));
+        if (line[0] != '\0') {
+            sess_serial(line);
+        }
         later(first_start);
         return;
     }

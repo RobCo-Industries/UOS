@@ -21,7 +21,7 @@ All notable changes to UOS are recorded here. The format follows [Keep a Changel
 
 ### Removed
 
-- The `[system] mode` key. Nothing acted on it. A card that still has it counts one unknown key, and the `config` marker has no `mode=` field. The login screen now shows `SETTINGS: SOME VALUES IGNORED` on its last header row, so the notice no longer vanishes when the login replaces the first screen.
+- The `[system] mode` key. Nothing acted on it. A card that still has it counts one unknown key, and the `config` marker has no `mode=` field. The login screen now shows `SETTINGS: SOME VALUES IGNORED` on its last header row, so the notice no longer vanishes when the login replaces the first screen. The serial line gets it too, from the first login on.
 - The `MAIL` verb, its keywords and `SYS$HELP:MAIL.HLP`. It was never installed.
 - The `HOLOTAPE` verb's second parameter, an entry, which the reader cannot open.
 
