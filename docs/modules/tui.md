@@ -222,7 +222,7 @@ Errors: `PG_E_ARG` (-1), `PG_E_SPACE` (-2), `PG_E_RANGE` (-3, no such line).
 
 `src/tui/tuiscr.c` is the glue: the `menu` service, its screen and the `menu` maintenance command. It loads the files the model asks for from the user's home, runs each action and draws the layout. [ARCHITECTURE.md](../ARCHITECTURE.md#terminal-menu) describes when it opens, each action, its markers and its command.
 
-A user whose home holds `TERMINAL.CFG` gets the menu after the login. `RUN TERMINAL` opens it over the shell in close mode. Header `src/tui/tuiscr.h`: `menu_active()` and `menu_screen()`, any context.
+A user whose home holds `TERMINAL.CFG` gets the menu after the login. The file is read and parsed first. `tui_login_choice()` in `tui.c` holds the choice as a pure function: no file gives the shell, a good file the menu. A file that cannot be read, does not parse or has no visible entry is refused, `TUI_WHY_READ`, `TUI_WHY_SYNTAX` or `TUI_WHY_EMPTY`. A refused file gives the menu screen with its error, where BACK only logs out. A user with `SYSTEM` or `SECURITY` gets the shell with `%UOS-W-BADMENU` in its place. `tui_why_name()` names the reason for the `tui op=check` marker. `RUN TERMINAL` opens it over the shell in close mode. Header `src/tui/tuiscr.h`: `menu_active()` and `menu_screen()`, any context.
 
 ## Example content
 
