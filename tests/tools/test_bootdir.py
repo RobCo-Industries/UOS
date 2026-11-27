@@ -6,6 +6,7 @@ and nothing is downloaded. The folder must hold the files of the
 """
 import hashlib
 import os
+import sys
 import subprocess
 
 import pytest
@@ -163,3 +164,56 @@ def test_bootdir_refuses_a_folder_it_did_not_make(stand_ins, tmp_path):  # noqa:
     r = bootdir(build, files, dest, ok=False)
     assert "kernel.img" in r.stderr
     assert sorted(os.listdir(dest)) == ["kernel.img"]
+
+
+FIRMWARE = ("bootcode.bin", "start.elf", "fixup.dat")
+
+
+def sync(stage, dest, *args):
+    tool = os.path.join(ROOT, "tools", "syncbootdir.py")
+    return subprocess.run([sys.executable, "-I", tool, str(stage), str(dest), *args],
+                          stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+
+
+def test_firmware_0_leaves_the_firmware_alone(tmp_path):
+    """The firmware cannot be fetched offline: the tool runs on staged folders.
+    The names come from FIRMWARE_FILES in the Makefile, the list make passes."""
+    names = subprocess.run(["make", "-s", "-C", ROOT, "-p", "-n", "-f", "Makefile", "clean"],
+                           stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True).stdout
+    line = next(x for x in names.splitlines() if x.startswith("FIRMWARE_FILES :="))
+    assert tuple(line.split(":=", 1)[1].split()) == FIRMWARE
+    outside = [arg for n in FIRMWARE for arg in ("--outside", n)]
+
+    full, bare, dest = tmp_path / "full", tmp_path / "bare", tmp_path / "card"
+    for stage in (full, bare):
+        stage.mkdir()
+        (stage / "RETROS.IMG").write_bytes(b"image")
+    for n in FIRMWARE:
+        (full / n).write_bytes(n.encode())
+    assert sync(full, dest).returncode == 0
+    before = tree(dest)
+
+    for extra in ([], ["--clean"]):
+        r = sync(bare, dest, *outside, *extra)
+        assert r.returncode == 0, r.stderr
+        assert tree(dest) == before
+
+    # Without the option the firmware is stale, as before.
+    r = sync(bare, dest)
+    assert r.returncode == 1 and "bootcode.bin" in r.stderr
+
+
+def test_firmware_0_first_run_and_a_hand_copied_firmware(tmp_path):
+    bare, full, dest = tmp_path / "bare", tmp_path / "full", tmp_path / "card"
+    for stage in (bare, full):
+        stage.mkdir()
+        (stage / "RETROS.IMG").write_bytes(b"image")
+    for n in FIRMWARE:
+        (full / n).write_bytes(n.encode())
+    outside = [arg for n in FIRMWARE for arg in ("--outside", n)]
+    assert sync(bare, dest, *outside).returncode == 0
+    assert "bootcode" not in (dest / LIST).read_text()
+    (dest / "start.elf").write_bytes(b"by hand")
+    r = sync(full, dest)
+    assert r.returncode == 1 and "start.elf" in r.stderr
+    assert (dest / "start.elf").read_bytes() == b"by hand"

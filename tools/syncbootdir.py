@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Copy a staged card into the folder of `make bootdir`, safe for a card in use.
 
-  syncbootdir.py STAGE DIR [--clean] [--replace]
+  syncbootdir.py STAGE DIR [--clean] [--replace] [--outside NAME]...
 
 DIR/UOSBOOT.LST has one line per file a run wrote: the SHA-256 of the
 bytes written, two spaces and the path, as `shasum -a 256` prints it.
@@ -15,6 +15,8 @@ bytes written, two spaces and the path, as `shasum -a 256` prints it.
 - A file no run wrote that the stage does not hold is left alone.
 - A listed file the stage no longer holds stops the run. --clean
   removes it when its bytes match the record and keeps it otherwise.
+- A file named by --outside is left alone: never stale, never removed,
+  and its record stays. `make bootdir FIRMWARE=0` names the firmware.
 
 Every check comes before the first write. No folder is ever removed.
 Exit codes: 0 done, 1 stopped, 2 bad usage.
@@ -68,7 +70,10 @@ def main():
                     help="remove unchanged files an earlier run wrote that this run does not")
     ap.add_argument("--replace", action="store_true",
                     help="also replace files changed since the last run")
+    ap.add_argument("--outside", action="append", default=[], metavar="NAME",
+                    help="a file this run leaves alone, with its record")
     a = ap.parse_args()
+    outside = set(a.outside)
 
     if a.dir == "/dev" or a.dir.startswith("/dev/"):
         print("syncbootdir: refusing a device path: this tool writes a folder", file=sys.stderr)
@@ -93,12 +98,12 @@ def main():
     clash = {n for n in want & have if n not in rec}
     if clash:
         stop("files in DIR that no run wrote clash with files of this run", clash)
-    stale = {n for n in rec if n in have and n not in want}
+    stale = {n for n in rec if n in have and n not in want and n not in outside}
     if stale and not a.clean:
         stop("an earlier run wrote files this run does not; CLEAN=1 removes them", stale)
 
     changed = {n for n in (want | stale) & have if digest(d(n)) != rec[n]}
-    new_rec = {n: h for n, h in rec.items() if n in have}
+    new_rec = {n: h for n, h in rec.items() if n in have or n in outside}
 
     for n in sorted(stale):
         if n in changed:

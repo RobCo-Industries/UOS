@@ -263,6 +263,10 @@ endif
 # removes unchanged files an earlier run wrote that this run does not.
 # See docs/BUILD.md.
 BOOT_STAGE := $(BUILD)/bootstage
+# The firmware files, as FILES in the library's tools/fetch_firmware.sh
+# names them. The script gives no way to ask, so keep this in step.
+# With FIRMWARE=0 a run leaves them and their records alone.
+FIRMWARE_FILES := bootcode.bin start.elf fixup.dat
 
 .PHONY: bootdir
 bootdir:
@@ -275,7 +279,8 @@ bootdir:
 ifneq ($(FIRMWARE),0)
 	$(ROBCO_CORE)/tools/mkbootdir.sh $(RETROS_IMG) $(BOOT_STAGE) --kernel-name RETROS.IMG
 endif
-	$(PYTHON) -I tools/syncbootdir.py $(BOOT_STAGE) $(DIR) $(if $(filter 1,$(CLEAN)),--clean) $(if $(filter 1,$(REPLACE)),--replace)
+	$(PYTHON) -I tools/syncbootdir.py $(BOOT_STAGE) $(DIR) $(if $(filter 1,$(CLEAN)),--clean) $(if $(filter 1,$(REPLACE)),--replace) \
+	    $(if $(filter 0,$(FIRMWARE)),$(addprefix --outside ,$(FIRMWARE_FILES)))
 
 # Alone, a two-word image at 0x8000 jumps to UOS at its link address.
 $(BUILD)/tramp.img:

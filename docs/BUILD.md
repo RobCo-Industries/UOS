@@ -86,6 +86,7 @@ You can run `make bootdir` again with `DIR` set to the card itself, or to a copy
 - It stops when a file it would write is already there and no run wrote it, and names the file.
 - It stops when a file it wrote last time is no longer part of the card, such as `ROBCO/MAINT.SYS` after a run without `MAINT_SYS`. `CLEAN=1` removes that file if nobody changed it, and keeps it with a line if somebody did.
 - It never deletes or moves a folder, so home folders stay.
+- With `FIRMWARE=0` it leaves the firmware files alone. It does not stop on them, `CLEAN=1` does not remove them, and their lines stay in `UOSBOOT.LST`, so a later run with the firmware still knows them.
 
 | Variable | Effect |
 |---|---|
