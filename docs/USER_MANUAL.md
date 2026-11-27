@@ -56,7 +56,7 @@ This manual prints these passwords, so anyone can read them. Change them before 
 
 ### Buttons and the on-screen keyboard
 
-At `USERNAME:` or `PASSWORD:`, press F4 to open the on-screen keyboard over the bottom of the screen. It is meant for a terminal with buttons and no keyboard, but UOS does not read GPIO buttons yet, so today F4 is the only way to open it. That key does nothing else.
+The on-screen keyboard opens over the bottom of the screen when UOS reads a line, such as at `USERNAME:` or `PASSWORD:`. Any panel button opens it, or F4 on a keyboard. F4 does nothing else. One exception: BACK on an empty `USERNAME:` line starts the password game, see [Starting](#starting).
 
 - The arrow buttons move the highlight.
 - SELECT types the highlighted key.
@@ -228,7 +228,7 @@ The terminal keeps a maintenance view of its memory. With some patience you can 
 
 ### Starting
 
-At `USERNAME:`, leave the line empty and press F2. Close any other program first: over one, the game answers `CLOSE THE OPEN PROGRAM: THE GAME STARTS FROM THE LOGIN PROMPT.` The game needs a keyboard to start; once it runs, the arrow buttons and SELECT are enough.
+At `USERNAME:`, leave the line empty and press F2. Close any other program first: over one, the game answers `CLOSE THE OPEN PROGRAM: THE GAME STARTS FROM THE LOGIN PROMPT.` On a terminal with panel buttons, press BACK instead while the on-screen keyboard is closed. Any other button opens the keyboard. Once the game runs, the arrow buttons and SELECT are enough.
 
 ### What you see
 
