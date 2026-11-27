@@ -5,6 +5,7 @@ runs, the image restarts, and the third boot is a normal one."""
 
 import re
 import time
+from urllib.parse import unquote
 
 from uos import TIMEOUT, after_chain, answer, card_names, wait_ready
 from test_login import DEFAULT_USERS, login
@@ -102,7 +103,10 @@ def test_whole_chain_maintenance(board, chain_card, chain_images, need_mtools):
         t = marks(boot_text(vm, 2), "maint", "tool")
         assert len(t) == 1 and (t[0]["name"], t[0]["result"], t[0]["bad"], t[0]["writes"]) == \
             ("check_images", "ok", "0", "0"), t
-        scanned = {i["path"]: i["rc"] for i in marks(boot_text(vm, 2), "maint", "image")}
+        # A marker escapes a space as %20 and keeps the name's case. The
+        # card listing gives upper case.
+        scanned = {unquote(i["path"]).upper(): i["rc"]
+                   for i in marks(boot_text(vm, 2), "maint", "image")}
         assert scanned == {f"/ROBCO/{n}": "ok" for n in on_card}, scanned
         assert t[0]["images"] == str(len(on_card)), t
         answer(vm, "tool restart")
