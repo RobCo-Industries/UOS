@@ -27,6 +27,7 @@ A pure file has no hardware access, no kernel calls and no allocation. Its state
 | `src/kernel/timerq.c` | Timers in ticks, `uos_timer.h` |
 | `src/kernel/screen.c` | The screen stack, `uos_screen.h` |
 | `src/kernel/settings.c` | The `UOS.CFG` reader, `uos_settings.h` |
+| `src/kernel/buttons.c` | The six button pins and the `buttons` step's result, `uos_buttons.h` |
 | `src/kernel/bootlines.c` | The first screen's text, `bootlines.h` |
 | `src/kernel/maintreg.c` | The maintenance command table and its word splitting, `uos_maint.h` |
 | `src/kernel/service.c` | The rules that run the service table, `uos_service.h` |
@@ -73,10 +74,11 @@ Each step prints one marker, `@RC stage=uos ev=<name> ...`, in this order:
 | `screen` | `fb_init()` at 640x480x32 and `console_init()` on a cleared screen. The scheme comes from a trusted boot info, else green: `source=bootinfo` or `default`. |
 | `tick` | IRQs and the tick at 100 Hz. A failure panics. |
 | `heap` | The heap from `robco_heap_high()`, from `0x01000000` to the top of ARM memory |
-| `input` | The console backend and the maintenance port commands. GPIO is off for now. |
+| `input` | The console backend and the maintenance port commands. `gpio=later`: the `buttons` step starts the GPIO backend. |
 | `selfcheck` | `rimg_self_check()`, run first at entry and reported here. Information only. |
 | `mount` | The card by `fs_mount_boot()` with markers `/UOS/UOS.CFG` and `/ROBCO/UOS.SYS`, then the `/UOS` folder: `result=ok`, `none` or `notree` |
-| `config` | `UOS.CFG`: `result=ok`, `syntax`, `missing`, `skipped` or `bad`, with every setting and the counts. It has no `mode=` field: UOS reads no `mode` key |
+| `config` | `UOS.CFG`: `result=ok`, `syntax`, `missing`, `skipped` or `bad`, with every setting and the counts. It has no `mode=` field: UOS reads no `mode` key. Its last field is `buttons=<0\|1>`, the `[input] buttons` setting. |
+| `buttons` | The six panel buttons of `src/kernel/buttons.c`: UP 5, DOWN 6, LEFT 17, RIGHT 22, SELECT 26, BACK 27, active low with pull-ups and a 20 ms debounce. It calls `input_gpio_start()`, then sleeps in `wfi` until the library's 10-tick stuck-line guard ends, 30 ticks at most. `result=active`, `disabled_stuck`, `off`, `error` or `checking`, with `rc`, `setting`, `repeat` and `ticks`, the wait. Repeat, 500 ms then every 150 ms, runs only after `active`; `repeat` holds its code, else `none`. `off` touches no pin. `error` sets `error=buttons`. A plain QEMU boot drives no line, so it reads `disabled_stuck`. |
 | `rtc` | I2C and a DS1307 or DS3231 clock, if one answers |
 | `service` | One line per service, in table order: `name`, `rc`. See [Services](#services). |
 | `ready` | The first screen is drawn, or the login replaced it: `screen=first` or `screen=login` |
@@ -812,7 +814,7 @@ The word list is read with `vfs_sys_read_all()`: `/UOS/WORDS` is SYSTEM-only, an
 
 The `devices` service, in `src/dev/devglue.c`, applies `/UOS/DEVICES.CFG` to the GPIO pins. Its rules are pure, in `devcfg.c`, `devstate.c` and `devsplan.c`. Other services call `src/dev/devs.h`, prefix `devs_`. Nothing here is validated on real hardware.
 
-Init registers the `DEV:` hooks with the file system, then reads the file with `vfs_sys_read_all()`, at most 8 KiB. It parses it with `DV_REFUSED_UOS`. The library cannot say which pins its input layer claimed. When the input layer's GPIO backend runs, the service also refuses every button and dial pin; today that backend is off. Init then attaches each declared expander chip, sets every pin and starts the software watchdog. Its markers:
+Init registers the `DEV:` hooks with the file system, then reads the file with `vfs_sys_read_all()`, at most 8 KiB. It parses it with `DV_REFUSED_UOS`, whatever `[input] buttons` says: the six button pins are always refused, and pins 16, 23 and 24 stay free. Init then attaches each declared expander chip, sets every pin and starts the software watchdog. Its markers:
 
 | Marker | Meaning |
 |---|---|
@@ -835,7 +837,7 @@ Init registers the `DEV:` hooks with the file system, then reads the file with `
 
 The init markers come after `ev=service name=console` and before `ev=service name=devices`.
 
-The `dev` maintenance command: `dev list` gives `dev count=N`, the header and one status line per device. `dev set <name> <action> [privs]` runs a command with the privilege bits given, `SYSTEM` by default, and answers `dev name= state=` or `err <message>`. `dev rec` gives `rec count= total=`, then the pin record, oldest first. `dev hwdog` gives `hwdog running= timeout_ms= remaining_ms= held=` from the library's `wdog.h`. Test builds add `dev sense <name> <0|1>`, which replaces a sensor's pin read, `dev fail <name> <writes>`, which makes the next writes to a Pi pin fail, `dev hang`, which stops the kicks of both watchdogs, and `dev stall <ticks>`, which keeps the loop busy. QEMU cannot drive a Pi GPIO input from outside, and the library's harness has no way to inject a GPIO level, so the sensor tests use `dev sense`.
+The `dev` maintenance command: `dev list` gives `dev count=N`, the header and one status line per device. `dev set <name> <action> [privs]` runs a command with the privilege bits given, `SYSTEM` by default, and answers `dev name= state=` or `err <message>`. `dev rec` gives `rec count= total=`, then the pin record, oldest first. `dev hwdog` gives `hwdog running= timeout_ms= remaining_ms= held=` from the library's `wdog.h`. Test builds add `dev sense <name> <0|1>`, which replaces a sensor's pin read, `dev fail <name> <writes>`, which makes the next writes to a Pi pin fail, `dev hang`, which stops the kicks of both watchdogs, and `dev stall <ticks>`, which keeps the loop busy. The sensor tests use `dev sense`. The button tests drive real pin levels with the library's `harness.pigpio`.
 
 #### Ticks, pulses and sensors
 

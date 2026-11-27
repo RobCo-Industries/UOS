@@ -9,6 +9,7 @@ All notable changes to UOS are recorded here. The format follows [Keep a Changel
 - `docs/ADMIN_GUIDE.md` for the person who prepares the card, `docs/QUICK_REFERENCE.md`, and `docs/LORE.md`, which sets the in-world documents against the real system. Writing a menu moved from the user manual to the administrator guide.
 - `RUN HOLOTAPE` and the `HOLOTAPE` verb open the holotape reader; `HOLOTAPE <tape>` opens one tape. `RUN HACK` opens the password game's screen, which from a session shows the `busy` refusal. Both end the command at once, as `RUN TERMINAL` does.
 - `LOGIN <user>` ends the session and asks only for that user's password, with the login's retries and lockout.
+- UOS starts six GPIO buttons at boot: UP 5, DOWN 6, LEFT 17, RIGHT 22, SELECT 26 and BACK 27, active low with pull-ups and a 20 ms debounce. `UOS.CFG [input] buttons = off` turns them off. A new `buttons` boot step after `config` prints the result, and `SHOW SYSTEM` shows it. When every line reads pressed at boot, as in QEMU, UOS turns the buttons off until the next boot. The `input` marker now ends with `gpio=later`, and the `config` marker ends with `buttons=`. The six pins stay refused in `DEVICES.CFG` whatever the setting.
 
 ### Fixed
 
