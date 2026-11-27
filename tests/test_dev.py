@@ -365,6 +365,10 @@ type = light
 gpio = X0.1
 """
 CFGERR = "%DEVICE-W-CFGERR, DEVICES.CFG has 4 errors: the serial line names each"
+# K: the deverr markers name the first DV_MAX_ERRORS errors.
+DV_MAX_ERRORS = int(re.search(r"#define DV_MAX_ERRORS\s+(\d+)",
+                              open(os.path.join(os.path.dirname(__file__), "..", "src", "dev",
+                                                "dev.h")).read()).group(1))
 DEV_NOTICE = "DEVICES: SOME DEVICES REFUSED"
 
 
@@ -394,6 +398,48 @@ def test_bad_keys_refuse_the_section(board, hooks_image, need_mtools, tmp_path):
         assert not any(line.startswith("LIGHT1") for line in o), o
         assert any(line.startswith("GATE") for line in o), o
         assert o[-1] == CFGERR, o
+
+
+def show_devices_last(vm, rc="NORMAL"):
+    """Log in as ADMIN and give the last line of SHOW DEVICES before its end."""
+    from test_login import wait_user_prompt
+    from test_shell import expect, login, out
+
+    wait_user_prompt(vm)
+    login(vm, "ADMIN")
+    _, _, s = expect(vm, "SHOW DEVICES", rc)
+    o = [line for line in out(vm, s) if line.strip() and not line.strip().startswith("$")]
+    return o[-1] if rc == "NORMAL" else o[-2]
+
+
+def test_more_errors_than_markers(board, hooks_image, need_mtools, tmp_path):
+    """K + 1 bad sections: K deverr markers, and the CFGERR line says so.
+    One good device keeps SHOW DEVICES at NORMAL."""
+    from test_shell import shell_card
+
+    k = DV_MAX_ERRORS
+    cfg = b"".join(b"[device BAD%d]\ntype = light\ngpio = %d\nactve = low\n" % (i, 5 + i)
+                   for i in range(k + 1)) + b"[device GATE]\ntype = door\ngpio = 24\n"
+    with alone(hooks_image, board, shell_card(tmp_path, {CFG: cfg})) as vm:
+        wait_ready(vm)
+        assert one(vm, "devcfg")["errors"] == str(k + 1)
+        assert len(list(events(vm, "deverr"))) == k
+        assert show_devices_last(vm) == (
+            "%%DEVICE-W-CFGERR, DEVICES.CFG has %d errors: the serial line names the first %d"
+            % (k + 1, k))
+
+
+def test_unreadable_file(board, hooks_image, need_mtools, tmp_path):
+    """A file past the 8192-byte read limit cannot be read: no deverr marker,
+    no device, and SHOW DEVICES gives the CFGERR line before NODEV."""
+    from test_shell import shell_card
+
+    cfg = b"# padding\n" * 1000
+    with alone(hooks_image, board, shell_card(tmp_path, {CFG: cfg})) as vm:
+        wait_ready(vm)
+        assert one(vm, "devcfg")["result"] == "bad"
+        assert list(events(vm, "deverr")) == []
+        assert show_devices_last(vm, "NODEV") == "%DEVICE-W-CFGERR, DEVICES.CFG cannot be read"
 
 
 # QEMU's pca9554 model on the BSC1 bus, as in RobCo-Core's test_gpiox.py.

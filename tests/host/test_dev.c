@@ -533,6 +533,33 @@ TEST(cfg_summary)
     CHECK_EQ(dv_cfg_summary(NULL, buf, sizeof(buf)), DV_ERR_ARG);
 }
 
+TEST(cfg_err_tail)
+{
+    char buf[64];
+    char want[64];
+    char small[8];
+
+    CHECK(dv_cfg_err_tail(1, 1, buf, sizeof(buf)) > 0);
+    CHECK_STR(buf, "cannot be read");
+    CHECK(dv_cfg_err_tail(1, 0, buf, sizeof(buf)) > 0);
+    CHECK_STR(buf, "has 1 error: the serial line names it");
+    CHECK(dv_cfg_err_tail(2, 0, buf, sizeof(buf)) > 0);
+    CHECK_STR(buf, "has 2 errors: the serial line names each");
+    /* K, the last count the markers name in full. */
+    CHECK(dv_cfg_err_tail(DV_MAX_ERRORS, 0, buf, sizeof(buf)) > 0);
+    snprintf(want, sizeof(want), "has %u errors: the serial line names each",
+             (unsigned)DV_MAX_ERRORS);
+    CHECK_STR(buf, want);
+    /* K + 1, the first count the markers cut. */
+    CHECK(dv_cfg_err_tail(DV_MAX_ERRORS + 1, 0, buf, sizeof(buf)) > 0);
+    snprintf(want, sizeof(want), "has %u errors: the serial line names the first %u",
+             (unsigned)DV_MAX_ERRORS + 1, (unsigned)DV_MAX_ERRORS);
+    CHECK_STR(buf, want);
+    CHECK_EQ(dv_cfg_err_tail(2, 0, small, sizeof(small)), DV_ERR_SPACE);
+    CHECK_STR(small, "");
+    CHECK_EQ(dv_cfg_err_tail(2, 0, NULL, 4), DV_ERR_ARG);
+}
+
 /* ---- expander pins ---- */
 
 static const char *with_expanders =

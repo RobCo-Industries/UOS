@@ -225,7 +225,16 @@ UOS reports each problem on the serial line, one line per device or chip, such a
 When the file has errors, or cannot be read, two places say so:
 
 - The login screen shows `DEVICES: SOME DEVICES REFUSED` on its last header row.
-- `SHOW DEVICES` ends with `%DEVICE-W-CFGERR, DEVICES.CFG has N errors: the serial line names each`.
+- `SHOW DEVICES` ends with a `%DEVICE-W-CFGERR` line:
+
+| Case | Line |
+|---|---|
+| The file cannot be read | `%DEVICE-W-CFGERR, DEVICES.CFG cannot be read` |
+| One error | `%DEVICE-W-CFGERR, DEVICES.CFG has 1 error: the serial line names it` |
+| 2 to 8 errors | `%DEVICE-W-CFGERR, DEVICES.CFG has N errors: the serial line names each` |
+| More than 8 errors | `%DEVICE-W-CFGERR, DEVICES.CFG has N errors: the serial line names the first 8` |
+
+The serial line names at most 8 errors. A file that cannot be read gets no `deverr` line, only `devcfg result=bad`. A file over 8192 bytes cannot be read. When no device loads, `SHOW DEVICES` prints the line before `%UOS-E-NODEV`.
 
 A missing `DEVICES.CFG` loads no device and is not an error.
 

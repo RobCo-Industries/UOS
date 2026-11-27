@@ -627,3 +627,29 @@ const char *dv_type_name(unsigned type)
 {
     return type < DV_TYPE_COUNT ? dv_type_names[type] : "";
 }
+
+int dv_cfg_err_tail(unsigned count, int unreadable, char *buf, size_t size)
+{
+    int n;
+
+    if (buf == NULL) {
+        return DV_ERR_ARG;
+    }
+    if (unreadable) {
+        n = k_snprintf(buf, size, "cannot be read");
+    } else if (count == 1) {
+        n = k_snprintf(buf, size, "has 1 error: the serial line names it");
+    } else if (count <= DV_MAX_ERRORS) {
+        n = k_snprintf(buf, size, "has %u errors: the serial line names each", count);
+    } else {
+        n = k_snprintf(buf, size, "has %u errors: the serial line names the first %u", count,
+                       (unsigned)DV_MAX_ERRORS);
+    }
+    if (n < 0 || (size_t)n >= size) {
+        if (size > 0) {
+            buf[0] = '\0';
+        }
+        return DV_ERR_SPACE;
+    }
+    return n;
+}

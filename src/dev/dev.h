@@ -258,6 +258,14 @@ int dv_arm_ok(const dv_set_t *set);
  */
 int dv_cfg_summary(const dv_cfg_result_t *res, char *buf, size_t size);
 
+/*
+ * The tail of the CFGERR line after "DEVICES.CFG ": "cannot be read" when
+ * `unreadable`, else "has N errors" and what the serial line names. The
+ * deverr markers name the first DV_MAX_ERRORS errors. Length, DV_ERR_ARG
+ * or DV_ERR_SPACE, with `buf` set to "" when size > 0.
+ */
+int dv_cfg_err_tail(unsigned count, int unreadable, char *buf, size_t size);
+
 /* ---- devstate.c ---- */
 
 /* Sets every device off, no pulse pending, levels at the inactive level. */

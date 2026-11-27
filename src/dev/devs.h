@@ -40,6 +40,9 @@ unsigned devs_count(void);
  */
 unsigned devs_cfg_errors(void);
 
+/* 1 when DEVICES.CFG exists but could not be read, else 0. */
+int devs_cfg_unreadable(void);
+
 /* The SHOW DEVICES header line. Length, or DV_ERR_SPACE. Caller's buffer. */
 int devs_status_header(char *buf, size_t size);
 

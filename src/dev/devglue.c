@@ -593,6 +593,11 @@ unsigned devs_cfg_errors(void)
     return cfg_unread ? 1u : res.err_count;
 }
 
+int devs_cfg_unreadable(void)
+{
+    return cfg_unread;
+}
+
 int devs_status_header(char *buf, size_t size)
 {
     return dv_status_header(buf, size);

@@ -47,7 +47,7 @@ Keys are lower-case. Rules:
 
 `dv_cfg_summary()` formats the result for the `ev=config` marker: `loaded=4 skipped=0 unknown=0 ignored=0 errors=0 parse=0 warnings=0`.
 
-`devs_cfg_errors()` in `devglue.c` gives the error count of the last load, or 1 when the file exists and could not be read. A missing file gives 0. The login screen's notice and the last line of `SHOW DEVICES`, `%DEVICE-W-CFGERR`, read it.
+`devs_cfg_errors()` in `devglue.c` gives the error count of the last load, or 1 when the file exists and could not be read. A missing file gives 0. `devs_cfg_unreadable()` gives 1 when the file could not be read. The login screen's notice reads the count. The last line of `SHOW DEVICES`, `%DEVICE-W-CFGERR`, reads both, and `dv_cfg_err_tail()` in `devcfg.c` picks its text. Past `DV_MAX_ERRORS` errors, the text says the serial line names only the first `DV_MAX_ERRORS`, because `mark_cfg_lists()` prints no more `deverr` markers.
 
 ## Expander pins
 
