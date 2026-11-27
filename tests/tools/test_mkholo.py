@@ -175,13 +175,34 @@ def test_rimg_not_found(tmp_path):
     tool = tools / "mkholo.py"
     tool.write_bytes(open(os.path.join(ROOT, "tools", "mkholo.py"), "rb").read())
     env = {"PATH": os.environ.get("PATH", "")}
-    for args in (["list", "x"], ["check", "--rimg", str(tmp_path / "rimg.py"), "x"],
+    for args in (["list", "x"], ["check", "x"],
                  ["build", "--title", "t", "--out", "o", str(tmp_path)]):
         r = subprocess.run([sys.executable, str(tool), *args], capture_output=True, text=True,
                            env=env)
         assert r.returncode == mkholo.EX_RIMG
         assert r.stderr == ("mkholo: error: rimg.py not found: give --rimg, set ROBCO_CORE, "
                             "or run from a UOS checkout\n")
+
+
+def test_missing_rimg_option_does_not_fall_back(tmp_path):
+    # The checkout has the submodule, yet a typed --rimg path is never replaced.
+    missing = str(tmp_path / "nope" / "rimg.py")
+    env = {"PATH": os.environ.get("PATH", "")}
+    r = subprocess.run([sys.executable, os.path.join(ROOT, "tools", "mkholo.py"), "list",
+                        "--rimg", missing, os.path.join(CARD, "STORY.HTP")],
+                       capture_output=True, text=True, env=env)
+    assert r.returncode == mkholo.EX_RIMG
+    assert r.stderr == f"mkholo: error: --rimg {missing}: no such file\n"
+    assert r.stdout == ""
+
+
+def test_robco_core_without_rimg(tmp_path):
+    env = {"PATH": os.environ.get("PATH", ""), "ROBCO_CORE": str(tmp_path)}
+    r = subprocess.run([sys.executable, os.path.join(ROOT, "tools", "mkholo.py"), "list",
+                        os.path.join(CARD, "STORY.HTP")], capture_output=True, text=True, env=env)
+    assert r.returncode == mkholo.EX_RIMG
+    want = os.path.join(str(tmp_path), "tools", "rimg.py")
+    assert r.stderr == f"mkholo: error: ROBCO_CORE is set and {want} does not exist\n"
 
 
 def test_usage_shows_rimg_on_every_command():

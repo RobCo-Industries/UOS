@@ -10,9 +10,11 @@ non-blank line not starting with '#' is "FILE.TXT Entry title" and gives
 the order; every .TXT file must be listed. Without it, the first line of
 each file is the entry title and the rest is the body.
 
-The rimg layer comes from RobCo-Core's tools/rimg.py. Every command takes
-the first one found of --rimg, $ROBCO_CORE/tools/rimg.py, then
-external/robco-core/tools/rimg.py beside this tools/ folder. rimg.py seal and pack refuse data
+The rimg layer comes from RobCo-Core's tools/rimg.py. Every command uses
+--rimg if given, else $ROBCO_CORE/tools/rimg.py if ROBCO_CORE is set, else
+external/robco-core/tools/rimg.py beside this tools/ folder. A path given
+by --rimg or ROBCO_CORE that does not exist is an error, with no fallback.
+rimg.py seal and pack refuse data
 tapes because subtype 2 has no slot, so build reuses rimg.py's layout
 constants, title encoding and CRC and writes the header itself.
 
@@ -63,22 +65,31 @@ class TapeError(Exception):
 RIMG_NOT_FOUND = "rimg.py not found: give --rimg, set ROBCO_CORE, or run from a UOS checkout"
 
 
-def rimg_candidates(path):
-    found = []
+class RimgMissing(Exception):
+    pass
+
+
+def rimg_path(path=None):
+    """The rimg.py to load. A path the user gave is never replaced by another."""
     if path:
-        found.append(path)
+        if not os.path.isfile(path):
+            raise RimgMissing(f"--rimg {path}: no such file")
+        return path
     core = os.environ.get("ROBCO_CORE")
     if core:
-        found.append(os.path.join(core, "tools", "rimg.py"))
+        found = os.path.join(core, "tools", "rimg.py")
+        if not os.path.isfile(found):
+            raise RimgMissing(f"ROBCO_CORE is set and {found} does not exist")
+        return found
     here = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    found.append(os.path.join(here, "external", "robco-core", "tools", "rimg.py"))
+    found = os.path.join(here, "external", "robco-core", "tools", "rimg.py")
+    if not os.path.isfile(found):
+        raise RimgMissing(RIMG_NOT_FOUND)
     return found
 
 
 def load_rimg(path=None):
-    path = next((c for c in rimg_candidates(path) if os.path.isfile(c)), None)
-    if path is None:
-        raise FileNotFoundError(RIMG_NOT_FOUND)
+    path = rimg_path(path)
     spec = importlib.util.spec_from_file_location("rimg", path)
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
@@ -308,7 +319,7 @@ def main(argv=None):
 
     try:
         rimg = load_rimg(args.rimg)
-    except FileNotFoundError as e:
+    except RimgMissing as e:
         print(f"mkholo: error: {e}", file=sys.stderr)
         return EX_RIMG
 
