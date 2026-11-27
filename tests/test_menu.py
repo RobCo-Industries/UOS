@@ -2,7 +2,7 @@
 TERMINAL.CFG, the shell for one without; each entry type; nesting and BACK; an
 entry hidden by privileges; each failure leaves the menu usable; logout; the menu
 covered by another screen and shown again, with a held key across the change;
-RUN TERMINAL from the shell; one golden of the menu's text and its drawn frame."""
+RUN TERMINAL from the shell; a refused root file; one golden of the menu's text and its drawn frame."""
 
 import time
 
@@ -251,6 +251,62 @@ def test_login_gives_menu_or_shell(board, hooks_image, need_mtools, tmp_path):
         wait_marker(vm, "session screen=shell", 1)
         assert wait_marker(vm, "tui op=check user=GUEST", 1)["result"] == "shell"
         assert menu_state(vm)["state"] == "closed"
+
+
+def refused_card(tmp_path, text):
+    """ADMIN and OPER get the same root menu file `text`."""
+    files = card_tree({"/UOS/UOS.CFG": CFG})
+    for home in ("OPER", "ADMIN"):
+        files[f"/UOS/HOME/{home}/TERMINAL.CFG"] = text
+    return card(tmp_path, files)
+
+
+def test_refused_menu_file(board, hooks_image, need_mtools, tmp_path):
+    """A root menu file that does not parse: ADMIN, with SYSTEM, gets the shell
+    with the BADMENU line under the banner. OPER gets the menu screen with the
+    error and can only log out."""
+    line = "%UOS-W-BADMENU, TERMINAL.CFG does not parse at line 1: command line opened"
+    with alone(hooks_image, board, refused_card(tmp_path, b"[terminal\ntitle = x\n")) as vm:
+        wait_ready(vm)
+        wait_marker(vm, "login state=user", 1)
+        answer(vm, "sess login ADMIN")
+        wait_marker(vm, "session screen=shell", 1)
+        chk = wait_marker(vm, "tui op=check user=ADMIN", 1)
+        assert (chk["result"], chk["why"], chk["line"]) == ("shell", "syntax", "1"), chk
+        dump_until(vm, lambda r: any(row.strip() == line for row in r))
+        assert menu_state(vm)["state"] == "closed"
+        answer(vm, "sess logout")
+        wait_marker(vm, "login state=user", 2)
+        n = len(marks(vm, "session screen=menu"))
+        answer(vm, "sess login OPER")
+        wait_marker(vm, "session screen=menu", n + 1)
+        chk = wait_marker(vm, "tui op=check user=OPER", 1)
+        assert (chk["result"], chk["why"], chk["line"]) == ("menu", "syntax", "1"), chk
+        st = wait_menu(vm, state="menu", level="0")
+        assert st["count"] == "0", st
+        assert msg(vm) == "Bad menu file TERMINAL.CFG (line 1)"
+        answer(vm, "key select")
+        assert menu_state(vm)["state"] == "menu"
+        answer(vm, "key back")
+        wait_menu(vm, state="confirm")
+        answer(vm, "key select")
+        end = wait_marker(vm, "session state=end", 2)
+        assert (end["user"], end["reason"]) == ("OPER", "user"), end
+        wait_marker(vm, "login state=user", 3)
+        assert not marks(vm, "session screen=shell")[1:]
+
+
+def test_empty_menu_file(board, hooks_image, need_mtools, tmp_path):
+    """A root menu file with no entry: ADMIN gets the shell and why=empty."""
+    line = "%UOS-W-BADMENU, TERMINAL.CFG has no usable entry: command line opened"
+    with alone(hooks_image, board, refused_card(tmp_path, b"")) as vm:
+        wait_ready(vm)
+        wait_marker(vm, "login state=user", 1)
+        answer(vm, "sess login ADMIN")
+        wait_marker(vm, "session screen=shell", 1)
+        chk = wait_marker(vm, "tui op=check user=ADMIN", 1)
+        assert (chk["result"], chk["why"], chk["line"]) == ("shell", "empty", "0"), chk
+        dump_until(vm, lambda r: any(row.strip() == line for row in r))
 
 
 def test_each_entry_type(board, hooks_image, need_mtools, tmp_path):

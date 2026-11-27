@@ -592,3 +592,64 @@ TEST(tui_names)
     CHECK_STR(tui_state_name(TUI_ST_DONE), "done");
     CHECK_STR(tui_state_name(9), "?");
 }
+
+/* ---- The choice at login ---- */
+
+/* Every row of the table for one privilege mask. `admin`: SYSTEM or
+ * SECURITY, which opens the shell for a refused file. */
+static void login_rows(uint32_t privs, int admin)
+{
+    int why = -1;
+
+    /* No file: the shell, nothing refused. */
+    CHECK_EQ(tui_login_choice(0, 0, TUI_OK, 0, privs, &why), TUI_OPEN_SHELL);
+    CHECK_EQ(why, TUI_WHY_NONE);
+    /* A good file: the menu. */
+    CHECK_EQ(tui_login_choice(1, 1, TUI_OK, 3, privs, &why), TUI_OPEN_MENU);
+    CHECK_EQ(why, TUI_WHY_NONE);
+    /* A file that cannot be read. */
+    CHECK_EQ(tui_login_choice(1, 0, TUI_OK, 0, privs, &why),
+             admin ? TUI_OPEN_SHELL : TUI_OPEN_MENU);
+    CHECK_EQ(why, TUI_WHY_READ);
+    /* A file that does not parse. */
+    CHECK_EQ(tui_login_choice(1, 1, TUI_E_SYNTAX, 0, privs, &why),
+             admin ? TUI_OPEN_SHELL : TUI_OPEN_MENU);
+    CHECK_EQ(why, TUI_WHY_SYNTAX);
+    /* A file with no entry this user can see. */
+    CHECK_EQ(tui_login_choice(1, 1, TUI_OK, 0, privs, &why),
+             admin ? TUI_OPEN_SHELL : TUI_OPEN_MENU);
+    CHECK_EQ(why, TUI_WHY_EMPTY);
+}
+
+TEST(login_choice_no_privilege)
+{
+    login_rows(0, 0);
+}
+
+TEST(login_choice_oper)
+{
+    login_rows(UOS_PRIV_OPER, 0);
+    login_rows(UOS_PRIV_OPER | UOS_PRIV_READALL, 0);
+}
+
+TEST(login_choice_security)
+{
+    login_rows(UOS_PRIV_SECURITY, 1);
+}
+
+TEST(login_choice_system)
+{
+    login_rows(UOS_PRIV_SYSTEM, 1);
+    login_rows(UOS_PRIV_ALL, 1);
+}
+
+TEST(login_choice_why_may_be_null)
+{
+    CHECK_EQ(tui_login_choice(1, 1, TUI_E_SYNTAX, 0, 0, NULL), TUI_OPEN_MENU);
+    CHECK_STR(tui_why_name(TUI_WHY_NONE), "none");
+    CHECK_STR(tui_why_name(TUI_WHY_READ), "read");
+    CHECK_STR(tui_why_name(TUI_WHY_SYNTAX), "syntax");
+    CHECK_STR(tui_why_name(TUI_WHY_EMPTY), "empty");
+    CHECK_STR(tui_why_name(-1), "?");
+    CHECK_STR(tui_why_name(TUI_WHY_EMPTY + 1), "?");
+}
