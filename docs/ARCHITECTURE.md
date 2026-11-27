@@ -76,7 +76,7 @@ Each step prints one marker, `@RC stage=uos ev=<name> ...`, in this order:
 | `input` | The console backend and the maintenance port commands. GPIO is off for now. |
 | `selfcheck` | `rimg_self_check()`, run first at entry and reported here. Information only. |
 | `mount` | The card by `fs_mount_boot()` with markers `/UOS/UOS.CFG` and `/ROBCO/UOS.SYS`, then the `/UOS` folder: `result=ok`, `none` or `notree` |
-| `config` | `UOS.CFG`: `result=ok`, `syntax`, `missing`, `skipped` or `bad`, with every setting and the counts |
+| `config` | `UOS.CFG`: `result=ok`, `syntax`, `missing`, `skipped` or `bad`, with every setting and the counts. It has no `mode=` field: UOS reads no `mode` key |
 | `rtc` | I2C and a DS1307 or DS3231 clock, if one answers |
 | `service` | One line per service, in table order: `name`, `rc`. See [Services](#services). |
 | `ready` | The first screen is drawn, or the login replaced it: `screen=first` or `screen=login` |

@@ -24,7 +24,6 @@ System settings. Every key is optional. Section and key names, and the word valu
 [system]
 name = ROBCO TERMINAL
 scheme = green
-mode = shell
 
 [login]
 retries = 3
@@ -47,7 +46,6 @@ timeout_ms = 8000
 |---|---|---|---|
 | `system` | `name` | 1 to 31 printable ASCII characters | `ROBCO TERMINAL` |
 | `system` | `scheme` | `green`, `amber`, `blue` or `white`. Applies only when the boot info gave no scheme. | unset |
-| `system` | `mode` | `shell` or `terminal` | `shell` |
 | `login` | `retries` | 1 to 9 | 3 |
 | `login` | `lockout_s` | 0 to 3600 | 30 |
 | `login` | `idle_s` | 0 to 86400 seconds with no key before a session ends, 0 for never | 0 |

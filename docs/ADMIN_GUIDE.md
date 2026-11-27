@@ -342,7 +342,6 @@ A `TERMINAL.CFG` that exists but does not parse still replaces the command line 
 |---|---|---|---|
 | `system` | `name` | `ROBCO TERMINAL` | The terminal's name on the login and menu screens |
 | `system` | `scheme` | unset | `green`, `amber`, `blue` or `white`, when the boot stage passed no colour |
-| `system` | `mode` | `shell` | `shell` or `terminal`. Read and reported, but nothing acts on it yet. |
 | `login` | `retries` | 3 | Failed logins before the lock, 1 to 9 |
 | `login` | `lockout_s` | 30 | Seconds of lock, 0 to 3600 |
 | `login` | `idle_s` | 0 | Seconds with no key before a session ends, 0 for never |
@@ -354,7 +353,7 @@ A `TERMINAL.CFG` that exists but does not parse still replaces the command line 
 | `watchdog` | `enabled` | off | The hardware watchdog. Keep it off in QEMU. |
 | `watchdog` | `timeout_ms` | 8000 | 1000 to 15000 |
 
-A bad value keeps the default. A number out of range is brought to the nearest limit. A line that does not parse stops the reader, and the keys before it apply. In each of these cases, and for an unknown key, the first screen shows `SETTINGS: SOME VALUES IGNORED`. With a working user file the login soon replaces that screen, so read the `config` marker on the serial line too. A missing file uses every default.
+A bad value keeps the default. A number out of range is brought to the nearest limit. A line that does not parse stops the reader, and the keys before it apply. In each of these cases, and for an unknown key, the first screen and the login screen show `SETTINGS: SOME VALUES IGNORED`. The serial line's `config` marker counts each kind. An old card that still has `mode = shell` counts one unknown key: delete the line. A missing file uses every default.
 
 ## Maintenance
 
@@ -388,7 +387,7 @@ At boot and at the login:
 |---|---|---|
 | `CARD: NO CARD. INSERT A CARD AND RESTART.` | No card | Insert the card, restart |
 | `CARD: NO /UOS FOLDER. SYSTEM FILES ARE MISSING.` | A card without `/UOS` | Copy the `card/` tree onto it |
-| `SETTINGS: SOME VALUES IGNORED` | `UOS.CFG` has a bad, unknown or out-of-range value, or a bad line | Fix the file. The serial line's `config` marker counts each kind. The login hides this screen when it starts. |
+| `SETTINGS: SOME VALUES IGNORED` | `UOS.CFG` has a bad, unknown or out-of-range value, or a bad line | Fix the file. The serial line's `config` marker counts each kind. The login screen keeps the line in its header. |
 | `USER DATABASE MISSING. NO ONE CAN LOG IN.` | No `/UOS/SYSUAF.DAT` | Copy the file back, press F4 |
 | `USER DATABASE DAMAGED (<WHY>). NO ONE CAN LOG IN.` | The file does not load. `<WHY>` names the check, such as `CRC` | Copy a good file back, press F4 |
 | `LOGIN IS NOT AVAILABLE WITHOUT A UOS CARD.` | No card | Insert the card, press F4 |
