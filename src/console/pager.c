@@ -12,6 +12,7 @@
 
 #include "conint.h"
 #include "conview.h"
+#include "sfx.h"
 #include "tui.h"
 #include "uos.h"
 
@@ -113,6 +114,7 @@ static int pv_event(uos_screen_t *s, const uos_event_t *ev)
         return 1;
     }
     if (pv.pg.top != top) {
+        uos_sfx_scroll();
         report();
         uos_screen_invalidate();
     }

@@ -23,6 +23,8 @@
 #include "con.h"
 #include "devs.h"
 #include "sessint.h"
+#include "sfx.h"
+#include "sfxrules.h"
 
 /* Rows of the login screen. */
 #define ROW_MSG         LG_HEADER_ROWS
@@ -287,6 +289,7 @@ static void check_done(void)
                  lk_tries_left(&sess.lk), (unsigned)steps, ticks, us, (unsigned)chk_maxstep_us);
         sess.typed[0] = '\0';
         sess.msg_text[0] = '\0';
+        uos_sfx(UOS_SFX_ID_PASS_GOOD);
         sess_go(LG_E_GOOD);
         return;
     }
@@ -301,6 +304,7 @@ static void check_done(void)
     UOS_MARK("login user=%s result=bad left=%u steps=%u ticks=%u us=%u maxstep_us=%u", name,
              lk_tries_left(&sess.lk), (unsigned)steps, ticks, us, (unsigned)chk_maxstep_us);
     sess.typed[0] = '\0';
+    uos_sfx(UOS_SFX_ID_PASS_BAD);
     if (locked) {
         sess_go(LG_E_BAD_LOCKED);
         return;

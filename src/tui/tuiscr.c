@@ -40,6 +40,7 @@
 #include "holofmt.h"
 #include "holoscr.h"
 #include "sess.h"
+#include "sfx.h"
 #include "sh.h"
 #include "tui.h"
 #include "tuiscr.h"
@@ -538,7 +539,14 @@ static int menu_event(uos_screen_t *s, const uos_event_t *ev)
     }
     k = tui_map_key(ev->type == UOS_EV_CHAR, ev->code, ev->value == INPUT_REPEAT);
     if (k != 0) {
-        serve(tui_key(&tm, k));
+        const tui_level_t *l = level();
+        uint8_t sel = l != NULL ? l->sel : 0;
+        int act = tui_key(&tm, k);
+
+        if (l != NULL && level() == l && l->sel != sel) {
+            uos_sfx_scroll();
+        }
+        serve(act);
     }
     return 1;
 }

@@ -38,6 +38,7 @@
 #include "hackscr.h"
 #include "hackui.h"
 #include "login.h"
+#include "sfx.h"
 #include "sess.h"
 #include "sh.h"
 #include "uos.h"
@@ -315,6 +316,8 @@ static void do_select(void)
     default:
         return;
     }
+    /* One event, one sound: the result, or a key click for a bracket. */
+    uos_sfx_hack(ev);
     if (ev == HK_EV_WIN) {
         hg.st = hg_next(hg.st, HG_E_WIN);
         UOS_MARK("hack op=end result=won");
@@ -343,7 +346,12 @@ static void do_key(hg_key_t k, hk_dir_t dir)
         return;
     }
     if (k == HG_K_MOVE) {
+        uint16_t was = game.cursor;
+
         hk_move(&game, dir);
+        if (game.cursor != was) {
+            uos_sfx_scroll();
+        }
         uos_screen_invalidate();
     } else if (k == HG_K_SELECT) {
         do_select();
