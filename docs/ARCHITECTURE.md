@@ -930,7 +930,7 @@ The tick has 4 callback slots. With everything on, UOS takes all 4: the GPIO but
 
 All sounds are original synthesis from the parameters in `src/sfx/sfx_models.json`. The library's `tools/sfx_table.py` renders that model into `src/sfx/sfx_table.c` and `sfx_table.h`: one 8-bit table per sound at 37500 Hz, with its length, peak and CRC-32. Both files are committed. `make sfx-table` writes them, and `make sfx-table-check`, which every build runs first, stops the build when the model changed and the table did not. The model holds six sounds. Five of them play now; the fan does not.
 
-`uos_sfx(id)` plays one table with `audio_play_pcm()` at 37500 Hz and `AUDIO_PRIORITY`, so a new sound replaces the one that plays. It never blocks. With the sound off it does nothing, and a play the driver refuses is dropped. A new play starts at the next tick, so two keys within 10 ms give one play.
+`uos_sfx(id)` plays one table with `audio_play_pcm()` at 37500 Hz and `AUDIO_PRIORITY`, so a new sound replaces the one that plays. It never blocks. With the sound off it does nothing, and a play the driver refuses is dropped. A new play starts at the next tick, so two keys within 10 ms give one play. A priority play also replaces one that still waits for its tick, so the service ranks its sounds: the password sounds first, then `char_scroll`, then the key sounds. In the tick of a waiting play, a lower rank is dropped and the same or a higher rank replaces it, so a key never erases a result sound.
 
 A key the line editor takes plays a key sound: a typed character, a deletion, a cursor move and Enter. A key it ignores, a cancel and an on-screen keyboard move play nothing. The keys come from the serial line, the panel buttons, the maintenance port and the on-screen keyboard alike, and one event plays at most one sound. The read screen in `src/console/readline.c` calls `uos_sfx_key()`.
 
@@ -951,7 +951,7 @@ The other sounds have these triggers:
 
 A SELECT in the game plays one sound only, by `sfx_hack_sound()` in `src/sfx/sfxrules.c`. A SELECT that changes nothing plays nothing. At the login, Enter plays its key sound when the line editor takes it, and the result sound plays later, when the check ends; it replaces the click if that still plays. A move at an edge that moves nothing plays nothing. The menu's `menu pick` command moves the selection without a sound.
 
-`char_scroll` starts at most once per 30 ms, so a held arrow key does not smear. `uos_sfx_scroll()` feeds the pure rule `sfx_gap_pass()` with the tick clock `tick_ms()`, which wraps at 2^32 ms: only the difference counts. The audio trace stamps its `t_ms` from the same clock when the play starts, at the next tick.
+`char_scroll` starts at most once per 30 ms, so a held arrow key does not smear. `uos_sfx_scroll()` asks the pure rule `sfx_gap_open()` with the tick clock `tick_ms()` and calls `sfx_gap_mark()` only when the driver took the tick, which wraps at 2^32 ms: only the difference counts. The audio trace stamps its `t_ms` from the same clock when the play starts, at the next tick.
 
 One sound plays at a time, and a loop sits under it later. The loudest one-shot plus the loudest loop stays within 127 steps of the midpoint: `tests/host/test_sfx.c` checks it from the header.
 

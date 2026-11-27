@@ -251,6 +251,50 @@ TEST(sfx_gap_wraps)
     CHECK_EQ(sfx_gap_pass(&g, 0x0000001eu), 1);     /* 31 ms */
 }
 
+/* A char_scroll the lane drops does not start the gap: a move one tick
+ * later sounds. One that played starts it. */
+TEST(sfx_gap_dropped_scroll)
+{
+    sfx_gap_t g;
+    sfx_lane_t l;
+
+    sfx_gap_init(&g);
+    sfx_lane_init(&l);
+    sfx_lane_took(&l, UOS_SFX_ID_PASS_GOOD, 7);
+    /* Tick 7 at 70 ms: the result waits, the scroll is dropped. */
+    CHECK_EQ(sfx_gap_open(&g, 70), 1);
+    CHECK_EQ(sfx_lane_may(&l, UOS_SFX_ID_CHAR_SCROLL, 7), 0);
+    /* Tick 8 at 80 ms: nothing stands in the way. */
+    CHECK_EQ(sfx_gap_open(&g, 80), 1);
+    CHECK_EQ(sfx_lane_may(&l, UOS_SFX_ID_CHAR_SCROLL, 8), 1);
+    sfx_lane_took(&l, UOS_SFX_ID_CHAR_SCROLL, 8);
+    sfx_gap_mark(&g, 80);
+    CHECK_EQ(sfx_gap_open(&g, 90), 0);
+    CHECK_EQ(sfx_gap_open(&g, 109), 0);
+    CHECK_EQ(sfx_gap_open(&g, 110), 1);
+}
+
+/* A peek does not step the pick: a dropped key keeps the order of the
+ * keys that sound. */
+TEST(sfx_pick_dropped_key)
+{
+    sfx_pick_t p;
+    char got[sizeof(PICKS)];
+    unsigned i;
+
+    sfx_pick_init(&p);
+    for (i = 0; i < sizeof(PICKS) - 1; i++) {
+        unsigned id = sfx_pick_peek(&p);
+
+        /* A dropped key: peeked twice, never taken. */
+        CHECK_EQ(sfx_pick_peek(&p), id);
+        sfx_pick_take(&p);
+        got[i] = id == UOS_SFX_ID_KEY_A ? 'a' : 'b';
+    }
+    got[i] = 0;
+    CHECK_STR(got, PICKS);
+}
+
 /* One SELECT, one sound. */
 TEST(sfx_hack_one_sound)
 {
@@ -264,4 +308,85 @@ TEST(sfx_hack_one_sound)
     /* The two markers are not sound ids. */
     CHECK(sfx_sound(UOS_SFX_PICK_KEY) == NULL);
     CHECK(sfx_sound(UOS_SFX_NONE) == NULL);
+}
+
+/* Each rank against each other, both ways, in one tick and the next. */
+TEST(sfx_rank_pairs)
+{
+    static const unsigned ids[] = { UOS_SFX_ID_KEY_A, UOS_SFX_ID_CHAR_SCROLL,
+                                    UOS_SFX_ID_PASS_BAD };
+    sfx_lane_t l;
+    unsigned a, b;
+
+    CHECK_EQ(sfx_rank(UOS_SFX_ID_KEY_A), SFX_RANK_KEY);
+    CHECK_EQ(sfx_rank(UOS_SFX_ID_KEY_B), SFX_RANK_KEY);
+    CHECK_EQ(sfx_rank(UOS_SFX_ID_CHAR_SCROLL), SFX_RANK_SCROLL);
+    CHECK_EQ(sfx_rank(UOS_SFX_ID_PASS_GOOD), SFX_RANK_RESULT);
+    CHECK_EQ(sfx_rank(UOS_SFX_ID_PASS_BAD), SFX_RANK_RESULT);
+    for (a = 0; a < 3; a++) {
+        for (b = 0; b < 3; b++) {
+            sfx_lane_init(&l);
+            CHECK_EQ(sfx_lane_may(&l, ids[a], 7), 1);
+            sfx_lane_took(&l, ids[a], 7);
+            /* Same tick: the first still waits; only the same or a higher rank replaces it. */
+            CHECK_EQ(sfx_lane_may(&l, ids[b], 7), b >= a);
+            /* A tick later it plays, and any sound replaces it. */
+            CHECK_EQ(sfx_lane_may(&l, ids[b], 8), 1);
+        }
+    }
+}
+
+/*
+ * A model of the library: one play waits for the tick, a new ask replaces
+ * it, and the tick starts it and traces it. The service asks through the
+ * lane, as uos_sfx() does.
+ */
+static unsigned drv_wait;
+static int drv_has;
+static unsigned drv_trace[8];
+static unsigned drv_n;
+static uint32_t drv_tick;
+
+static void drv_ask(sfx_lane_t *l, unsigned id)
+{
+    if (!sfx_lane_may(l, id, drv_tick)) {
+        return;
+    }
+    drv_wait = id;
+    drv_has = 1;
+    sfx_lane_took(l, id, drv_tick);
+}
+
+static void drv_run_tick(void)
+{
+    drv_tick++;
+    if (drv_has && drv_n < 8) {
+        drv_trace[drv_n++] = drv_wait;
+    }
+    drv_has = 0;
+}
+
+/* Enter at a login: a key sound and the result in one tick, either order. */
+TEST(sfx_result_wins_one_tick)
+{
+    sfx_lane_t l;
+
+    sfx_lane_init(&l);
+    drv_n = 0;
+    drv_has = 0;
+    drv_tick = 100;
+    drv_ask(&l, UOS_SFX_ID_KEY_B);
+    drv_ask(&l, UOS_SFX_ID_PASS_BAD);
+    drv_run_tick();
+    drv_ask(&l, UOS_SFX_ID_PASS_GOOD);
+    drv_ask(&l, UOS_SFX_ID_KEY_A);
+    drv_ask(&l, UOS_SFX_ID_CHAR_SCROLL);
+    drv_run_tick();
+    /* A key the next tick replaces the result that plays: one voice. */
+    drv_ask(&l, UOS_SFX_ID_KEY_A);
+    drv_run_tick();
+    CHECK_EQ(drv_n, 3);
+    CHECK_EQ(drv_trace[0], UOS_SFX_ID_PASS_BAD);
+    CHECK_EQ(drv_trace[1], UOS_SFX_ID_PASS_GOOD);
+    CHECK_EQ(drv_trace[2], UOS_SFX_ID_KEY_A);
 }
