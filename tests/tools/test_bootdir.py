@@ -88,6 +88,16 @@ def test_bootdir_needs_the_chain(stand_ins, tmp_path, drop):  # noqa: F811
     assert not dest.exists()
 
 
+def test_bootdir_dir_with_a_space(stand_ins, tmp_path):  # noqa: F811
+    build, files = stand_ins
+    dest = tmp_path / "UOS CARD"
+    bootdir(build, files, dest)
+    got = tree(dest)
+    assert got["ROBCO/UOS.SYS"] == files["UOS.SYS"].read_bytes()
+    assert LIST in got
+    assert sorted(os.listdir(tmp_path)).count("UOS") == 0
+
+
 def listed(dest):
     return {line.split("  ", 1)[1] for line in (dest / LIST).read_text().splitlines()}
 

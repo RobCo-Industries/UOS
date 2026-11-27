@@ -261,6 +261,8 @@ endif
 # replaces files nobody changed, keeps changed ones unless REPLACE=1,
 # leaves the terminal's own files alone and stops on a clash. CLEAN=1
 # removes unchanged files an earlier run wrote that this run does not.
+# DIR may hold spaces, as a mounted card often does: the recipe quotes it
+# and passes it through no make function that splits words.
 # See docs/BUILD.md.
 BOOT_STAGE := $(BUILD)/bootstage
 # The firmware files, as FILES in the library's tools/fetch_firmware.sh
@@ -279,7 +281,7 @@ bootdir:
 ifneq ($(FIRMWARE),0)
 	$(ROBCO_CORE)/tools/mkbootdir.sh $(RETROS_IMG) $(BOOT_STAGE) --kernel-name RETROS.IMG
 endif
-	$(PYTHON) -I tools/syncbootdir.py $(BOOT_STAGE) $(DIR) $(if $(filter 1,$(CLEAN)),--clean) $(if $(filter 1,$(REPLACE)),--replace) \
+	$(PYTHON) -I tools/syncbootdir.py $(BOOT_STAGE) "$(DIR)" $(if $(filter 1,$(CLEAN)),--clean) $(if $(filter 1,$(REPLACE)),--replace) \
 	    $(if $(filter 0,$(FIRMWARE)),$(addprefix --outside ,$(FIRMWARE_FILES)))
 
 # Alone, a two-word image at 0x8000 jumps to UOS at its link address.
