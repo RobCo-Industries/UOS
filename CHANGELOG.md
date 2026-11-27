@@ -6,6 +6,7 @@ All notable changes to UOS are recorded here. The format follows [Keep a Changel
 
 ### Added
 
+- `tests/test_chain_maint.py` walks the maintenance road on the chain card: UOS asks, the boot agent starts the real maintenance image, a tool runs, and the next boot is a normal one.
 - The chain card for the nightly run. `make sdimage CHAIN=1` takes `MAINT_SYS` and `DIAG_SYS`, copied to `/ROBCO/MAINT.SYS` and `/ROBCO/DIAG.SYS`, and `BOOT_CFG`, a file that replaces the one-entry `BOOT.CFG`. The tests take `--chain-card`, with `ROBCO_CHAIN_CARD` as its default, and a `chain_card` fixture that copies the card or skips. `after_chain()` takes `qtest=`. `tests/tools/test_chain_card.py` checks the card from stand-in files.
 - `tests/test_chain_terminal.py`, a whole-chain test on the chain card: one boot through RETROS-BIOS, MFBootAgent and UOS, then GUEST, ADMIN and OPER each log in and use the shell, a device and the menu.
 - `check-pins` now runs `make check-workflows`, the library's workflow guard, so CI runs it in `test-host`. The target itself comes from the library's `mk/robco.mk`.
