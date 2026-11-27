@@ -167,7 +167,7 @@ $(VENV)/.installed: $(ROBCO_CORE)/tests/requirements.txt
 
 BOARD ?= all
 
-.PHONY: test test-target test-tools check-pins check-doc-links check-workflows
+.PHONY: test test-target test-tools check-pins check-doc-links
 test: test-host
 	$(MAKE) test-target
 
@@ -195,14 +195,8 @@ DOC_ROOT ?= .
 check-pins: check-doc-links check-workflows
 	$(ROBCO_CORE)/tools/check_pins.sh .github/workflows/ci.yml
 
-# WORKFLOW_DIR: the folder whose workflow files check-workflows reads.
-WORKFLOW_DIR ?= .github/workflows
-
-# The library's guard: no ${{ }} inside a run: block, and every action or
-# reusable workflow pinned by a full commit.
-check-workflows:
-	$(PYTHON) -I $(ROBCO_CORE)/tools/check_workflow_exprs.py \
-	    $(wildcard $(WORKFLOW_DIR)/*.yml $(WORKFLOW_DIR)/*.yaml)
+# check-workflows comes from the library's mk/robco.mk: no ${{ }} inside a
+# run: block, and every action or reusable workflow pinned by a full commit.
 
 check-doc-links:
 	$(ROBCO_CORE)/tools/check_doc_links.sh $(DOC_ROOT) external/robco-core

@@ -6,7 +6,7 @@ All notable changes to UOS are recorded here. The format follows [Keep a Changel
 
 ### Added
 
-- `make check-workflows` runs the library's workflow guard on every workflow file. `check-pins` runs it, so CI runs it in `test-host`.
+- `check-pins` now runs `make check-workflows`, the library's workflow guard, so CI runs it in `test-host`. The target itself comes from the library's `mk/robco.mk`.
 - The fan. With `[audio] sound = on` and `fan = on` a quiet fan loops under the other sounds. Each sound over it plays a head, the sound mixed with the fan's first bytes, then the rest of the fan. The heads take 21 877 bytes of RAM. The service's poll keeps the fan going every 500 ms. With `fan = off` nothing changes. `make sfx-preview` now renders the session over the fan.
 
 - `make sfx-preview` renders a session's sounds into `build/sfx_preview.wav`. QEMU has no sound, so this is how they get heard before a board. It boots a card with the sound and the trace on, logs in after a wrong password, types one command, moves down OPER's menu, plays the password game and renders the log with the library's `tools/audio_preview.py`. It stops on a missing log, any warning of the tool or a silent WAV.
