@@ -15,7 +15,13 @@
 #                             MAINT_SYS=... DIAG_SYS=... add the boot agent's
 #                             maintenance and diagnostics images, and
 #                             BOOT_CFG=<file> replaces the chain's BOOT.CFG
-#   make run BOARD=raspi2b    boot build/sd.img in QEMU on this terminal
+#   make bootdir DIR=<path> RETROS_IMG=... MFBOOT_SYS=...
+#                             the files of a real card for the whole chain,
+#                             with the Pi firmware unless FIRMWARE=0.
+#                             MAINT_SYS, DIAG_SYS and BOOT_CFG as for sdimage;
+#                             CLEAN=1 removes unchanged files of an earlier run,
+#                             REPLACE=1 replaces files changed since
+#   make run BOARD=raspi2b   boot build/sd.img in QEMU on this terminal
 #                             (WINDOW=1 also opens the display window)
 #   make check-pins           CI workflow pins and doc links match the submodule,
 #                             then check-workflows
@@ -246,6 +252,51 @@ else
 	printf '$(CHAIN_CFG)' > $(SDIMAGE_STAGE)/ROBCO/BOOT.CFG
 endif
 endif
+
+# `make bootdir DIR=<path>` writes the files of a real card for the whole
+# chain into a folder: the stage of `make sdimage CHAIN=1`, so the same
+# files, plus the Pi firmware from the library's mkbootdir.sh. FIRMWARE=0
+# leaves the firmware out. It never writes a device. tools/syncbootdir.py
+# keeps DIR/UOSBOOT.LST, each file a run wrote with its hash. A re-run
+# replaces files nobody changed, keeps changed ones unless REPLACE=1,
+# leaves the terminal's own files alone and stops on a clash. A changed
+# file never stops a run and keeps its record. CLEAN=1 removes unchanged
+# files an earlier run wrote that this run does not.
+# It stops on a symbolic link inside DIR and never writes through one.
+# Names compare without regard to case, as on a FAT32 card.
+# It first refuses a DIR that is, is inside or holds SDIMAGE_STAGE or
+# BOOT_STAGE, the folders the recipe clears.
+# Each file goes to UOSBOOT.TMP beside it first, then into place, so a
+# failed copy damages nothing and the next run finishes the update.
+# DIR may hold spaces, as a mounted card often does: the recipe quotes it
+# and passes it through no make function that splits words.
+# See docs/BUILD.md.
+BOOT_STAGE := $(BUILD)/bootstage
+# The firmware files, as FILES in the library's tools/fetch_firmware.sh
+# names them. The script gives no way to ask, so keep this in step.
+# With FIRMWARE=0 a run leaves them and their records alone.
+FIRMWARE_FILES := bootcode.bin start.elf fixup.dat
+
+# The recipe reads DIR from the environment, so a space, a quote or a
+# dollar sign in the path reaches the tool as it was typed. $(value ...)
+# takes the text make was given, before make reads a `$` in it.
+override DIR := $(value DIR)
+export DIR
+
+.PHONY: bootdir
+bootdir:
+	$(if $(strip $(DIR)),,$(error DIR is not set: make bootdir DIR=<path>))
+	$(if $(RETROS_IMG),,$(error bootdir needs RETROS_IMG=<RETROS.IMG>: UOS alone cannot start on a real board))
+	$(if $(MFBOOT_SYS),,$(error bootdir needs MFBOOT_SYS=<MFBOOT.SYS>: UOS alone cannot start on a real board))
+	$(PYTHON) -I tools/syncbootdir.py guard "$$DIR" $(SDIMAGE_STAGE) $(BOOT_STAGE)
+	$(MAKE) --no-print-directory -f $(firstword $(MAKEFILE_LIST)) sdimage CHAIN=1
+	rm -rf $(BOOT_STAGE)
+	cp -R $(SDIMAGE_STAGE) $(BOOT_STAGE)
+ifneq ($(FIRMWARE),0)
+	$(ROBCO_CORE)/tools/mkbootdir.sh $(RETROS_IMG) $(BOOT_STAGE) --kernel-name RETROS.IMG
+endif
+	$(PYTHON) -I tools/syncbootdir.py $(BOOT_STAGE) "$$DIR" $(if $(filter 1,$(CLEAN)),--clean) $(if $(filter 1,$(REPLACE)),--replace) \
+	    $(if $(filter 0,$(FIRMWARE)),$(addprefix --outside ,$(FIRMWARE_FILES)))
 
 # Alone, a two-word image at 0x8000 jumps to UOS at its link address.
 $(BUILD)/tramp.img:
