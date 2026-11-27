@@ -331,6 +331,37 @@ def test_no_entry_for_user(board, hooks_image, need_mtools, tmp_path):
         assert not marks(vm, "session screen=shell")
 
 
+def oper_empty_root(board, hooks_image, tmp_path, text):
+    """OPER logs in on a root menu with no visible entry. Returns its message
+    line after checking why=empty and that BACK asks to log out."""
+    with alone(hooks_image, board, refused_card(tmp_path, text)) as vm:
+        wait_ready(vm)
+        wait_marker(vm, "login state=user", 1)
+        answer(vm, "sess login OPER")
+        wait_marker(vm, "session screen=menu", 1)
+        chk = wait_marker(vm, "tui op=check user=OPER", 1)
+        assert (chk["result"], chk["why"]) == ("menu", "empty"), chk
+        st = wait_menu(vm, state="menu")
+        assert st["count"] == "0", st
+        line = msg(vm)
+        answer(vm, "key back")
+        wait_menu(vm, state="confirm")
+        return line
+
+
+def test_every_entry_bad(board, hooks_image, need_mtools, tmp_path):
+    """Every entry has an unknown type: OPER sees the first parser error."""
+    text = b"[entry 1]\nlabel = A\ntype = nope\n[entry 2]\nlabel = B\ntype = nope\n"
+    line = oper_empty_root(board, hooks_image, tmp_path, text)
+    assert line == "TERMINAL.CFG: 2 errors, first: bad or missing type (line 3)", line
+
+
+def test_no_entry_in_file(board, hooks_image, need_mtools, tmp_path):
+    """A section header and no entry: OPER sees that the file has none."""
+    line = oper_empty_root(board, hooks_image, tmp_path, b"[terminal]\ntitle = Empty\n")
+    assert line == "No menu entry in TERMINAL.CFG", line
+
+
 def test_each_entry_type(board, hooks_image, need_mtools, tmp_path):
     """text, menu, command, device and holotape each do their job and come back to
     the menu with the selection kept. Keys come from the console, a GPIO button and

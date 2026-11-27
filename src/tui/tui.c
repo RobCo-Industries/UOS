@@ -244,6 +244,17 @@ const char *tui_state_name(int state)
     return state >= 0 && state <= TUI_ST_DONE ? names[state] : "?";
 }
 
+int tui_empty_why(unsigned count, unsigned hidden, unsigned errors)
+{
+    if (count > 0) {
+        return TUI_EMPTY_NONE;
+    }
+    if (hidden > 0) {
+        return TUI_EMPTY_USER;
+    }
+    return errors > 0 ? TUI_EMPTY_ERRORS : TUI_EMPTY_FILE;
+}
+
 int tui_login_choice(int has_file, int read_ok, int parse_rc, unsigned visible,
                      uint32_t privs, int *why)
 {
@@ -323,10 +334,20 @@ int tui_give_menu(tui_t *t, const char *text, size_t len)
                    (unsigned)l->menu.err[0].line);
         set_msg(t, buf);
     }
-    /* A root file with no entry for this user says why. BACK logs out. */
-    if (t->depth == 1 && l->menu.count == 0) {
-        k_snprintf(buf, sizeof(buf), "No menu entry for this user in %s", l->file);
-        set_msg(t, buf);
+    /* A root file with no visible entry says why. BACK logs out. */
+    if (t->depth == 1) {
+        switch (tui_empty_why(l->menu.count, l->menu.hidden, l->menu.errors)) {
+        case TUI_EMPTY_USER:
+            k_snprintf(buf, sizeof(buf), "No menu entry for this user in %s", l->file);
+            set_msg(t, buf);
+            break;
+        case TUI_EMPTY_FILE:
+            k_snprintf(buf, sizeof(buf), "No menu entry in %s", l->file);
+            set_msg(t, buf);
+            break;
+        default:
+            break;
+        }
     }
     if (l->menu.header[0]) {
         copy_line(t->name, l->menu.header, TUI_FILE_MAX);
