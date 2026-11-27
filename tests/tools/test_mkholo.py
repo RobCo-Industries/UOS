@@ -196,6 +196,24 @@ def test_missing_rimg_option_does_not_fall_back(tmp_path):
     assert r.stdout == ""
 
 
+def test_empty_rimg_option_does_not_fall_back():
+    env = {"PATH": os.environ.get("PATH", "")}
+    r = subprocess.run([sys.executable, os.path.join(ROOT, "tools", "mkholo.py"), "list",
+                        "--rimg", "", os.path.join(CARD, "STORY.HTP")],
+                       capture_output=True, text=True, env=env)
+    assert r.returncode == mkholo.EX_RIMG
+    assert r.stderr == "mkholo: error: --rimg : no such file\n"
+    assert r.stdout == ""
+
+
+def test_empty_robco_core_counts_as_not_set():
+    env = {"PATH": os.environ.get("PATH", ""), "ROBCO_CORE": ""}
+    r = subprocess.run([sys.executable, os.path.join(ROOT, "tools", "mkholo.py"), "list",
+                        os.path.join(CARD, "STORY.HTP")], capture_output=True, text=True, env=env)
+    assert r.returncode == 0, r.stderr
+    assert r.stdout.startswith("title: The rake with the longer handle\n")
+
+
 def test_robco_core_without_rimg(tmp_path):
     env = {"PATH": os.environ.get("PATH", ""), "ROBCO_CORE": str(tmp_path)}
     r = subprocess.run([sys.executable, os.path.join(ROOT, "tools", "mkholo.py"), "list",

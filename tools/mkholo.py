@@ -11,7 +11,8 @@ the order; every .TXT file must be listed. Without it, the first line of
 each file is the entry title and the rest is the body.
 
 The rimg layer comes from RobCo-Core's tools/rimg.py. Every command uses
---rimg if given, else $ROBCO_CORE/tools/rimg.py if ROBCO_CORE is set, else
+--rimg if given, else $ROBCO_CORE/tools/rimg.py if ROBCO_CORE is set and
+not empty, else
 external/robco-core/tools/rimg.py beside this tools/ folder. A path given
 by --rimg or ROBCO_CORE that does not exist is an error, with no fallback.
 rimg.py seal and pack refuse data
@@ -71,10 +72,11 @@ class RimgMissing(Exception):
 
 def rimg_path(path=None):
     """The rimg.py to load. A path the user gave is never replaced by another."""
-    if path:
+    if path is not None:
         if not os.path.isfile(path):
             raise RimgMissing(f"--rimg {path}: no such file")
         return path
+    # An empty ROBCO_CORE counts as not set.
     core = os.environ.get("ROBCO_CORE")
     if core:
         found = os.path.join(core, "tools", "rimg.py")
