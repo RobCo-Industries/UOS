@@ -264,6 +264,8 @@ endif
 # files an earlier run wrote that this run does not.
 # It stops on a symbolic link inside DIR and never writes through one.
 # Names compare without regard to case, as on a FAT32 card.
+# It first refuses a DIR that is, is inside or holds SDIMAGE_STAGE or
+# BOOT_STAGE, the folders the recipe clears.
 # Each file goes to UOSBOOT.TMP beside it first, then into place, so a
 # failed copy damages nothing and the next run finishes the update.
 # DIR may hold spaces, as a mounted card often does: the recipe quotes it
@@ -280,6 +282,7 @@ bootdir:
 	$(if $(strip $(DIR)),,$(error DIR is not set: make bootdir DIR=<path>))
 	$(if $(RETROS_IMG),,$(error bootdir needs RETROS_IMG=<RETROS.IMG>: UOS alone cannot start on a real board))
 	$(if $(MFBOOT_SYS),,$(error bootdir needs MFBOOT_SYS=<MFBOOT.SYS>: UOS alone cannot start on a real board))
+	$(PYTHON) -I tools/syncbootdir.py guard "$(DIR)" $(SDIMAGE_STAGE) $(BOOT_STAGE)
 	$(MAKE) --no-print-directory -f $(firstword $(MAKEFILE_LIST)) sdimage CHAIN=1
 	rm -rf $(BOOT_STAGE)
 	cp -R $(SDIMAGE_STAGE) $(BOOT_STAGE)

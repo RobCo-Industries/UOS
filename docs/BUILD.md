@@ -69,7 +69,7 @@ Copy the files to the root of a FAT32 card. The target writes a folder. It never
 
 | Variable | Effect |
 |---|---|
-| `DIR=<dir>` | The folder to write. Required. It may hold spaces: `DIR='/Volumes/UOS CARD'` |
+| `DIR=<dir>` | The folder to write. Required. It may hold spaces: `DIR='/Volumes/UOS CARD'`. It cannot be, be inside or hold `build/sdstage` or `build/bootstage`, the folders the build clears: the target stops first and names it |
 | `FIRMWARE=0` | Leaves the firmware files out and needs no network |
 
 ### Running bootdir again

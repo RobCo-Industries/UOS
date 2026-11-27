@@ -2,6 +2,11 @@
 """Copy a staged card into the folder of `make bootdir`, safe for a card in use.
 
   syncbootdir.py STAGE DIR [--clean] [--replace] [--outside NAME]...
+  syncbootdir.py guard DIR FOLDER...
+
+guard stops when DIR is one of the FOLDERs, is inside one or holds one,
+after resolving links. `make bootdir` runs it first, with its staging
+folders, before it clears them.
 
 DIR/UOSBOOT.LST has one line per file a run wrote: the SHA-256 of the
 bytes written, two spaces and the path, as `shasum -a 256` prints it.
@@ -169,7 +174,22 @@ def read_list(path):
     return rec
 
 
+def guard(dir_, folders):
+    real = os.path.realpath(dir_)
+    for f in folders:
+        f = os.path.realpath(f)
+        if os.path.commonpath([real, f]) in (real, f):
+            print(f"syncbootdir: refusing DIR {dir_}: the build clears {f}", file=sys.stderr)
+            sys.exit(1)
+
+
 def main():
+    if sys.argv[1:2] == ["guard"]:
+        if len(sys.argv) < 4:
+            print("usage: syncbootdir.py guard DIR FOLDER...", file=sys.stderr)
+            sys.exit(2)
+        guard(sys.argv[2], sys.argv[3:])
+        return
     ap = argparse.ArgumentParser(description="Copy a staged card into a boot folder.")
     ap.add_argument("stage")
     ap.add_argument("dir")

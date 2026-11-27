@@ -440,3 +440,24 @@ def test_a_failed_copy_damages_nothing_and_the_next_run_finishes(tmp_path, monke
         assert h == hashlib.sha256(got.pop(n)).hexdigest() == \
             hashlib.sha256((stage / n).read_bytes()).hexdigest(), n
     assert got == {}
+
+
+def test_guard_refuses_a_dir_on_a_staging_folder(tmp_path):
+    stage, other = tmp_path / "build" / "sdstage", tmp_path / "card"
+    (tmp_path / "link").symlink_to(tmp_path / "build")
+    for dest in (stage, stage / "sub", tmp_path / "build", tmp_path / "link" / "sdstage"):
+        r = sync("guard", dest, stage, tmp_path / "build" / "bootstage")
+        assert r.returncode == 1 and f"refusing DIR {dest}" in r.stderr, dest
+    assert sync("guard", other, stage).returncode == 0
+    assert sync("guard", tmp_path / "builds", stage).returncode == 0
+
+
+@pytest.mark.parametrize("folder", ["sdstage", "bootstage"])
+def test_bootdir_refuses_a_staging_folder_and_clears_nothing(stand_ins, folder):  # noqa: F811
+    build, files = stand_ins
+    dest = build / folder
+    dest.mkdir()
+    (dest / "MINE.TXT").write_bytes(b"keep")
+    r = bootdir(build, files, dest, ok=False)
+    assert f"refusing DIR {dest}" in r.stderr
+    assert (dest / "MINE.TXT").read_bytes() == b"keep"
