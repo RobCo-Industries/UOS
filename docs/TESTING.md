@@ -268,9 +268,10 @@ See [A real card](BUILD.md#a-real-card). The users and their passwords are in [D
 | Shell | Type `SHOW SYSTEM`, `DIRECTORY` and `TYPE NOTICE.TXT`, then `LOGOUT` | Each command's output | `@RC stage=uos ev=sh state=prompt kind=cmd` after each, then `ev=session state=end` | |
 | Game by key | Leave `USERNAME:` empty and press F2 | The password game board | `@RC stage=uos ev=login state=hack`, `ev=hack op=start` | |
 | Game by button | Leave `USERNAME:` empty and press BACK, keyboard closed | The password game board | `@RC stage=uos ev=login state=hack`, `ev=hack op=start` | |
-| Buttons | At the login, press each of the six buttons | The on-screen keyboard opens and the highlight moves | `@RC stage=uos ev=buttons result=active`, then one `ev=key type=key` per press, `name=up` to `name=back` | |
-| Device | Log in as `OPER` or `ADMIN` and type `DEVICE LIGHT1 ON`, then `OFF` | The LED lights, then goes dark | `@RC stage=uos ev=dev name=LIGHT1 state=ON`, then `state=OFF` | |
-| Maintenance | As `OPER`, type `SET HALT RESTART /MAINTENANCE`, then start the maintenance image from the agent's screen | `MAINTENANCE REQUESTED FOR THE NEXT START.`, the agent's maintenance screen with no countdown, then the maintenance image | `@RC stage=uos ev=maint_req`, `@RC stage=bootagent ev=maint_open`, `@RC stage=maint ev=ready` | |
+| Buttons | At `USERNAME:`, press DOWN, then RIGHT, then SELECT | DOWN opens the on-screen keyboard, RIGHT moves its highlight, SELECT types `B` after `USERNAME:` | `@RC stage=uos ev=buttons result=active`, then `ev=osk state=open` | |
+| Device by the shell | As `GUEST`, type `DEVICE LIGHT1 ON` in the shell | The LED lights | `@RC stage=uos ev=dev name=LIGHT1 state=ON` | |
+| Device by the menu | Log in as `OPER`, which lands in the terminal menu, and pick `Yard lights on or off` | The LED goes dark | `@RC stage=uos ev=session screen=menu`, `ev=tui act=device result=ok`, `ev=dev name=LIGHT1 state=OFF` | |
+| Maintenance | As `ADMIN`, type `SET HALT RESTART /MAINTENANCE`. On the agent's maintenance screen, move to the fourth action, "Start the maintenance image", and select it | `MAINTENANCE REQUESTED FOR THE NEXT START.`, the agent's maintenance screen with no countdown, then `TERMINAL MAINTENANCE` | `@RC stage=uos ev=maint_req op=write result=written`, `@RC stage=bootagent ev=maint_open why=request`, `ev=choose name=MAINT`, `@RC stage=maint ev=ready` | |
 | Diagnostics | Press a key in the agent's countdown, move to `DIAG` and press Enter | The diagnostics image runs its checks | `@RC stage=diag ev=ready`, `ev=diag_done` | |
 | Sound | Set `[audio] sound = on` in `UOS.CFG`, restart, type a wrong then a right password | A low sound, then a short rising one | `@RC stage=uos ev=sound result=on` | |
 
