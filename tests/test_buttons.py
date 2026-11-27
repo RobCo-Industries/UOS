@@ -188,3 +188,21 @@ def test_back_at_empty_user_starts_the_game(board, hooks_image, need_mtools, tmp
         assert "osk state=open" not in vm.serial
         before = hack_state(vm).f["cursor"]
         hold_until(io, vm, "down", lambda: hack_state(vm).f["cursor"] != before)
+
+
+def test_button_held_through_the_guard_repeats(board, uos_image, need_mtools, tmp_path):
+    """Select held low from power-on, the five others high: the guard passes,
+    select's press comes when it ends, then repeats while it stays held.
+
+    The first screen's key marker does not tell a press from a repeat. The
+    line is never released here, so every select marker after the first is
+    a repeat."""
+    others = [pin for name, pin in PINS.items() if name != "select"]
+    with alone(uos_image, board, uos_card(tmp_path), qtest=True, gpio_high=others) as vm:
+        wait_ready(vm)
+        b = one(vm, "buttons")
+        assert (b["result"], b["rc"], b["setting"], b["repeat"]) == \
+            ("active", "0", "1", "0"), b
+        got = wait_keys(vm, 3)
+        assert [k["name"] for k in got[:3]] == ["select"] * 3, vm.serial
+        assert [k["keys"] for k in got[:3]] == ["1", "2", "3"], vm.serial
