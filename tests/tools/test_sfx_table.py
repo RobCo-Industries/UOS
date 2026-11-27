@@ -17,7 +17,8 @@ CORE = os.environ.get("ROBCO_CORE", os.path.join(ROOT, "external", "robco-core")
 TOOLS = os.path.join(CORE, "tools")
 MODEL = os.path.join(ROOT, "src", "sfx", "sfx_models.json")
 TABLE = ["--c", os.path.join(ROOT, "src", "sfx", "sfx_table.c"),
-         "--h", os.path.join(ROOT, "src", "sfx", "sfx_table.h"), "--prefix", "uos_sfx_"]
+         "--h", os.path.join(ROOT, "src", "sfx", "sfx_table.h"), "--prefix", "uos_sfx_",
+         "--bed", "fan"]
 SOUNDS = ["key_a", "key_b", "char_scroll", "pass_good", "pass_bad", "fan"]
 
 

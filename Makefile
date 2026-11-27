@@ -125,7 +125,7 @@ all: $(BUILD)/UOS.SYS
 # `--check --full`, which renders again and compares bytes.
 SFX_TABLE      := $(ROBCO_CORE)/tools/sfx_table.py
 SFX_TABLE_ARGS := src/sfx/sfx_models.json --c src/sfx/sfx_table.c --h src/sfx/sfx_table.h \
-                  --prefix uos_sfx_
+                  --prefix uos_sfx_ --bed fan
 
 .PHONY: sfx-table sfx-table-check
 sfx-table:
