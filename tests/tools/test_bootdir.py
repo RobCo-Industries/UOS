@@ -308,3 +308,83 @@ def test_firmware_0_first_run_and_a_hand_copied_firmware(tmp_path):
     r = sync(full, dest)
     assert r.returncode == 1 and "start.elf" in r.stderr
     assert (dest / "start.elf").read_bytes() == b"by hand"
+
+
+def stage_of(root, files):
+    root.mkdir(exist_ok=True)
+    for n, data in files.items():
+        (root / n).parent.mkdir(parents=True, exist_ok=True)
+        (root / n).write_bytes(data)
+    return root
+
+
+def case_matters(folder):
+    """True when folder tells A from a, as a FAT32 card does not."""
+    (folder / "CASE.PRB").write_bytes(b"")
+    try:
+        return not (folder / "case.prb").exists()
+    finally:
+        (folder / "CASE.PRB").unlink()
+
+
+def test_a_case_renamed_and_edited_file_is_kept(tmp_path):
+    stage, dest = stage_of(tmp_path / "s", {"FOO.TXT": b"one"}), tmp_path / "card"
+    assert sync(stage, dest).returncode == 0
+    os.rename(dest / "FOO.TXT", dest / "foo.txt")
+    (dest / "foo.txt").write_bytes(b"edited")
+    (stage / "FOO.TXT").write_bytes(b"two")
+    r = sync(stage, dest)
+    assert r.returncode == 0, r.stderr
+    assert "kept FOO.TXT: changed since the last run" in r.stdout
+    assert sorted(os.listdir(dest)) == [LIST, "foo.txt"]
+    assert (dest / "foo.txt").read_bytes() == b"edited"
+    assert listed(dest) == {"FOO.TXT"}
+
+
+def test_a_case_renamed_file_is_replaced_through_its_entry(tmp_path):
+    stage = stage_of(tmp_path / "s", {"FOO.TXT": b"one", "SUB/X.BIN": b"x"})
+    dest = tmp_path / "card"
+    assert sync(stage, dest).returncode == 0
+    os.rename(dest / "FOO.TXT", dest / "foo.txt")
+    os.rename(dest / "SUB", dest / "sub")
+    os.rename(dest / "sub" / "X.BIN", dest / "sub" / "x.bin")
+    stage_of(stage, {"FOO.TXT": b"two", "SUB/X.BIN": b"y"})
+    r = sync(stage, dest)
+    assert r.returncode == 0, r.stderr
+    # One entry each: the file takes the stage's spelling, the folder keeps its own.
+    assert sorted(os.listdir(dest)) == ["FOO.TXT", LIST, "sub"]
+    assert os.listdir(dest / "sub") == ["X.BIN"]
+    assert (dest / "FOO.TXT").read_bytes() == b"two"
+    assert (dest / "sub" / "X.BIN").read_bytes() == b"y"
+    assert listed(dest) == {"FOO.TXT", "SUB/X.BIN"}
+    assert len((dest / LIST).read_text().splitlines()) == 2
+
+
+def test_a_case_clash_and_a_case_link_stop_the_run(tmp_path):
+    stage = stage_of(tmp_path / "s", {"A.TXT": b"a", "ROBCO/B.SYS": b"b"})
+    dest = tmp_path / "card"
+    assert sync(stage, dest).returncode == 0
+    (dest / "foo.txt").write_bytes(b"by hand")
+    stage_of(stage, {"FOO.TXT": b"shipped"})
+    r = sync(stage, dest)
+    assert r.returncode == 1 and "foo.txt" in r.stderr
+    assert (dest / "foo.txt").read_bytes() == b"by hand"
+    (dest / "foo.txt").unlink()
+    shutil.move(dest / "ROBCO", tmp_path / "away")
+    (dest / "robco").symlink_to(tmp_path / "away")
+    r = sync(stage, dest)
+    assert r.returncode == 1 and "ROBCO: a symbolic link" in r.stderr
+    assert not (dest / "FOO.TXT").exists()
+
+
+@pytest.mark.parametrize("where", ["stage", "dir"])
+def test_names_that_differ_only_by_case_stop_the_run(tmp_path, where):
+    stage, dest = stage_of(tmp_path / "s", {"A.TXT": b"a"}), tmp_path / "card"
+    assert sync(stage, dest).returncode == 0
+    if not case_matters(tmp_path):
+        pytest.skip("this file system cannot hold two names that differ only by case")
+    (stage if where == "stage" else dest).joinpath("a.txt").write_bytes(b"twin")
+    (stage / "NEW.TXT").write_bytes(b"new")
+    r = sync(stage, dest)
+    assert r.returncode == 1 and "A.TXT" in r.stderr and "a.txt" in r.stderr
+    assert not (dest / "NEW.TXT").exists()
