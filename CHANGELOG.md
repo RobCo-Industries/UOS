@@ -26,6 +26,7 @@ All notable changes to UOS are recorded here. The format follows [Keep a Changel
 
 ### Fixed
 
+- `SHOW SYSTEM` and the port's `state` say the card is `gone` once a file call meets an empty slot, where they kept saying `ok`. The device tests now read each Pi pin's level through `harness.pigpio`, and a new button test presses SELECT and BACK as pin levels in the password game.
 - The lore documents no longer claim a credential dump, MD5 passwords, a `MAIL` system or a network. They say they are fiction and link to the real docs.
 - A terminal with panel buttons and no keyboard can now log in and start the password game. At an empty `USERNAME:` with the on-screen keyboard closed, the BACK button starts the game, as F2 does. Any other button opens the keyboard. A BACK from the serial line does not start it. The user manual says so. The session page no longer says `SECURITY` skips the password game's lockout.
 - A logout or `LOGIN <user>` queued right after `RUN HACK`, `RUN HOLOTAPE` or `RUN TERMINAL` no longer opens that screen over the login prompt. The password game no longer starts there for real. The dropped call prints `sh stale=post`.

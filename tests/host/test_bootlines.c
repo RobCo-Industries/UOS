@@ -90,6 +90,11 @@ TEST(card_states)
     CHECK_STR(uos_card_name(UOS_CARD_OK), "ok");
     CHECK_STR(uos_card_name(UOS_CARD_NONE), "none");
     CHECK_STR(uos_card_name(UOS_CARD_NOTREE), "notree");
+    CHECK_STR(uos_card_name(UOS_CARD_GONE), "gone");
+    CHECK_EQ(uos_card_live(UOS_CARD_OK, 4, 4), UOS_CARD_OK);
+    CHECK_EQ(uos_card_live(UOS_CARD_OK, 4, 5), UOS_CARD_GONE);
+    CHECK_EQ(uos_card_live(UOS_CARD_NOTREE, 4, 5), UOS_CARD_GONE);
+    CHECK_EQ(uos_card_live(UOS_CARD_NONE, 4, 5), UOS_CARD_NONE);
     CHECK_STR(uos_card_name(-1), "unknown");
 }
 

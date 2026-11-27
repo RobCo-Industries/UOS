@@ -46,8 +46,17 @@ const char *uos_card_name(int card)
     case UOS_CARD_OK:     return "ok";
     case UOS_CARD_NONE:   return "none";
     case UOS_CARD_NOTREE: return "notree";
+    case UOS_CARD_GONE:   return "gone";
     default:              return "unknown";
     }
+}
+
+int uos_card_live(int boot_card, uint32_t at_mount, uint32_t now)
+{
+    if (boot_card != UOS_CARD_NONE && now != at_mount) {
+        return UOS_CARD_GONE;
+    }
+    return boot_card;
 }
 
 static const char *card_text(int card)

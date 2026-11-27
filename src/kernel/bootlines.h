@@ -22,6 +22,8 @@
 #define UOS_CARD_NONE           1   /* no card, or no volume mounts */
 #define UOS_CARD_NOTREE         2   /* a volume, but no /UOS folder */
 #define UOS_CARD_STATES         3
+/* Mounted at boot, then the medium left. Never a boot state. */
+#define UOS_CARD_GONE           3
 
 /* What the placeholder screen shows. */
 typedef struct {
@@ -57,7 +59,13 @@ int uos_version_line(char *buf, size_t size, const char *version);
  */
 int uos_first_line(unsigned row, const uos_first_t *info, char *buf, size_t size);
 
-/* Short name of a card state: "ok", "none", "notree", or "unknown". */
+/* Short name of a card state: "ok", "none", "notree", "gone", or "unknown". */
 const char *uos_card_name(int card);
+
+/*
+ * The card state now: UOS_CARD_GONE when a card was found at boot and the
+ * library's change count moved since the mount, else `boot_card`.
+ */
+int uos_card_live(int boot_card, uint32_t at_mount, uint32_t now);
 
 #endif

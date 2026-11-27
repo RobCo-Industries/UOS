@@ -17,6 +17,7 @@ import pytest
 
 from harness import hosttiming
 from harness.pigpio import PiGpio
+from test_hack import SEED, move_to
 from test_hack import cfg as hack_cfg
 from test_hack import hack_card
 from test_hack import state as hack_state
@@ -257,6 +258,30 @@ def test_back_at_empty_user_starts_the_game(board, hooks_image, need_mtools, tmp
             assert "osk state=open" not in vm.serial
             before = hack_state(vm).f["cursor"]
             hold_until(io, vm, "down", lambda: hack_state(vm).f["cursor"] != before)
+
+    stall_retry(body)
+
+
+def test_select_guesses_and_back_leaves_the_game(board, hooks_image, need_mtools, tmp_path):
+    """BACK starts the game, SELECT guesses a word and BACK leaves, all as pin
+    levels. The cursor walk to the word goes through the port."""
+    def body():
+        with alone(hooks_image, board, hack_card(tmp_path, hack_cfg()), qtest=True,
+                   gpio_high=PINS.values()) as vm:
+            io = PiGpio(vm, board, names=PINS)
+            at_user(vm)
+            answer(vm, f"hack seed {SEED}")
+            hold_until(io, vm, "back", lambda: "hack op=start" in vm.serial)
+            wait_marker(vm, "login state=hack", 1)
+            g = hack_state(vm)
+            s = sorted(g.words)[0]
+            move_to(vm, s)
+            hold_until(io, vm, "select", lambda: "hack op=guess" in vm.serial)
+            m = wait_marker(vm, "hack op=guess", 1)
+            assert m["word"] == g.words[s], m
+            hold_until(io, vm, "back", lambda: "hack op=end" in vm.serial)
+            assert wait_marker(vm, "hack op=end", 1)["result"] == "left"
+            wait_marker(vm, "login state=user", 2)
 
     stall_retry(body)
 

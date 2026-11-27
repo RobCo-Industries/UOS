@@ -1,6 +1,6 @@
 """The password game: a won game that starts a GUEST session, a lost game that locks
 the terminal with the login's lockout screen and never logs the password, the bracket
-tricks, GPIO buttons, the refusals, missing and damaged word lists, and the test-only
+tricks, the test-only `button` command, the refusals, missing and damaged word lists, and the test-only
 fixed seed."""
 
 import os
@@ -306,7 +306,7 @@ def test_bracket_tricks(board, hooks_image, need_mtools, tmp_path):
 
 
 def test_buttons_move_and_select(board, hooks_image, need_mtools, tmp_path):
-    """GPIO buttons move the cursor and SELECT guesses; BACK leaves the game and
+    """The test-only `button` command moves the cursor and SELECT guesses; BACK leaves the game and
     the login prompt comes back."""
     with alone(hooks_image, board, hack_card(tmp_path, cfg())) as vm:
         wait_ready(vm)

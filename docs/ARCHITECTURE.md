@@ -319,7 +319,7 @@ The base commands enter the table on the first use of the registry: `uos_maint_s
 | Command | Answer |
 |---|---|
 | `help` | One line per registered command, sorted by name: the name, then its help text |
-| `state` | `phase=... screen=... user=... card=... trusted=... error=...`: the phase `init`, `ready` or `panic`; the top screen's name; the user; the card `ok`, `none` or `notree`; the trust result; the last error. `none` stands for nothing. |
+| `state` | `phase=... screen=... user=... card=... trusted=... error=...`: the phase `init`, `ready` or `panic`; the top screen's name; the user; the card `ok`, `none`, `notree` or `gone`; the trust result; the last error. `none` stands for nothing. |
 | `screens` | `screens depth=<n> stack=<names>`: the screen stack, bottom to top, names joined with commas |
 | `dump` | The console cells, from `console_dump()` |
 | `key <name>` | Built in: presses and releases a key |
@@ -459,7 +459,7 @@ The first service, in `src/kernel/svc_uptime.c`, is the model of a service. Its 
 
 The file system service, `src/vfs/vfs.h`, prefix `vfs_`. Commands and screens reach card files through it with file specifications. Each call resolves the specification with the caller's `vp_ctx_t`, checks access with `vp_access()`, acts through the library's FatFs glue and returns 0 or a negative `VFS_E_*` code. `vfs_msg()` maps a code to the command language's message, so every command prints the same message for the same failure. A read-only volume gives `WRITLCK`, a protected file `PROTECT`, a file over the limit `TOOBIG` and a full heap `INSFMEM`.
 
-Every call that touches the card runs from the loop only. The service reads `uos.card` on each call: no card gives `VFS_E_NOCARD`, no `/UOS` folder `VFS_E_NOTREE`. Its init cannot fail. A card taken out after boot gives the library's `FS_ERR_GONE` on every later call, and `vfs_from_fs()` turns it into `VFS_E_NOCARD` too, so the shell prints `%UOS-E-NODEV`. The card stays gone until UOS restarts, and `uos.card` still says `ok`.
+Every call that touches the card runs from the loop only. The service reads `uos.card` on each call: no card gives `VFS_E_NOCARD`, no `/UOS` folder `VFS_E_NOTREE`. Its init cannot fail. A card taken out after boot gives the library's `FS_ERR_GONE` on every later call, and `vfs_from_fs()` turns it into `VFS_E_NOCARD` too, so the shell prints `%UOS-E-NODEV`. The card stays gone until UOS restarts. `uos.card` keeps the boot result. `uos_card_now()` gives `gone` once a file call has met the empty slot, and `SHOW SYSTEM` and `state` print it.
 
 - `vfs_read_all()` reads a whole file into a heap buffer. A file over the caller's limit is `VFS_E_TOOBIG` and nothing is read.
 - `vfs_write_all()` uses `fs_write_file_atomic()`. New content goes to `~NAME`, then replaces `NAME`. After a power cut the target holds the whole old or the whole new content, or is absent for a first write. A full card is `VFS_E_FULL` and keeps the old file.
@@ -840,7 +840,7 @@ Init registers the `DEV:` hooks with the file system, then reads the file with `
 
 The init markers come after `ev=service name=console` and before `ev=service name=devices`.
 
-The `dev` maintenance command: `dev list` gives `dev count=N`, the header and one status line per device. `dev set <name> <action> [privs]` runs a command with the privilege bits given, `SYSTEM` by default, and answers `dev name= state=` or `err <message>`. `dev rec` gives `rec count= total=`, then the pin record, oldest first. `dev hwdog` gives `hwdog running= timeout_ms= remaining_ms= held=` from the library's `wdog.h`. Test builds add `dev sense <name> <0|1>`, which replaces a sensor's pin read, `dev fail <name> <writes>`, which makes the next writes to a Pi pin fail, `dev hang`, which stops the kicks of both watchdogs, and `dev stall <ticks>`, which keeps the loop busy. The sensor tests use `dev sense`. The button tests drive real pin levels with the library's `harness.pigpio`.
+The `dev` maintenance command: `dev list` gives `dev count=N`, the header and one status line per device. `dev set <name> <action> [privs]` runs a command with the privilege bits given, `SYSTEM` by default, and answers `dev name= state=` or `err <message>`. `dev rec` gives `rec count= total=`, then the pin record, oldest first. `dev hwdog` gives `hwdog running= timeout_ms= remaining_ms= held=` from the library's `wdog.h`. Test builds add `dev sense <name> <0|1>`, which replaces a sensor's pin read, `dev fail <name> <writes>`, which makes the next writes to a Pi pin fail, `dev hang`, which stops the kicks of both watchdogs, and `dev stall <ticks>`, which keeps the loop busy. The sensor tests use `dev sense`. The button tests drive real pin levels with the library's `harness.pigpio`. The device tests read Pi pin levels the same way.
 
 #### Ticks, pulses and sensors
 

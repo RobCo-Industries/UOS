@@ -1,12 +1,13 @@
 """The device service: DEVICES.CFG at boot, the pin record, `dev set` for every
 action, privileges, pulses, sensors, bad files, expander pins, and the safe
-state on reboot, panic and the watchdog. QEMU cannot show a GPIO level from
-outside, so the tests read the service's pin record and its markers."""
+state on reboot, panic and the watchdog. The tests read the service's pin
+record, its markers and the level of each Pi pin in QEMU."""
 
 import os
 import re
 import time
 
+from harness.pigpio import PiGpio
 from uos import (IDLE, ROOT, SERVICES, TICK_HZ, TIMEOUT, alone, answer, dump_until, events, one,
                  uos_card)
 from uos import wait_ready as wait_uos
@@ -107,6 +108,11 @@ def pins(rows):
     return [(p, lv) for p, lv, _ in rows]
 
 
+def pin_levels(vm, board, pins):
+    """(pin, level) of Pi pins as QEMU's GPLEV shows them."""
+    return [(p, PiGpio(vm, board).get(p)) for p in pins]
+
+
 def dev_list(vm):
     lines = answer(vm, "dev list")
     assert lines[0] == f"dev count={len(lines) - 2 if len(lines) > 1 else 0}", lines
@@ -128,7 +134,7 @@ def wait_mark(vm, text, count=1, timeout=TIMEOUT):
 
 
 def test_shipped_file(board, uos_image, need_mtools, tmp_path):
-    with alone(uos_image, board, boot_card(tmp_path, SHIPPED)) as vm:
+    with alone(uos_image, board, boot_card(tmp_path, SHIPPED), qtest=True) as vm:
         wait_ready(vm)
         cfg = one(vm, "devcfg")
         assert (cfg["result"], cfg["loaded"], cfg["skipped"], cfg["errors"], cfg["warnings"]) \
@@ -141,12 +147,16 @@ def test_shipped_file(board, uos_image, need_mtools, tmp_path):
         assert " LOCKED " in rows["VAULT"], rows
         # DOOR1 off, active high; LIGHT1 off, active low; VAULT off.
         assert pins(record(vm)) == [(12, 0), (25, 1), (20, 0)], vm.serial
+        # LIGHT1 is active low and off, so its pin reads 1.
+        assert pin_levels(vm, board, (12, 25, 20)) == [(12, 0), (25, 1), (20, 0)]
 
 
 def test_boot_record_arm_last(board, uos_image, need_mtools, tmp_path):
-    with alone(uos_image, board, boot_card(tmp_path)) as vm:
+    with alone(uos_image, board, boot_card(tmp_path), qtest=True) as vm:
         wait_ready(vm)
         assert pins(record(vm)) == ALL_BOOT, vm.serial
+        # ARM reads 1; LIGHT1, on and active low, reads 0.
+        assert sorted(pin_levels(vm, board, [p for p, _ in ALL_BOOT])) == sorted(ALL_BOOT)
         b = one(vm, "devboot")
         assert (b["count"], b["arm"]) == ("9", "ARM"), b
         assert " ON " in dev_list(vm)["ARM"]
@@ -170,7 +180,7 @@ BAD = {"DOOR1": ["LOCK", "PULSE", "NOPE"], "LIGHT1": ["OPEN", "PULSE"], "TUR1": 
 
 
 def test_set_every_action(board, uos_image, need_mtools, tmp_path):
-    with alone(uos_image, board, boot_card(tmp_path)) as vm:
+    with alone(uos_image, board, boot_card(tmp_path), qtest=True) as vm:
         wait_ready(vm)
         for name, steps in ACTIONS.items():
             pin, on_level = PIN[name]
@@ -178,9 +188,13 @@ def test_set_every_action(board, uos_image, need_mtools, tmp_path):
                 reply = dev_set(vm, name.lower(), action.lower())
                 assert reply.status == "ok", (name, action, reply)
                 assert reply.lines == [f"dev name={name} state={want}"], reply.lines
+                # The pin first: VAULT pulses for 2 s, and a record that still
+                # ends with the on write proves the pin was on when read.
+                level = PiGpio(vm, board).get(pin)
                 last = record(vm)[-1]
                 on = want in ("OPEN", "ON", "ACTIVE", "UNLOCKED")
                 assert last[:2] == (pin, on_level if on else 1 - on_level), (name, action, last)
+                assert level == last[1], (name, action, level, last)
                 assert f" {want} " in dev_list(vm)[name]
             for action in BAD[name]:
                 reply = dev_set(vm, name, action)
@@ -229,12 +243,18 @@ def check_span(span, ms):
 
 
 def test_pulse(board, uos_image, need_mtools, tmp_path):
-    with alone(uos_image, board, boot_card(tmp_path)) as vm:
+    with alone(uos_image, board, boot_card(tmp_path), qtest=True) as vm:
         wait_ready(vm)
         n = len(record(vm))
         assert dev_set(vm, "VAULT", "UNLOCK").lines == ["dev name=VAULT state=UNLOCKED"]
+        level = PiGpio(vm, board).get(20)
+        rows = [r for r in record(vm)[n:] if r[0] == 20]
+        # Two rows mean the host stalled past the pulse before the read.
+        if len(rows) == 1:
+            assert level == 1, (level, rows)
         wait_mark(vm, "dev name=VAULT state=LOCKED by=pulse")
         check_span(pulse_span(vm, 20, n), 2000)
+        assert PiGpio(vm, board).get(20) == 0
         assert " LOCKED " in dev_list(vm)["VAULT"]
 
 
@@ -738,12 +758,14 @@ def test_reboot_drives_safe(board, uos_image, need_mtools, tmp_path):
 
 
 def test_panic_drives_safe(board, hooks_image, need_mtools, tmp_path):
-    with alone(hooks_image, board, boot_card(tmp_path)) as vm:
+    with alone(hooks_image, board, boot_card(tmp_path), qtest=True) as vm:
         wait_ready(vm)
         assert dev_set(vm, "DOOR1", "OPEN").status == "ok"
+        assert pin_levels(vm, board, (12, 13)) == [(12, 1), (13, 1)]
         answer(vm, "panic")
         vm.wait_for(IDLE, timeout=TIMEOUT)
         assert [(p, lv) for p, lv, _, _ in safe_writes(vm)] == ALL_SAFE, vm.serial
+        assert sorted(pin_levels(vm, board, [p for p, _ in ALL_SAFE])) == sorted(ALL_SAFE)
         evs = [m["ev"] for m in vm.markers()]
         assert evs.index("panic") < evs.index("devsafe") < evs.index("devdown") < \
             evs.index("idle"), evs
@@ -785,15 +807,18 @@ PINFAULT = "err %DEVICE-E-PINFAULT, a pin write failed and is retried; command r
 def test_pulse_end_fault(board, hooks_image, need_mtools, tmp_path):
     """The pulse end's write fails 300 times: the status says UNLOCKED with
     the fault, commands are refused, each tick retries, success clears it."""
-    with alone(hooks_image, board, boot_card(tmp_path)) as vm:
+    with alone(hooks_image, board, boot_card(tmp_path), qtest=True) as vm:
         wait_ready(vm)
         assert dev_set(vm, "BOLT", "UNLOCK").status == "ok"
         assert answer(vm, "dev fail BOLT 300") == ["dev name=BOLT fail=300"]
         wait_mark(vm, "devfault name=BOLT result=failing")
         f = one(vm, "devfault")
         assert (f["op"], f["owed"], f["why"]) == ("pulse", "0", "IOERR"), f
+        # The failed write never reaches the pin, so the pin stays high.
+        level = PiGpio(vm, board).get(23)
         row = dev_list(vm)["BOLT"]
         assert " UNLOCKED " in row and " FAULT=" in row, row
+        assert level == 1
         assert dev_set(vm, "BOLT", "LOCK").status == PINFAULT
         wait_mark(vm, "devfault name=BOLT result=cleared")
         done = marks(vm, "devfault", result="cleared")
@@ -803,6 +828,7 @@ def test_pulse_end_fault(board, hooks_image, need_mtools, tmp_path):
         row = dev_list(vm)["BOLT"]
         assert " LOCKED " in row and "FAULT" not in row, row
         assert pins(record(vm))[-1] == (23, 0)
+        assert PiGpio(vm, board).get(23) == 0
         assert dev_set(vm, "BOLT", "LOCK").status == "ok"
         assert vm.script("dev fail PIR x", timeout=TIMEOUT).status.startswith("err usage")
 
