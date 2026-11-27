@@ -72,12 +72,12 @@ def test_cfg_bad_and_clamped_values(board, uos_image, need_mtools, tmp_path):
 
 
 def test_cfg_applies_scheme_and_name(board, uos_image, need_mtools, tmp_path):
-    text = b"[system]\nname = Overseer Office\nscheme = amber\nmode = terminal\n"
+    text = b"[system]\nname = Overseer Office\nscheme = amber\n"
     with alone(uos_image, board, uos_card(tmp_path, cfg=text)) as vm:
         wait_ready(vm)
         cfg = one(vm, "config")
-        assert (cfg["result"], cfg["scheme"], cfg["mode"], cfg["console"]) == \
-            ("ok", "amber", "terminal", "1"), cfg
+        assert (cfg["result"], cfg["scheme"], cfg["console"]) == ("ok", "amber", "1"), cfg
+        assert "mode" not in cfg, cfg
         assert (cfg["bad"], cfg["clamped"], cfg["unknown"]) == ("0", "0", "0"), cfg
         _, rows = dump(vm)
         assert screen_has(rows, "Overseer Office"), rows

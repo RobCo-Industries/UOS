@@ -468,6 +468,28 @@ int lg_header_line(const char *sysname, unsigned row, char *buf, size_t size)
     return fit(buf, size, n);
 }
 
+int lg_notice_line(int cfg_bad, int dev_bad, char *buf, size_t size)
+{
+    const char *text;
+    int n;
+
+    if (buf == NULL) {
+        return -1;
+    }
+    /* LORE: original in-world text. */
+    if (cfg_bad && dev_bad) {
+        text = "SETTINGS: SOME VALUES IGNORED. DEVICES: SOME DEVICES REFUSED";
+    } else if (cfg_bad) {
+        text = "SETTINGS: SOME VALUES IGNORED";
+    } else if (dev_bad) {
+        text = "DEVICES: SOME DEVICES REFUSED";
+    } else {
+        text = "";
+    }
+    n = k_snprintf(buf, size, "%s", text);
+    return fit(buf, size, n);
+}
+
 void lg_name_word(const char *typed, char out[UAF_NAME_MAX + 1])
 {
     size_t i;

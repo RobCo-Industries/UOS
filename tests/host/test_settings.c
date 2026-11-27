@@ -17,7 +17,6 @@ TEST(defaults)
     uos_settings_default(&s);
     CHECK_STR(s.name, "ROBCO TERMINAL");
     CHECK_EQ(s.scheme, UOS_SCHEME_UNSET);
-    CHECK_EQ(s.mode, UOS_MODE_SHELL);
     CHECK_EQ(s.login_retries, 3u);
     CHECK_EQ(s.login_lockout_s, 30u);
     CHECK_EQ(s.login_idle_s, 0u);
@@ -67,16 +66,15 @@ TEST(every_key)
     uos_settings_t s;
     uos_settings_report_t r;
     const char *cfg =
-        "[system]\nname = Vault 7 Overseer\nscheme = AMBER\nmode = terminal\n"
+        "[system]\nname = Vault 7 Overseer\nscheme = AMBER\n"
         "[login]\nretries = 5\nlockout_s = 120\n"
         "[hack]\nenabled = no\nuser = oper\nattempts = 2\ndifficulty = master\nlockout_s = 0\n";
 
     CHECK_EQ(parse(cfg, &s, &r), UOS_CFG_OK);
-    CHECK_EQ(r.keys, 10u);
+    CHECK_EQ(r.keys, 9u);
     CHECK_EQ(r.bad + r.clamped + r.unknown, 0u);
     CHECK_STR(s.name, "Vault 7 Overseer");
     CHECK_EQ(s.scheme, 1);
-    CHECK_EQ(s.mode, UOS_MODE_TERMINAL);
     CHECK_EQ(s.login_retries, 5u);
     CHECK_EQ(s.login_lockout_s, 120u);
     CHECK_EQ(s.hack_enabled, 0);
@@ -122,17 +120,29 @@ TEST(values_at_the_limits_are_not_clamped)
     CHECK_EQ(r.clamped, 1u);
 }
 
+TEST(mode_is_an_unknown_key)
+{
+    uos_settings_t s;
+    uos_settings_report_t r;
+
+    CHECK_EQ(parse("[system]\nmode = shell\nname = ROOM 4\n", &s, &r), UOS_CFG_OK);
+    CHECK_EQ(r.unknown, 1u);
+    CHECK_EQ(r.keys, 1u);
+    CHECK_EQ(r.bad + r.clamped, 0u);
+    CHECK_STR(s.name, "ROOM 4");
+}
+
 TEST(bad_values_are_skipped_and_counted)
 {
     uos_settings_t s;
     uos_settings_report_t r;
 
-    CHECK_EQ(parse("[system]\nscheme = purple\nmode = gui\n"
+    CHECK_EQ(parse("[system]\nscheme = purple\n"
                    "name = 12345678901234567890123456789012\n"
                    "[login]\nretries = three\nlockout_s = -5\n"
                    "[hack]\nenabled = maybe\nuser = no one\ndifficulty = easy\nattempts =\n",
                    &s, &r), UOS_CFG_OK);
-    CHECK_EQ(r.bad, 9u);
+    CHECK_EQ(r.bad, 8u);
     CHECK_EQ(r.keys, 0u);
     CHECK_EQ(s.scheme, UOS_SCHEME_UNSET);
     CHECK_STR(s.name, "ROBCO TERMINAL");
@@ -224,9 +234,6 @@ TEST(names)
     CHECK_STR(uos_scheme_name(3), "white");
     CHECK_STR(uos_scheme_name(UOS_SCHEME_UNSET), "default");
     CHECK_STR(uos_scheme_name(4), "unknown");
-    CHECK_STR(uos_mode_name(UOS_MODE_SHELL), "shell");
-    CHECK_STR(uos_mode_name(UOS_MODE_TERMINAL), "terminal");
-    CHECK_STR(uos_mode_name(2), "unknown");
     CHECK_STR(uos_difficulty_name(UOS_DIFF_NOVICE), "novice");
     CHECK_STR(uos_difficulty_name(UOS_DIFF_EXPERT), "expert");
     CHECK_STR(uos_difficulty_name(-1), "unknown");

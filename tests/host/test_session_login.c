@@ -386,6 +386,22 @@ TEST(header_rows)
     CHECK_EQ(lg_header_line("X", LG_HEADER_ROWS, buf, sizeof(buf)), -1);
 }
 
+TEST(notice_line)
+{
+    char buf[80];
+
+    CHECK_EQ(lg_notice_line(0, 0, buf, sizeof(buf)), 0);
+    CHECK_STR(buf, "");
+    lg_notice_line(1, 0, buf, sizeof(buf));
+    CHECK_STR(buf, "SETTINGS: SOME VALUES IGNORED");
+    lg_notice_line(0, 1, buf, sizeof(buf));
+    CHECK_STR(buf, "DEVICES: SOME DEVICES REFUSED");
+    CHECK(lg_notice_line(1, 1, buf, sizeof(buf)) <= 79);
+    CHECK_STR(buf, "SETTINGS: SOME VALUES IGNORED. DEVICES: SOME DEVICES REFUSED");
+    CHECK_EQ(lg_notice_line(1, 1, buf, 10), -1);
+    CHECK_EQ(lg_notice_line(1, 0, NULL, 10), -1);
+}
+
 TEST(name_word)
 {
     char w[UAF_NAME_MAX + 1];
