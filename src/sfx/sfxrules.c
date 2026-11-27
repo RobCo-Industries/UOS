@@ -27,10 +27,27 @@ void sfx_pick_init(sfx_pick_t *p)
     p->rnd = 1u;
 }
 
+static uint32_t pick_next(uint32_t rnd)
+{
+    return rnd * 1103515245u + 12345u;
+}
+
+unsigned sfx_pick_peek(const sfx_pick_t *p)
+{
+    return (pick_next(p->rnd) >> 16) & 1u ? UOS_SFX_ID_KEY_B : UOS_SFX_ID_KEY_A;
+}
+
+void sfx_pick_take(sfx_pick_t *p)
+{
+    p->rnd = pick_next(p->rnd);
+}
+
 unsigned sfx_pick_key(sfx_pick_t *p)
 {
-    p->rnd = p->rnd * 1103515245u + 12345u;
-    return (p->rnd >> 16) & 1u ? UOS_SFX_ID_KEY_B : UOS_SFX_ID_KEY_A;
+    unsigned id = sfx_pick_peek(p);
+
+    sfx_pick_take(p);
+    return id;
 }
 
 void sfx_rest_init(sfx_rest_t *r)
@@ -72,13 +89,23 @@ void sfx_gap_init(sfx_gap_t *g)
     g->started = 0;
 }
 
-int sfx_gap_pass(sfx_gap_t *g, uint32_t now_ms)
+int sfx_gap_open(const sfx_gap_t *g, uint32_t now_ms)
 {
-    if (g->started && (uint32_t)(now_ms - g->last_ms) < SFX_SCROLL_GAP_MS) {
-        return 0;
-    }
+    return !g->started || (uint32_t)(now_ms - g->last_ms) >= SFX_SCROLL_GAP_MS;
+}
+
+void sfx_gap_mark(sfx_gap_t *g, uint32_t now_ms)
+{
     g->started = 1;
     g->last_ms = now_ms;
+}
+
+int sfx_gap_pass(sfx_gap_t *g, uint32_t now_ms)
+{
+    if (!sfx_gap_open(g, now_ms)) {
+        return 0;
+    }
+    sfx_gap_mark(g, now_ms);
     return 1;
 }
 

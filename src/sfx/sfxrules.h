@@ -48,7 +48,15 @@ typedef struct {
 
 void sfx_pick_init(sfx_pick_t *p);
 
-/* UOS_SFX_ID_KEY_A or UOS_SFX_ID_KEY_B. */
+/* The next pick, UOS_SFX_ID_KEY_A or UOS_SFX_ID_KEY_B, without a step.
+ * Call sfx_pick_take() once the driver took it, so a dropped key does
+ * not use up a pick. */
+unsigned sfx_pick_peek(const sfx_pick_t *p);
+
+/* Steps the generator past the pick that sfx_pick_peek() returns. */
+void sfx_pick_take(sfx_pick_t *p);
+
+/* sfx_pick_peek() then sfx_pick_take(). */
 unsigned sfx_pick_key(sfx_pick_t *p);
 
 /*
@@ -84,18 +92,25 @@ int sfx_rest_ready(sfx_rest_t *r, const sfx_rest_ops_t *ops);
  * The scroll limit. char_scroll starts at most once per
  * SFX_SCROLL_GAP_MS, so a held arrow key does not smear. The time is the
  * kernel's millisecond clock, which wraps at 2^32: only the difference
- * counts. The first move always passes.
+ * counts. The first move always passes. The gap counts from the last
+ * char_scroll the driver took: a dropped one does not start it.
  */
 #define SFX_SCROLL_GAP_MS 30u
 
 typedef struct {
-    uint32_t last_ms;           /* the last start that passed */
-    int started;                /* 0 until a start passed */
+    uint32_t last_ms;           /* the last start that played */
+    int started;                /* 0 until a start played */
 } sfx_gap_t;
 
 void sfx_gap_init(sfx_gap_t *g);
 
-/* 1 when char_scroll may start at `now_ms`; it then counts as started. */
+/* 1 when char_scroll may start at `now_ms`. Changes nothing. */
+int sfx_gap_open(const sfx_gap_t *g, uint32_t now_ms);
+
+/* Records that char_scroll played at `now_ms`: the next gap starts. */
+void sfx_gap_mark(sfx_gap_t *g, uint32_t now_ms);
+
+/* sfx_gap_open(), then sfx_gap_mark() when it is open. */
 int sfx_gap_pass(sfx_gap_t *g, uint32_t now_ms);
 
 /*

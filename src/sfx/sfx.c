@@ -76,39 +76,49 @@ void uos_sfx_poll(void)
     irq_restore(s);
 }
 
-void uos_sfx(unsigned id)
+int uos_sfx(unsigned id)
 {
     const sfx_sound_t *t = sfx_sound(id);
 
     if (!on || t == NULL) {
-        return;
+        return 0;
     }
     /* No effect before the rest ramp ends: a play would cut it. */
     if (!sfx_rest_ready(&rest, &rest_ops)) {
-        return;
+        return 0;
     }
     /* A priority play replaces one that waits for its tick: the lane keeps
      * a result sound from being erased that way by a key or a scroll. */
     if (!sfx_lane_may(&lane, id, tick_count())) {
-        return;
+        return 0;
     }
     /* A refused play is dropped: a sound is never worth a wait. */
-    if (audio_play_pcm(t->data, t->len, UOS_SFX_RATE_HZ, AUDIO_PRIORITY) == 0) {
-        sfx_lane_took(&lane, id, tick_count());
+    if (audio_play_pcm(t->data, t->len, UOS_SFX_RATE_HZ, AUDIO_PRIORITY) != 0) {
+        return 0;
     }
+    sfx_lane_took(&lane, id, tick_count());
+    return 1;
 }
 
 void uos_sfx_key(void)
 {
-    if (on) {
-        uos_sfx(sfx_pick_key(&pick));
+    /* The pick steps only for a key that sounds. */
+    if (on && uos_sfx(sfx_pick_peek(&pick))) {
+        sfx_pick_take(&pick);
     }
 }
 
 void uos_sfx_scroll(void)
 {
-    if (on && sfx_gap_pass(&gap, tick_ms())) {
-        uos_sfx(UOS_SFX_ID_CHAR_SCROLL);
+    uint32_t now;
+
+    if (!on) {
+        return;
+    }
+    /* The gap starts only when the driver took the tick. */
+    now = tick_ms();
+    if (sfx_gap_open(&gap, now) && uos_sfx(UOS_SFX_ID_CHAR_SCROLL)) {
+        sfx_gap_mark(&gap, now);
     }
 }
 

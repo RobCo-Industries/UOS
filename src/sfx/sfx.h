@@ -12,14 +12,17 @@ void uos_sfx_poll(void);
 
 /* Plays sound `id`, a UOS_SFX_ID_* of sfxrules.h, at the table's rate,
  * in place of what plays. Never blocks. Does nothing while the sound is
- * off; a play the driver refuses is dropped. Main context only. */
-void uos_sfx(unsigned id);
+ * off; a play the driver refuses is dropped. Returns 1 when the driver
+ * took the play, 0 when it was dropped. Main context only. */
+int uos_sfx(unsigned id);
 
-/* Plays key_a or key_b, by the pick of sfxrules.h. Main context only. */
+/* Plays key_a or key_b, by the pick of sfxrules.h. A dropped key does
+ * not use up a pick. Main context only. */
 void uos_sfx_key(void);
 
 /* Plays char_scroll for a cursor move, at most once per 30 ms by the
- * scroll limit of sfxrules.h. Main context only. */
+ * scroll limit of sfxrules.h. The gap counts from the last char_scroll
+ * that played. Main context only. */
 void uos_sfx_scroll(void);
 
 /* Plays the one sound of a SELECT in the password game, from its

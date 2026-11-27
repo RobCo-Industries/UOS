@@ -951,7 +951,7 @@ The other sounds have these triggers:
 
 A SELECT in the game plays one sound only, by `sfx_hack_sound()` in `src/sfx/sfxrules.c`. A SELECT that changes nothing plays nothing. At the login, Enter plays its key sound when the line editor takes it, and the result sound plays later, when the check ends; it replaces the click if that still plays. A move at an edge that moves nothing plays nothing. The menu's `menu pick` command moves the selection without a sound.
 
-`char_scroll` starts at most once per 30 ms, so a held arrow key does not smear. `uos_sfx_scroll()` feeds the pure rule `sfx_gap_pass()` with the tick clock `tick_ms()`, which wraps at 2^32 ms: only the difference counts. The audio trace stamps its `t_ms` from the same clock when the play starts, at the next tick.
+`char_scroll` starts at most once per 30 ms, so a held arrow key does not smear. `uos_sfx_scroll()` asks the pure rule `sfx_gap_open()` with the tick clock `tick_ms()` and calls `sfx_gap_mark()` only when the driver took the tick, which wraps at 2^32 ms: only the difference counts. The audio trace stamps its `t_ms` from the same clock when the play starts, at the next tick.
 
 One sound plays at a time, and a loop sits under it later. The loudest one-shot plus the loudest loop stays within 127 steps of the midpoint: `tests/host/test_sfx.c` checks it from the header.
 
