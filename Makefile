@@ -18,6 +18,8 @@
 #   make sfx-table            src/sfx/sfx_table.c and .h from src/sfx/sfx_models.json
 #   make sfx-table-check      the committed table matches the model; every image
 #                             build runs it once per change of its inputs
+#   make sfx-preview          build/sfx_preview.wav: a session's sounds, rendered
+#                             from a QEMU log (BOARD=raspi2b by default)
 #   make ci-local             the CI build job in the robco-ci container
 #                             (CI_LOCAL_CPUS=4 by default)
 #   make clean
@@ -241,3 +243,33 @@ run: sdimage $(BUILD)/tramp.img
 	PYTHONPATH=$(ROBCO_CORE)/tests $(PYTHON) -m harness.run \
 	    $(if $(filter 1,$(CHAIN)),$(RETROS_IMG),$(RUN_ALONE)) \
 	    --board $(RUN_BOARD) --sd $(BUILD)/sd.img --serial2 pty $(if $(filter 1,$(WINDOW)),--window)
+
+# QEMU has no sound. `make sfx-preview` boots a card on one board, raspi2b
+# unless BOARD names one, with [audio] sound = on and trace = on, and
+# drives a short session through the maintenance port. It saves the
+# serial log, dumps the sound tables as .u8 files and renders
+# build/sfx_preview.wav with RobCo-Core's tools/audio_preview.py. It stops
+# when the log is missing, when the tool prints any warning, such as a
+# buffer it cannot find, or when the WAV is silent. See docs/TESTING.md.
+SFX_PREVIEW_BOARD := $(if $(filter all,$(BOARD)),raspi2b,$(BOARD))
+SFX_PREVIEW_DIR   := $(BUILD)/sfx_preview
+SFX_PREVIEW_WAV   := $(BUILD)/sfx_preview.wav
+
+.PHONY: sfx-preview
+sfx-preview: venv
+	@rm -rf $(SFX_PREVIEW_DIR) $(SFX_PREVIEW_WAV)
+	@mkdir -p $(SFX_PREVIEW_DIR)
+	$(VENV)/bin/pytest tests/test_sfx_preview_log.py -q --tb=short -p no:cacheprovider \
+	    --board $(SFX_PREVIEW_BOARD) --build-dir $(BUILD) \
+	    --sfx-preview-log $(abspath $(SFX_PREVIEW_DIR))/serial.log
+	@test -s $(SFX_PREVIEW_DIR)/serial.log || { \
+	    echo "sfx-preview: the session did not run, so there is no log" >&2; exit 1; }
+	$(PYTHON) -I $(SFX_TABLE) src/sfx/sfx_models.json --dump $(SFX_PREVIEW_DIR)/pcm
+	$(PYTHON) -I $(ROBCO_CORE)/tools/audio_preview.py $(SFX_PREVIEW_DIR)/serial.log \
+	    $(SFX_PREVIEW_WAV) --pcm $(SFX_PREVIEW_DIR)/pcm 2> $(SFX_PREVIEW_DIR)/preview.err
+	@cat $(SFX_PREVIEW_DIR)/preview.err >&2
+	@if grep -q 'warning:' $(SFX_PREVIEW_DIR)/preview.err; then \
+	    echo "sfx-preview: the preview tool warned, so the WAV is wrong" >&2; exit 1; fi
+	$(PYTHON) -I -c 'import sys, wave, array; w = wave.open(sys.argv[1]); \
+	    a = array.array("h", w.readframes(w.getnframes())); \
+	    sys.exit(0 if any(a) else "sfx-preview: the WAV is silent")' $(SFX_PREVIEW_WAV)
