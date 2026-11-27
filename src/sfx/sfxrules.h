@@ -99,6 +99,39 @@ void sfx_gap_init(sfx_gap_t *g);
 int sfx_gap_pass(sfx_gap_t *g, uint32_t now_ms);
 
 /*
+ * The start rule. The library starts a play at its next tick, and an
+ * AUDIO_PRIORITY play asked before that tick replaces the waiting one,
+ * which then never sounds. So a key sound asked in the tick of a result
+ * sound would erase it. The lane remembers the rank and the tick count
+ * of the last play the service asked for. A sound of a lower rank than
+ * that play is dropped while it still waits for its tick; a sound of the
+ * same or a higher rank replaces it. Once a tick has passed, the play has
+ * started, and any new sound replaces it: one voice, the newest wins.
+ */
+enum {
+    SFX_RANK_KEY,               /* key_a, key_b, fan */
+    SFX_RANK_SCROLL,            /* char_scroll */
+    SFX_RANK_RESULT             /* pass_good, pass_bad */
+};
+
+/* The rank of sound `id`. */
+unsigned sfx_rank(unsigned id);
+
+typedef struct {
+    int set;                    /* a play was asked */
+    uint32_t tick;              /* the tick count when it was asked */
+    unsigned rank;              /* its rank */
+} sfx_lane_t;
+
+void sfx_lane_init(sfx_lane_t *l);
+
+/* 1 when sound `id` may be asked now, at tick count `now_tick`. */
+int sfx_lane_may(const sfx_lane_t *l, unsigned id, uint32_t now_tick);
+
+/* Records that the driver took sound `id` at tick count `now_tick`. */
+void sfx_lane_took(sfx_lane_t *l, unsigned id, uint32_t now_tick);
+
+/*
  * The sound of a SELECT in the password game, from its hk_event_t:
  * pass_good for a win, pass_bad for a denied word and a lockout,
  * UOS_SFX_PICK_KEY for a dud and a reset, UOS_SFX_NONE for anything

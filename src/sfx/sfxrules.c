@@ -82,6 +82,38 @@ int sfx_gap_pass(sfx_gap_t *g, uint32_t now_ms)
     return 1;
 }
 
+unsigned sfx_rank(unsigned id)
+{
+    switch (id) {
+    case UOS_SFX_ID_PASS_GOOD:
+    case UOS_SFX_ID_PASS_BAD:
+        return SFX_RANK_RESULT;
+    case UOS_SFX_ID_CHAR_SCROLL:
+        return SFX_RANK_SCROLL;
+    default:
+        return SFX_RANK_KEY;
+    }
+}
+
+void sfx_lane_init(sfx_lane_t *l)
+{
+    l->set = 0;
+    l->tick = 0;
+    l->rank = SFX_RANK_KEY;
+}
+
+int sfx_lane_may(const sfx_lane_t *l, unsigned id, uint32_t now_tick)
+{
+    return !l->set || l->tick != now_tick || sfx_rank(id) >= l->rank;
+}
+
+void sfx_lane_took(sfx_lane_t *l, unsigned id, uint32_t now_tick)
+{
+    l->set = 1;
+    l->tick = now_tick;
+    l->rank = sfx_rank(id);
+}
+
 unsigned sfx_hack_sound(int ev)
 {
     switch (ev) {
