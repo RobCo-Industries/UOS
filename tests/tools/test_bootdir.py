@@ -168,6 +168,43 @@ def test_bootdir_file_and_folder_clash_changes_nothing(stand_ins, tmp_path, kind
     assert tree(dest) == before
 
 
+def test_bootdir_never_writes_through_a_link(stand_ins, tmp_path):  # noqa: F811
+    build, files = stand_ins
+    dest, away = tmp_path / "card", tmp_path / "away"
+    bootdir(build, files, dest)
+    shutil.copytree(dest / "ROBCO", away)
+    shutil.rmtree(dest / "ROBCO")
+    (dest / "ROBCO").symlink_to(away)
+    files["UOS.SYS"].write_bytes(b"NEW UOS" * 64)
+    before, outside = tree(dest), tree(away)
+    r = bootdir(build, files, dest, ok=False)
+    assert "ROBCO: a symbolic link" in r.stderr
+    assert tree(away) == outside and tree(dest) == before
+
+
+def test_bootdir_never_removes_through_a_link(stand_ins, tmp_path):  # noqa: F811
+    build, files = stand_ins
+    dest, away = tmp_path / "card", tmp_path / "away.sys"
+    bootdir(build, files, dest, f"MAINT_SYS={files['MAINT.SYS']}")
+    maint = dest / "ROBCO" / "MAINT.SYS"
+    away.write_bytes(maint.read_bytes())
+    maint.unlink()
+    maint.symlink_to(away)
+    r = bootdir(build, files, dest, "CLEAN=1", ok=False)
+    assert "ROBCO/MAINT.SYS: a symbolic link" in r.stderr
+    assert away.exists() and maint.is_symlink()
+
+
+def test_bootdir_dir_may_be_a_link(stand_ins, tmp_path):  # noqa: F811
+    build, files = stand_ins
+    real, link = tmp_path / "real", tmp_path / "card"
+    real.mkdir()
+    link.symlink_to(real)
+    bootdir(build, files, link)
+    bootdir(build, files, link)
+    assert link.is_symlink() and (real / LIST).is_file()
+
+
 def test_bootdir_stale_files_and_clean(stand_ins, tmp_path):  # noqa: F811
     build, files = stand_ins
     dest = tmp_path / "card"

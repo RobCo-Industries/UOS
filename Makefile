@@ -262,6 +262,7 @@ endif
 # leaves the terminal's own files alone and stops on a clash. A changed
 # file never stops a run and keeps its record. CLEAN=1 removes unchanged
 # files an earlier run wrote that this run does not.
+# It stops on a symbolic link inside DIR and never writes through one.
 # DIR may hold spaces, as a mounted card often does: the recipe quotes it
 # and passes it through no make function that splits words.
 # See docs/BUILD.md.

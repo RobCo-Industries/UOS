@@ -19,6 +19,9 @@ bytes written, two spaces and the path, as `shasum -a 256` prints it.
   records, stops the run. --clean removes it.
 - A file where a stage file needs a folder, or a folder where a stage
   file goes, stops the run.
+- A symbolic link on the path of a stage file, a listed file or the
+  list stops the run. The tool never follows or writes through a link.
+  DIR itself is resolved once, so it may be a link.
 - A file named by --outside is left alone: never stale, never removed,
   and its record stays. `make bootdir FIRMWARE=0` names the firmware.
 
@@ -38,8 +41,9 @@ LIST = "UOSBOOT.LST"
 
 def files_under(root):
     out = set()
-    for top, _, names in os.walk(root):
-        for n in names:
+    for top, dirs, names in os.walk(root):
+        # os.walk never enters a linked folder; name the link itself.
+        for n in names + [x for x in dirs if os.path.islink(os.path.join(top, x))]:
             out.add(os.path.relpath(os.path.join(top, n), root).replace(os.sep, "/"))
     return out
 
@@ -56,17 +60,22 @@ def stop(msg, names):
     sys.exit(1)
 
 
-def in_the_way(root, rel):
-    """Why the path rel under root cannot be written as a file, or None."""
+def in_the_way(root, rel, kinds=True):
+    """Why the path rel under root cannot be written as a file, or None.
+    A symbolic link anywhere on the path is in the way: never follow one."""
     parts = rel.split("/")
     p = root
     for i, part in enumerate(parts):
         p = os.path.join(p, part)
         try:
             mode = os.lstat(p).st_mode
-        except FileNotFoundError:
+        except (FileNotFoundError, NotADirectoryError):
             return None
         here = "/".join(parts[:i + 1])
+        if stat.S_ISLNK(mode):
+            return f"{here}: a symbolic link"
+        if not kinds:
+            continue
         if i < len(parts) - 1 and not stat.S_ISDIR(mode):
             return f"{here}: a file where a folder is needed"
         if i == len(parts) - 1 and stat.S_ISDIR(mode):
@@ -101,6 +110,12 @@ def main():
     if a.dir == "/dev" or a.dir.startswith("/dev/"):
         print("syncbootdir: refusing a device path: this tool writes a folder", file=sys.stderr)
         sys.exit(1)
+    # DIR itself may be reached through a link, such as a card's mount
+    # name: resolve it once. Nothing under it is ever followed.
+    a.dir = os.path.realpath(a.dir)
+    if a.dir == "/dev" or a.dir.startswith("/dev/"):
+        print("syncbootdir: refusing a device path: this tool writes a folder", file=sys.stderr)
+        sys.exit(1)
     if os.path.exists(a.dir) and not os.path.isdir(a.dir):
         print(f"syncbootdir: {a.dir} exists and is not a folder", file=sys.stderr)
         sys.exit(1)
@@ -119,6 +134,7 @@ def main():
 
     # Checks, before any write.
     blocked = {w for w in (in_the_way(a.dir, n) for n in want | {LIST}) if w}
+    blocked |= {w for w in (in_the_way(a.dir, n, kinds=False) for n in set(rec) - outside) if w}
     if blocked:
         stop("folders and files in DIR are in the way of this run", blocked)
     clash = {n for n in want & have if n not in rec}
