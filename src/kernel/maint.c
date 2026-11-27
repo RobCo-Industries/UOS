@@ -442,7 +442,7 @@ void uos_maint_start(void)
         script = input_script_start();
     }
     script_on = script == 0;
-    UOS_MARK("input serial=%d script=%d gpio=off", serial, script);
+    UOS_MARK("input serial=%d script=%d gpio=later", serial, script);
 }
 
 /*

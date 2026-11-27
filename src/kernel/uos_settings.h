@@ -63,6 +63,7 @@ typedef struct {
     unsigned hack_lockout_s;
     int hwdog_enabled;          /* [watchdog] enabled: 1 or 0, off by default */
     unsigned hwdog_timeout_ms;  /* [watchdog] timeout_ms */
+    int buttons_enabled;        /* [input] buttons: 1 or 0, on by default */
 } uos_settings_t;
 
 /* Parse results. */

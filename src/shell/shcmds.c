@@ -16,6 +16,7 @@
 #include "sess.h"
 #include "shint.h"
 #include "uos.h"
+#include "uos_buttons.h"
 
 static const char *param(const sh_job_t *j, unsigned i)
 {
@@ -688,6 +689,8 @@ static int show_system(sh_job_t *j)
     sh_out(j, line);
     k_snprintf(line, sizeof(line), "Card %s, devices %u, users %u", uos_card_name(uos.card),
                devs_count(), db != NULL ? (unsigned)db->count : 0u);
+    sh_out(j, line);
+    k_snprintf(line, sizeof(line), "Buttons %s", uos_buttons_result_name(uos.buttons));
     sh_out(j, line);
     return sh_end(j, DCL_NORMAL, NULL, 0, 0);
 }

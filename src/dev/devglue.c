@@ -389,18 +389,13 @@ static void mark_cfg_lists(void)
 }
 
 /*
- * The refused pins: the UOS mask. The library cannot say which pins the
- * input layer claimed; when its GPIO backend runs, every button and dial
- * pin of the board support spec is refused too.
+ * The refused pins: the UOS mask, whatever [input] buttons says. The six
+ * button pins stay refused when the buttons are off, so switching them on
+ * later cannot collide with a device. Pins 16, 23 and 24 stay free.
  */
 static uint32_t refused_mask(void)
 {
-    uint32_t m = DV_REFUSED_UOS;
-
-    if (input_gpio_status() != INPUT_GPIO_OFF) {
-        m |= DV_PINS_BUTTONS | DV_PINS_DIAL;
-    }
-    return m;
+    return DV_REFUSED_UOS;
 }
 
 static void load(void)

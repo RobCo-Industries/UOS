@@ -4,7 +4,8 @@
  *
  * Bring-up runs in a fixed order with one marker per step, see
  * docs/ARCHITECTURE.md: boot, handoff, maint, board, mbox, mmu, screen,
- * tick, heap, input, selfcheck, mount, config, rtc, one service line per
+ * tick, heap, input, selfcheck, mount, config, buttons, rtc, one service
+ * line per
  * service, then the first screen and ready.
  */
 
@@ -18,7 +19,9 @@
 #include <robco/console.h>
 #include <robco/fb.h>
 #include <robco/fs.h>
+#include <robco/gpio.h>
 #include <robco/i2c.h>
+#include <robco/input.h>
 #include <robco/irq.h>
 #include <robco/klibc.h>
 #include <robco/mbox.h>
@@ -32,6 +35,7 @@
 #include <robco/uart_mini.h>
 
 #include "uos.h"
+#include "uos_buttons.h"
 #include "uos_service.h"
 
 #define SCREEN_W 640
@@ -221,13 +225,13 @@ static void read_config(void)
     }
     UOS_MARK("config result=%s line=%u keys=%u bad=%u clamped=%u unknown=%u name=%s "
              "scheme=%s retries=%u login_lockout=%u hack=%d user=%s attempts=%u "
-             "difficulty=%s hack_lockout=%u console=%u",
+             "difficulty=%s hack_lockout=%u console=%u buttons=%d",
              rc == UOS_CFG_OK ? "ok" : "syntax", r.err_line, r.keys, r.bad, r.clamped,
              r.unknown, name_word(), uos_scheme_name(settings.scheme),
              settings.login_retries, settings.login_lockout_s, settings.hack_enabled,
              settings.hack_user, settings.hack_attempts,
              uos_difficulty_name(settings.hack_difficulty), settings.hack_lockout_s,
-             uos.fb_ok ? console_scheme() : 0u);
+             uos.fb_ok ? console_scheme() : 0u, settings.buttons_enabled);
 }
 
 /* The MMU with the library's identity map, and the caches. Before the
@@ -240,6 +244,47 @@ static void init_mmu(void)
         mmu_enable();
     }
     UOS_MARK("mmu result=%s rc=%d", rc != 0 ? "err" : mmu_enabled() ? "on" : "off", rc);
+}
+
+/*
+ * The six panel buttons, unless UOS.CFG switches them off. The library's
+ * stuck-line guard samples for 10 ticks; the boot sleeps in wfi until it
+ * ends, 30 ticks at most. Repeat runs only once the buttons are active.
+ */
+static void start_buttons(void)
+{
+    const char *repeat = "none";
+    char rbuf[12];
+    int setting = settings.buttons_enabled;
+    int rc = 0, status = INPUT_GPIO_OFF;
+    uint32_t t0 = uos_ticks(), waited = 0;
+    size_t i;
+
+    if (setting) {
+        for (i = 0; i < UOS_BUTTONS_COUNT && rc == 0; i++) {
+            rc = input_gpio_add_button(uos_buttons[i].pin, uos_buttons[i].code, 0, GPIO_PULL_UP);
+        }
+        if (rc == 0) {
+            rc = input_gpio_start(UOS_TICK_HZ, UOS_BUTTONS_DEBOUNCE_MS);
+        }
+        status = input_gpio_status();
+        while (rc == 0 && status == INPUT_GPIO_CHECKING &&
+               uos_ticks() - t0 < UOS_BUTTONS_WAIT_TICKS) {
+            __asm__ volatile("wfi");
+            status = input_gpio_status();
+        }
+        waited = uos_ticks() - t0;
+    }
+    uos.buttons = uos_buttons_result(setting, rc, status);
+    if (uos.buttons == UOS_BUTTONS_ERROR) {
+        uos_set_error("buttons");
+    } else if (uos.buttons == UOS_BUTTONS_ACTIVE) {
+        k_snprintf(rbuf, sizeof(rbuf), "%d",
+                   input_set_repeat(UOS_BUTTONS_REPEAT_MS, UOS_BUTTONS_RATE_MS));
+        repeat = rbuf;
+    }
+    UOS_MARK("buttons result=%s rc=%d setting=%d repeat=%s ticks=%u",
+             uos_buttons_result_name(uos.buttons), rc, setting, repeat, (unsigned)waited);
 }
 
 static void init_rtc(void)
@@ -335,6 +380,7 @@ void robco_main(void)
 
     mount_card();
     read_config();
+    start_buttons();
     init_rtc();
     uos_services_init();
 

@@ -53,6 +53,7 @@ PURE_NAMED := src/console/conview.c \
               src/vfs/vfsrules.c
 PURE_KERNEL := \
               src/kernel/bootlines.c \
+              src/kernel/buttons.c \
               src/kernel/event.c \
               src/kernel/hwdog.c \
               src/kernel/maintreg.c \
