@@ -21,10 +21,6 @@
 #define UOS_DEFAULT_NAME        "ROBCO TERMINAL"
 #define UOS_DEFAULT_HACK_USER   "GUEST"
 
-/* [system] mode. */
-#define UOS_MODE_SHELL          0
-#define UOS_MODE_TERMINAL       1
-
 /* [hack] difficulty. */
 #define UOS_DIFF_NOVICE         0
 #define UOS_DIFF_ADVANCED       1
@@ -57,7 +53,6 @@
 typedef struct {
     char name[UOS_NAME_MAX + 1];
     int scheme;                 /* CONSOLE_SCHEME_* 0 to 3, or UOS_SCHEME_UNSET */
-    int mode;                   /* UOS_MODE_* */
     unsigned login_retries;
     unsigned login_lockout_s;
     unsigned login_idle_s;      /* seconds without a key before logout, 0 never */
@@ -94,8 +89,6 @@ int uos_settings_parse(const char *text, size_t len, uos_settings_t *s,
 
 /* "green", "amber", "blue", "white"; "default" for UOS_SCHEME_UNSET; "unknown" otherwise. */
 const char *uos_scheme_name(int scheme);
-/* "shell" or "terminal", "unknown" otherwise. */
-const char *uos_mode_name(int mode);
 /* "novice", "advanced", "expert", "master", "unknown" otherwise. */
 const char *uos_difficulty_name(int diff);
 

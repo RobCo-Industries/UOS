@@ -8,7 +8,6 @@
 #include "uos_settings.h"
 
 static const char *const schemes[] = { "green", "amber", "blue", "white" };
-static const char *const modes[] = { "shell", "terminal" };
 static const char *const diffs[] = { "novice", "advanced", "expert", "master" };
 
 #define COUNT(a) (sizeof(a) / sizeof((a)[0]))
@@ -184,8 +183,6 @@ static int on_key(const char *section, const char *key, const char *value, unsig
             set_name(c, value);
         } else if (same(key, "scheme")) {
             set_choice(c, value, &s->scheme, schemes, COUNT(schemes));
-        } else if (same(key, "mode")) {
-            set_choice(c, value, &s->mode, modes, COUNT(modes));
         } else {
             c->r->unknown++;
         }
@@ -235,7 +232,6 @@ void uos_settings_default(uos_settings_t *s)
     k_memset(s, 0, sizeof(*s));
     k_memcpy(s->name, UOS_DEFAULT_NAME, sizeof(UOS_DEFAULT_NAME));
     s->scheme = UOS_SCHEME_UNSET;
-    s->mode = UOS_MODE_SHELL;
     s->login_retries = UOS_RETRIES_DEF;
     s->login_lockout_s = UOS_LOGIN_LOCK_DEF;
     s->login_idle_s = UOS_LOGIN_IDLE_DEF;
@@ -275,11 +271,6 @@ const char *uos_scheme_name(int scheme)
         return "default";
     }
     return (scheme >= 0 && (unsigned)scheme < COUNT(schemes)) ? schemes[scheme] : "unknown";
-}
-
-const char *uos_mode_name(int mode)
-{
-    return (mode >= 0 && (unsigned)mode < COUNT(modes)) ? modes[mode] : "unknown";
 }
 
 const char *uos_difficulty_name(int diff)
