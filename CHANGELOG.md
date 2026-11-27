@@ -6,6 +6,7 @@ All notable changes to UOS are recorded here. The format follows [Keep a Changel
 
 ### Added
 
+- `CARD_NOTE=<file>` puts that file on the card as `/ROBCO/VERSIONS.TXT`, for `make sdimage` with or without `CHAIN=1` and for `make bootdir`. `tests/tools/test_card_note.py` checks it.
 - `make bootdir DIR=<path>` writes the files of a real card for the whole chain into a folder: the files of `make sdimage CHAIN=1` plus the Pi firmware, which `FIRMWARE=0` leaves out. It keeps `UOSBOOT.LST` with a hash per file, so a re-run on a card in use replaces only unchanged files, keeps changed ones such as the user database unless `REPLACE=1`, and leaves the terminal's own files alone. `tests/tools/test_bootdir.py` checks it. `docs/TESTING.md` gets a hardware checklist; no row has run on a board yet.
 - `tests/test_chain_maint.py` walks the maintenance road on the chain card: UOS asks, the boot agent starts the real maintenance image, a tool runs, and the next boot is a normal one.
 - The chain card for the nightly run. `make sdimage CHAIN=1` takes `MAINT_SYS` and `DIAG_SYS`, copied to `/ROBCO/MAINT.SYS` and `/ROBCO/DIAG.SYS`, and `BOOT_CFG`, a file that replaces the one-entry `BOOT.CFG`. The tests take `--chain-card`, with `ROBCO_CHAIN_CARD` as its default, and a `chain_card` fixture that copies the card or skips. `after_chain()` takes `qtest=`. `tests/tools/test_chain_card.py` checks the card from stand-in files.
