@@ -15,6 +15,8 @@
 #   make run BOARD=raspi2b    boot build/sd.img in QEMU on this terminal
 #                             (WINDOW=1 also opens the display window)
 #   make check-pins           CI workflow pins and doc links match the submodule
+#   make sfx-table            src/sfx/sfx_table.c and .h from src/sfx/sfx_models.json
+#   make sfx-table-check      the committed table matches the model; the build runs it
 #   make ci-local             the CI build job in the robco-ci container
 #                             (CI_LOCAL_CPUS=4 by default)
 #   make clean
@@ -47,6 +49,7 @@ PURE_NAMED := src/console/conview.c \
               src/osk/osk.c \
               src/session/lockout.c src/session/login.c src/session/sha256.c \
               src/session/uaf.c \
+              src/sfx/sfx_table.c src/sfx/sfxrules.c \
               src/shell/shrules.c \
               src/tui/pager.c src/tui/tui.c src/tui/tuicfg.c \
               src/vfs/path.c \
@@ -107,8 +110,25 @@ ROBCO_CFLAGS += $(addprefix -I,$(SRC_INCLUDES))
 # Target tests boot the images built here; keep top-level targets serial.
 .NOTPARALLEL:
 
-# The card name of the image.
-all: $(BUILD)/UOS.SYS
+# The card name of the image. A stale sound table stops the build.
+all: sfx-table-check $(BUILD)/UOS.SYS
+
+# ---- Sound tables -----------------------------------------------------
+
+# The library's generator writes the tables from the model file. Both
+# outputs are committed. The check compares the model's hash and the
+# generator's revision with the header: it is fast. The tool tests run
+# `--check --full`, which renders again and compares bytes.
+SFX_TABLE      := $(ROBCO_CORE)/tools/sfx_table.py
+SFX_TABLE_ARGS := src/sfx/sfx_models.json --c src/sfx/sfx_table.c --h src/sfx/sfx_table.h \
+                  --prefix uos_sfx_
+
+.PHONY: sfx-table sfx-table-check
+sfx-table:
+	$(PYTHON) $(SFX_TABLE) $(SFX_TABLE_ARGS)
+
+sfx-table-check:
+	$(PYTHON) $(SFX_TABLE) $(SFX_TABLE_ARGS) --check
 
 $(BUILD)/UOS.SYS: $(BUILD)/$(IMAGE).img
 	cp $< $@
