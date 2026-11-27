@@ -344,11 +344,13 @@ TEST(tui_empty_and_failed_root)
 
     start(empty, 0);
     CHECK_EQ(t.level[0].menu.hidden, 1);
+    CHECK_STR(t.msg, "No menu entry for this user in TERMINAL.CFG");
     CHECK_STR(dump(),
               "00 N NORTH YARD\n"
               "01 N Nothing\n"
               "02 D " RULE "\n"
               "04 D (no entries)\n"
+              "27 N No menu entry for this user in TERMINAL.CFG\n"
               "28 D Nothing\n"
               "29 D BACK: log out\n");
     CHECK_EQ(key(INPUT_KEY_SELECT), TUI_ACT_NONE);
@@ -357,6 +359,24 @@ TEST(tui_empty_and_failed_root)
     start(bad, 0);
     CHECK_EQ(t.depth, 0);
     CHECK_STR(t.msg, "Bad menu file TERMINAL.CFG (line 3)");
+}
+
+TEST(tui_empty_why_cases)
+{
+    static const file_t allbad[] = { { "TERMINAL.CFG", "[entry 1]\nlabel=A\ntype=nope\n" }, { NULL, NULL } };
+    static const file_t noent[] = { { "TERMINAL.CFG", "[terminal]\ntitle = X\n" }, { NULL, NULL } };
+
+    CHECK_EQ(tui_empty_why(1, 0, 0), TUI_EMPTY_NONE);
+    CHECK_EQ(tui_empty_why(1, 2, 3), TUI_EMPTY_NONE);
+    CHECK_EQ(tui_empty_why(0, 1, 0), TUI_EMPTY_USER);
+    CHECK_EQ(tui_empty_why(0, 1, 2), TUI_EMPTY_USER);
+    CHECK_EQ(tui_empty_why(0, 0, 1), TUI_EMPTY_ERRORS);
+    CHECK_EQ(tui_empty_why(0, 0, 0), TUI_EMPTY_FILE);
+
+    start(allbad, 0);
+    CHECK_STR(t.msg, "TERMINAL.CFG: 1 errors, first: bad or missing type (line 3)");
+    start(noent, 0);
+    CHECK_STR(t.msg, "No menu entry in TERMINAL.CFG");
 }
 
 TEST(tui_file_errors_reported)
