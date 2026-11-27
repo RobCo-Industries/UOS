@@ -20,6 +20,7 @@ The library lives in the submodule `external/robco-core`. Run `git submodule upd
 | `make test` | `test-host`, then `test-target` |
 | `make test-tools` | Runs pytest over `tests/tools/` |
 | `make sdimage` | Writes `build/sd.img` with `/ROBCO/UOS.SYS` and the `card/` tree |
+| `make bootdir DIR=<dir> RETROS_IMG=... MFBOOT_SYS=...` | Writes the files of a real card for the whole chain into a folder, see [A real card](#a-real-card) |
 | `make run BOARD=raspi2b` | Boots `build/sd.img` in QEMU on this terminal. `WINDOW=1` opens the display. |
 | `make check-pins` | Checks that the CI workflow pins match the submodule, and the doc links. It runs `check-workflows` too. |
 | `make check-workflows` | Runs the library's workflow guard on `.github/workflows/`. It fails on a `${{ }}` inside a `run:` block and on an action not pinned by a full commit. CI runs it through `test-host`. |
@@ -55,6 +56,32 @@ Three more variables give the card the boot agent's other images and a full conf
 | `BOOT_CFG=<file>` | With `CHAIN=1`, copies the file to `/ROBCO/BOOT.CFG` in place of the one-entry config |
 
 The agent's menu finds the two images through `[entry MAINT]` and `[entry DIAG]` in `BOOT.CFG`. RETROS-BIOS's `boot/BOOT.CFG` has both entries, so the nightly run passes it as `BOOT_CFG`. The card gets no `[maint]` section unless the given file has one. Without it, the maintenance image keeps restore users off.
+
+## A real card
+
+```sh
+make bootdir DIR=path/to/dir RETROS_IMG=path/to/RETROS.IMG MFBOOT_SYS=path/to/MFBOOT.SYS
+```
+
+This runs `make sdimage CHAIN=1` and copies its staged files into `DIR`, plus the Pi firmware files `bootcode.bin`, `start.elf` and `fixup.dat` from RobCo-Core's `tools/fetch_firmware.sh`. `DIR` gets `RETROS.IMG`, its `config.txt`, the `ROBCO` folder with `MFBOOT.SYS`, `UOS.SYS` and `BOOT.CFG`, and the `UOS` tree from `card/`. `MAINT_SYS`, `DIAG_SYS` and `BOOT_CFG` work as for the chain image. Without `RETROS_IMG` or `MFBOOT_SYS` it stops: UOS alone cannot start on a real board.
+
+Copy the files to the root of a FAT32 card. The target writes a folder. It never formats a card and never writes a device. `FIRMWARE=0` leaves the firmware out, for a card that already has it and for the tests. No card from this target has booted a board yet.
+
+| Variable | Effect |
+|---|---|
+| `DIR=<dir>` | The folder to write. Required |
+| `FIRMWARE=0` | Leaves the firmware files out and needs no network |
+| `CLEAN=1` | Removes files an earlier run wrote that this run does not |
+
+### Running bootdir again
+
+Use a new, empty folder and it is one command. `bootdir` writes `UOSBOOT.LST` in `DIR`, the list of files it wrote. The card does not need it, but it does no harm there. A later run into the same folder checks the folder against the list before it changes anything:
+
+- A file no run wrote stops the run, and the run names it. `bootdir` never removes or replaces such a file.
+- A file an earlier run wrote that this run does not, such as `ROBCO/MAINT.SYS` after a run without `MAINT_SYS`, stops the run. `CLEAN=1` removes it.
+- Every other file is replaced, even one you edited, such as `ROBCO/BOOT.CFG` or `UOS/UOS.CFG`. Keep your edits outside `DIR`, or pass them as `BOOT_CFG`.
+
+Pip-OS keeps edited settings files across runs with a helper of its own. RobCo-Core has no such helper, so UOS takes this smaller rule.
 
 ## Where module sources go
 
