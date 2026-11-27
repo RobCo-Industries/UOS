@@ -74,6 +74,7 @@ The tests run from the repository root, so the ones that read the default card o
 
 | File | Covers |
 |---|---|
+| `test_bootdir.py` | `make bootdir` from stand-in files with `FIRMWARE=0`: the folder holds the names and bytes of the chain card and equals the files of the `make sdimage CHAIN=1` image made from the same inputs, plus `UOSBOOT.LST`. Without `RETROS_IMG` or `MFBOOT_SYS` it stops and writes nothing. A second run changes nothing, a file no run wrote stops it, and `CLEAN=1` removes a file of an earlier run |
 | `test_chain_card.py` | `make sdimage CHAIN=1` from stand-in files: `MAINT_SYS`, `DIAG_SYS` and `BOOT_CFG` land in `/ROBCO` with their bytes, and without them the card keeps the one-entry `BOOT.CFG` |
 | `test_mkuaf.py` | `tools/mkuaf.py`: build, check, the shared vectors, every bad input, the default card's file |
 | `test_mkwords.py` | `tools/mkwords.py`: check, `check --strict`, sort and sample over good and bad lists, the default card's lists |
@@ -233,3 +234,49 @@ The target saves the serial log to `build/sfx_preview/serial.log` and dumps the 
 | Terminal menu | Holotape reader, closed with a held BACK | New screen | Right | `test_covered_menu` in `test_menu.py` |
 
 The host test `test_screen.c` covers the order of `draw()` calls. Deliberate breaks, each caught: no expose on pop fails three QEMU tests; an invalidate in place of the expose when the keyboard closes fails the keyboard test; ignoring the `full` flag fails the host order test.
+
+## Hardware checklist
+
+No row below has run on a board yet. Every marker comes from a QEMU test. QEMU does not cover the Pi firmware, `config.txt`, the timing of a real card, real buttons or sound, so these rows are the first check of those parts.
+
+### What you need
+
+- One supported board, see RobCo-Core's [supported boards](../external/robco-core/docs/spec/BOARD_SUPPORT.md#supported-boards), with an HDMI screen.
+- A microSD card formatted FAT32 on one partition.
+- A 3.3 V USB serial adapter on the PL011: GPIO14 TXD and GPIO15 RXD, at 115200 baud, 8 data bits, no parity, 1 stop bit, no flow control. See [UART policy](../external/robco-core/docs/spec/BOARD_SUPPORT.md#uart-policy). The `@RC` lines below come out there. The maintenance port of the QEMU tests has no pin on a board.
+- For the button rows, six push buttons, each between its pin and ground. The pins are in the [settings](ADMIN_GUIDE.md#settings) of the administrator guide.
+- For the device row, an LED with a resistor on the pin of `LIGHT1` in `card/UOS/DEVICES.CFG`. The rules for device pins are in [Devices](ADMIN_GUIDE.md#devices).
+- The images of the other two stages: `RETROS.IMG` from RETROS-BIOS, `MFBOOT.SYS`, `MAINT.SYS` and `DIAG.SYS` from MFBootAgent, and RETROS-BIOS's `boot/BOOT.CFG`, which has the `MAINT` and `DIAG` entries.
+
+Make the card's files, then copy them to the root of the card:
+
+```sh
+make bootdir DIR=path/to/dir RETROS_IMG=path/to/RETROS.IMG MFBOOT_SYS=path/to/MFBOOT.SYS \
+    MAINT_SYS=path/to/MAINT.SYS DIAG_SYS=path/to/DIAG.SYS BOOT_CFG=path/to/BOOT.CFG
+```
+
+See [A real card](BUILD.md#a-real-card). The users and their passwords are in [Default accounts](USER_MANUAL.md#default-accounts).
+
+### Rows
+
+| Row | Do | See | Proof | Result |
+|---|---|---|---|---|
+| First stage | Power on | RETROS-BIOS's self test on the screen, then the power-on beep | `@RC stage=bios ev=post_done result=ok`, `ev=settings` with `beep=1`, `ev=load path=/ROBCO/MFBOOT.SYS`, `ev=jump` | |
+| Boot agent | Wait | The agent's menu with the entries of `BOOT.CFG` and a countdown, then UOS starts | `@RC stage=bootagent ev=entries`, `ev=countdown state=start`, `ev=choose name=UOS via=timeout`, `ev=jump` | |
+| UOS login | Wait for the login screen | `USERNAME:` | `@RC stage=uos ev=handoff trusted=1 prev=2`, `ev=ready screen=login`, `ev=sessdb result=ok users=3` | |
+| Login | Log in as `GUEST` on the serial line | The shell banner and the prompt | `@RC stage=uos ev=session state=start user=GUEST how=login`, `ev=session screen=shell` | |
+| Shell | Type `SHOW SYSTEM`, `DIRECTORY` and `TYPE NOTICE.TXT`, then `LOGOUT` | Each command's output | `@RC stage=uos ev=sh state=prompt kind=cmd` after each, then `ev=session state=end` | |
+| Game by key | Leave `USERNAME:` empty and press F2 | The password game board | `@RC stage=uos ev=login state=hack`, `ev=hack op=start` | |
+| Game by button | Leave `USERNAME:` empty and press BACK, keyboard closed | The password game board | `@RC stage=uos ev=login state=hack`, `ev=hack op=start` | |
+| Buttons | At the login, press each of the six buttons | The on-screen keyboard opens and the highlight moves | `@RC stage=uos ev=buttons result=active`, then one `ev=key type=key` per press, `name=up` to `name=back` | |
+| Device | Log in as `OPER` or `ADMIN` and type `DEVICE LIGHT1 ON`, then `OFF` | The LED lights, then goes dark | `@RC stage=uos ev=dev name=LIGHT1 state=ON`, then `state=OFF` | |
+| Maintenance | As `OPER`, type `SET HALT RESTART /MAINTENANCE`, then start the maintenance image from the agent's screen | `MAINTENANCE REQUESTED FOR THE NEXT START.`, the agent's maintenance screen with no countdown, then the maintenance image | `@RC stage=uos ev=maint_req`, `@RC stage=bootagent ev=maint_open`, `@RC stage=maint ev=ready` | |
+| Diagnostics | Press a key in the agent's countdown, move to `DIAG` and press Enter | The diagnostics image runs its checks | `@RC stage=diag ev=ready`, `ev=diag_done` | |
+| Sound | Set `[audio] sound = on` in `UOS.CFG`, restart, type a wrong then a right password | A low sound, then a short rising one | `@RC stage=uos ev=sound result=on` | |
+
+The diagnostics markers come from MFBootAgent's tests. The others come from `test_chain_terminal.py`, `test_chain_maint.py`, `test_buttons.py`, `test_hack.py`, `test_dev.py` and `test_sound.py`. QEMU has no sound, so the sound row is the first time anyone listens to it on a board.
+
+### Results
+
+| Date | Board | Commit | Rows run | Result |
+|---|---|---|---|---|
