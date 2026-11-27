@@ -49,6 +49,8 @@ At `$`, `USERNAME:`, `PASSWORD:` and every question. Detail: [USER_MANUAL](USER_
 | Ctrl-C | Clears the line, or stops the command |
 | F4 | Opens the on-screen keyboard |
 | F2 on an empty `USERNAME:` | Starts the password game |
+| BACK button on an empty `USERNAME:`, keyboard closed | Starts the password game |
+| Any other panel button | Opens the on-screen keyboard |
 
 ### On-screen keyboard
 

@@ -48,6 +48,27 @@ TEST(cv_alt_key_rules)
     CHECK(!cv_alt_key(NULL, 1, 0, 0));
 }
 
+TEST(cv_alt_key_button_back)
+{
+    input_event_t e;
+
+    e = mk(INPUT_EV_KEY, INPUT_SRC_GPIO, CV_ALT_BUTTON, INPUT_PRESS);
+    CHECK(cv_alt_key(&e, 1, 0, 0));
+    CHECK(!cv_alt_key(&e, 0, 0, 0));        /* no alt flag */
+    CHECK(!cv_alt_key(&e, 1, 1, 0));        /* text on the line */
+    CHECK(!cv_alt_key(&e, 1, 0, 1));        /* the keyboard is open */
+    CHECK(!cv_opens_osk(&e, 1));
+    e = mk(INPUT_EV_KEY, INPUT_SRC_GPIO, CV_ALT_BUTTON, INPUT_RELEASE);
+    CHECK(!cv_alt_key(&e, 1, 0, 0));
+    e = mk(INPUT_EV_KEY, INPUT_SRC_SERIAL, CV_ALT_BUTTON, INPUT_PRESS);
+    CHECK(!cv_alt_key(&e, 1, 0, 0));        /* a serial BACK */
+    e = mk(INPUT_EV_KEY, INPUT_SRC_SCRIPT, CV_ALT_BUTTON, INPUT_PRESS);
+    CHECK(!cv_alt_key(&e, 1, 0, 0));
+    e = mk(INPUT_EV_KEY, INPUT_SRC_GPIO, INPUT_KEY_SELECT, INPUT_PRESS);
+    CHECK(!cv_alt_key(&e, 1, 0, 0));        /* another button */
+    CHECK(cv_opens_osk(&e, 0));
+}
+
 TEST(cv_opens_osk_rules)
 {
     input_event_t e;
