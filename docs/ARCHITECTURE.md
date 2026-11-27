@@ -10,6 +10,7 @@ src/kernel/   entry, panic, event loop, timers, screens, settings, maintenance p
 src/dcl/ src/vfs/ src/session/ src/osk/ src/dev/ src/tui/ src/hack/ src/holo/
               the pure modules, one folder each
 src/shell/    the command shell and its commands
+src/sfx/      the sound service
 card/         the default card: /UOS/UOS.CFG, SYSUAF.DAT, SYSUAF.DEF, DEVICES.CFG, HOME/, WORDS/, HOLO/, SYS/HELP/
 tools/        card tools: mkuaf.py, mkwords.py, mkholo.py, and the holotape sources in holotapes/
 tests/host/   host tests of the pure files, and host tools such as holocheck.c
@@ -77,9 +78,10 @@ Each step prints one marker, `@RC stage=uos ev=<name> ...`, in this order:
 | `input` | The console backend and the maintenance port commands. `gpio=later`: the `buttons` step starts the GPIO backend. |
 | `selfcheck` | `rimg_self_check()`, run first at entry and reported here. Information only. |
 | `mount` | The card by `fs_mount_boot()` with markers `/UOS/UOS.CFG` and `/ROBCO/UOS.SYS`, then the `/UOS` folder: `result=ok`, `none` or `notree` |
-| `config` | `UOS.CFG`: `result=ok`, `syntax`, `missing`, `skipped` or `bad`, with every setting and the counts. It has no `mode=` field: UOS reads no `mode` key. Every `config` marker ends with `buttons=<0\|1>`, the `[input] buttons` setting that applies, the default `1` when the file is missing or cannot be read. |
+| `config` | `UOS.CFG`: `result=ok`, `syntax`, `missing`, `skipped` or `bad`, with every setting and the counts. It has no `mode=` field: UOS reads no `mode` key. Every `config` marker ends with `buttons=<0\|1>`, the `[input] buttons` setting that applies, the default `1` when the file is missing or cannot be read, then `sound=<0\|1> fan=<0\|1> volume=<0-100>`, the `[audio]` settings that apply. |
 | `buttons` | The six panel buttons of `src/kernel/buttons.c`: UP 5, DOWN 6, LEFT 17, RIGHT 22, SELECT 26, BACK 27, active low with pull-ups and a 20 ms debounce. It calls `input_gpio_start()`, then sleeps in `wfi` until the library's 10-tick stuck-line guard ends, 30 ticks at most. `result=active`, `disabled_stuck`, `off`, `error` or `checking`, with `rc`, `setting`, `repeat` and `ticks`, the wait. Repeat, 500 ms then every 150 ms, is set before the guard, so a button held through it repeats. The step turns it off again unless the result is `active`. `repeat` holds the code of the call that set it when `active`, else `none`. `off` touches no pin. `error` sets `error=buttons`. A plain QEMU boot drives no line, so it reads `disabled_stuck`. |
 | `rtc` | I2C and a DS1307 or DS3231 clock, if one answers |
+| `sound` | Printed by the first service, `sound`, before the `service` lines. `result=off` with `rc=0` when `[audio] sound` is off, `on` when `audio_init()` and the rest ramp started, `error` with the library's code otherwise. See [Sound](#sound). |
 | `service` | One line per service, in table order: `name`, `rc`. See [Services](#services). |
 | `ready` | The first screen is drawn, or the login replaced it: `screen=first` or `screen=login` |
 
@@ -370,21 +372,22 @@ Test builds put a service named `testfail` first, whose init returns -5, so the 
 
 | Start | Service | Header | Uses |
 |---|---|---|---|
-| 1 | `uptime` | none | nothing |
-| 2 | `vfs` | `src/vfs/vfs.h` | the card the kernel mounted |
-| 3 | `console` | `src/console/con.h` | the screen stack |
-| 4 | `session` | `src/session/sess.h` | `vfs` for `SYSUAF.DAT`, `console` for the prompts, the first screen |
-| 5 | `shell` | `src/shell/sh.h` | `session` for the user and the next screen, `vfs`, `console`, `DEV:` |
-| 6 | `devices` | `src/dev/devs.h` | `vfs` for `DEVICES.CFG` and `DEV:` |
-| 7 | `holo` | `src/holo/holoscr.h` | `vfs` for the tapes, `console` for the pager, `session` for the user's rights |
-| 8 | `hack` | `src/hack/hackscr.h` | `vfs` for the word lists, `session` for its rules, the lock and the session |
-| 9 | `menu` | `src/tui/tuiscr.h` | `shell` for its programs, the session's screen and the command entries, `vfs`, `devices`, `holo`, `console` for the pager |
+| 1 | `sound` | `src/sfx/sfx.h` | the settings |
+| 2 | `uptime` | none | nothing |
+| 3 | `vfs` | `src/vfs/vfs.h` | the card the kernel mounted |
+| 4 | `console` | `src/console/con.h` | the screen stack |
+| 5 | `session` | `src/session/sess.h` | `vfs` for `SYSUAF.DAT`, `console` for the prompts, the first screen |
+| 6 | `shell` | `src/shell/sh.h` | `session` for the user and the next screen, `vfs`, `console`, `DEV:` |
+| 7 | `devices` | `src/dev/devs.h` | `vfs` for `DEVICES.CFG` and `DEV:` |
+| 8 | `holo` | `src/holo/holoscr.h` | `vfs` for the tapes, `console` for the pager, `session` for the user's rights |
+| 9 | `hack` | `src/hack/hackscr.h` | `vfs` for the word lists, `session` for its rules, the lock and the session |
+| 10 | `menu` | `src/tui/tuiscr.h` | `shell` for its programs, the session's screen and the command entries, `vfs`, `devices`, `holo`, `console` for the pager |
 
 The session comes after the file system and the console, which it uses. The shell comes after the session, whose `sess_set_next()` it calls at init. Both come before the devices so that the devices stay last: they stop first. Nothing in the device service uses the session; a device command gets its caller's privileges as an argument.
 
 The menu comes after the shell, whose `sh_program_register()` and `sh_session_screen_register()` it calls at init. Its place after `devices` does not break the stop rule above: it has no shutdown work.
 
-Shutdown runs in reverse: `menu`, `hack`, `holo`, `devices`, `shell`, `session`, `console`, `vfs`, `uptime`. The two screen services have no shutdown work: they hold memory only. The shell has no `shutdown`. The menu has none either. So on a reboot, a halt and a panic the device service is the first service with work, and it drives every output safe before anything else stops. Its `devsafe` lines and `devdown` come right after `ev=shutdown name=devices` and before `ev=shutdown name=console`. `test_link.py` checks this order for all three causes.
+Shutdown runs in reverse: `menu`, `hack`, `holo`, `devices`, `shell`, `session`, `console`, `vfs`, `uptime`, `sound`. The two screen services have no shutdown work: they hold memory only. The shell has no `shutdown`. The menu has none either. So on a reboot, a halt and a panic the device service is the first service with work, and it drives every output safe before anything else stops. Its `devsafe` lines and `devdown` come right after `ev=shutdown name=devices` and before `ev=shutdown name=console`. `test_link.py` checks this order for all three causes.
 
 A file write cannot be cut by a reboot. `vfs_write_all()` runs in one loop pass, and the `reboot` command waits for the next one. A stepped copy can be cut between two steps. Its new content sits in a work file, and the target keeps its whole old content. The next call that looks at the target removes the work file. `test_link.py` reboots during a 1 MiB copy over a file and checks both. A power cut during a write is not tested: the library's atomic write states that guarantee.
 
@@ -904,6 +907,20 @@ The one QEMU test of it, `test_hwdog_on_resets_at_start`, proves only that the s
 
 QEMU's reset says nothing about the level of a real Pi's pins during and after a reset. Keeping loads off then is the board's job: pull-downs on the outputs and a load supply switched by the `ARM` relay, off while its pin is low or floating.
 
+## Sound
+
+The `sound` service in `src/sfx/sfx.c` opens the audio path. It starts first, so it stops last. Nothing is heard yet: the path is open, and no key or event plays a sound.
+
+With the default `[audio] sound = off` the service does nothing. It never calls `audio_init()`, takes no tick slot and prints no `ev=audio` line. It prints `ev=sound result=off rc=0`.
+
+With `sound = on` its init calls `audio_init()`, sets the `[audio] volume`, and calls `audio_rest_mid()`. That ramp moves the pin's rest level to the midpoint: 882 samples at 22050 Hz, at full scale whatever the volume. It is the first `ev=audio` line, `op=pcm rate=22050 len=882`, then `op=pcm_end`. The marker is `ev=sound result=on rc=0`. A failed call gives `result=error` with the library's code and sets `error=sound`.
+
+The loop calls `audio_poll()` on every pass, which prints the trace lines. The service's shutdown calls `audio_stop()` before a reboot, a halt and from the panic path. The device watchdog calls it too before its reset. A stop after the ramp's end prints nothing more.
+
+The tick has 4 callback slots. With everything on, UOS takes all 4: the GPIO button sampling, the key repeat, the device watchdog and audio.
+
+`[audio] fan` is read and shown in the `config` marker. Nothing uses it yet.
+
 ## Memory
 
 | Range | Use |
@@ -923,6 +940,6 @@ The pure files allocate nothing. The file system's whole-file reads take their b
 
 ## Pending library features
 
-These wait on RobCo-Core changes and a pin bump. The pin `ef5079f` still lacks them.
+These wait on RobCo-Core changes and a pin bump. The pin `815e1fc` still lacks them.
 
 - Data tapes in `rimg`. `rimg_validate()` cannot accept a data tape, subtype 2, because it looks up a slot first and subtype 2 has none. `tools/rimg.py seal` and `pack` refuse subtype 2 for the same reason. The holo module works around both: `holofmt.c` checks the slot rules itself, and `tools/mkholo.py` writes the header itself. See [holo](modules/holo.md).

@@ -96,16 +96,18 @@ def test_trusted_scheme_wins_over_cfg(board, chain1_image, uos_image, need_mtool
 
 
 def test_longest_config_marker_is_whole(board, uos_image, need_mtools, tmp_path):
-    """The longest name and hack user the settings take: buttons= still ends the marker."""
+    """The longest name and hack user the settings take: volume= still ends the marker."""
     name, user = "N" * 31, "U" * 15
-    text = ("[system]\nname = %s\n[hack]\nuser = %s\n" % (name, user)).encode()
+    text = ("[system]\nname = %s\n[hack]\nuser = %s\n[audio]\nvolume = 100\n"
+            % (name, user)).encode()
     with alone(uos_image, board, uos_card(tmp_path, cfg=text)) as vm:
         wait_ready(vm)
         cfg = one(vm, "config")
         assert (cfg["result"], cfg["name"], cfg["user"]) == ("ok", name, user), cfg
-        assert list(cfg)[-1] == "buttons" and cfg["buttons"] == "1", cfg
+        assert list(cfg)[-4:] == ["buttons", "sound", "fan", "volume"], cfg
+        assert (cfg["buttons"], cfg["volume"]) == ("1", "100"), cfg
         line = next(l for l in vm.serial.splitlines() if " ev=config " in l)
-        assert line.rstrip().endswith(" buttons=1"), line
+        assert line.rstrip().endswith(" buttons=1 sound=0 fan=0 volume=100"), line
 
 
 def test_missing_cfg_marker_has_buttons(board, uos_image, need_mtools, tmp_path):

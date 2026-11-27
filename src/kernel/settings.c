@@ -224,6 +224,16 @@ static int on_key(const char *section, const char *key, const char *value, unsig
         } else {
             c->r->unknown++;
         }
+    } else if (same(section, "audio")) {
+        if (same(key, "sound")) {
+            set_bool(c, value, &s->sound_enabled);
+        } else if (same(key, "fan")) {
+            set_bool(c, value, &s->fan_enabled);
+        } else if (same(key, "volume")) {
+            set_range(c, value, &s->volume, UOS_VOLUME_MIN, UOS_VOLUME_MAX);
+        } else {
+            c->r->unknown++;
+        }
     } else {
         c->r->unknown++;
     }
@@ -249,6 +259,9 @@ void uos_settings_default(uos_settings_t *s)
     s->hwdog_enabled = 0;
     s->hwdog_timeout_ms = UOS_HWDOG_MS_DEF;
     s->buttons_enabled = 1;
+    s->sound_enabled = 0;
+    s->fan_enabled = 0;
+    s->volume = UOS_VOLUME_DEF;
 }
 
 int uos_settings_parse(const char *text, size_t len, uos_settings_t *s,

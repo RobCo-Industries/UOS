@@ -6,6 +6,7 @@ All notable changes to UOS are recorded here. The format follows [Keep a Changel
 
 ### Added
 
+- `UOS.CFG [audio]` opens the sound path: `sound = on|off`, default `off`, `fan = on|off`, default `off`, and `volume = 0..100`, default 80. With `sound = on` the new `sound` service starts the audio driver, plays the midpoint rest ramp, polls it in the loop and stops it at shutdown. Nothing is heard yet. `fan` is read and kept for later. A new `sound` boot marker gives `result=on`, `off` or `error` with the library's code, and the `config` marker now ends with `sound=`, `fan=` and `volume=`.
 - `docs/ADMIN_GUIDE.md` for the person who prepares the card, `docs/QUICK_REFERENCE.md`, and `docs/LORE.md`, which sets the in-world documents against the real system. Writing a menu moved from the user manual to the administrator guide.
 - `RUN HOLOTAPE` and the `HOLOTAPE` verb open the holotape reader; `HOLOTAPE <tape>` opens one tape. `RUN HACK` opens the password game's screen, which from a session shows the `busy` refusal. Both end the command at once, as `RUN TERMINAL` does.
 - `LOGIN <user>` ends the session and asks only for that user's password, with the login's retries and lockout.
@@ -30,6 +31,7 @@ All notable changes to UOS are recorded here. The format follows [Keep a Changel
 
 ### Changed
 
+- RobCo-Core moved to `815e1fc`. Its audio driver now plays samples up to 37500 Hz, rests the pin at the midpoint with `audio_rest_mid()`, plays one overlay over a play, and centres tones after that ramp.
 - The card tools fit what UOS does. `mkuaf.py build` notes a name or home it folds to upper case, and a file with no enabled `SYSTEM` or `SECURITY` user, and still exits 0. `mkholo.py` finds `rimg.py` in the checkout when neither `--rimg` nor `ROBCO_CORE` is given. A `--rimg` path or a `ROBCO_CORE` folder without `rimg.py` now stops it with exit code 3 instead of falling back. `mkwords.py check` fails only on what UOS refuses, now including a list file over 7232 bytes, and prints the rest as notes; `check --strict` keeps the old rules. The holotape sources moved from `card/UOS/HOLO/SRC/` to `tools/holotapes/`, so `make sdimage` no longer copies them to the card. The `.HTP` files are unchanged.
 - A card taken out while UOS runs gives `%UOS-E-NODEV`, not a read or write error. `vfs_from_fs()` maps the library's new `FS_ERR_GONE` to `VFS_E_NOCARD`, and a host test fails for any library error code with no mapping.
 - Only OPER has a `TERMINAL.CFG` on the default card, with one entry of each type. ADMIN's and GUEST's menus and `ADMIN/MAINT.CFG` are gone, so they get the shell.

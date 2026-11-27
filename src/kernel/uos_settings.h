@@ -46,6 +46,9 @@
 #define UOS_HWDOG_MS_MIN        1000    /* [watchdog] timeout_ms */
 #define UOS_HWDOG_MS_MAX        15000
 #define UOS_HWDOG_MS_DEF        8000
+#define UOS_VOLUME_MIN          0       /* [audio] volume */
+#define UOS_VOLUME_MAX          100
+#define UOS_VOLUME_DEF          80
 
 /* scheme when UOS.CFG does not set it. */
 #define UOS_SCHEME_UNSET        (-1)
@@ -64,6 +67,9 @@ typedef struct {
     int hwdog_enabled;          /* [watchdog] enabled: 1 or 0, off by default */
     unsigned hwdog_timeout_ms;  /* [watchdog] timeout_ms */
     int buttons_enabled;        /* [input] buttons: 1 or 0, on by default */
+    int sound_enabled;          /* [audio] sound: 1 or 0, off by default */
+    int fan_enabled;            /* [audio] fan: 1 or 0, off by default; not used yet */
+    unsigned volume;            /* [audio] volume, 0 to 100 */
 } uos_settings_t;
 
 /* Parse results. */
