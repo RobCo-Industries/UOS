@@ -25,6 +25,8 @@ Type your user name and press Enter. Then type your password at `PASSWORD:` and 
 
 The terminal then shows `CHECKING CREDENTIALS...` for a moment. After a good login it greets you by name, lists your privileges and opens your session. When your home holds a menu file, the session is the terminal menu, see [The terminal menu](#the-terminal-menu). Otherwise it is the command line, see [Using the command line](#using-the-command-line). Type `LOGOUT` to leave. The login screen comes back with `SESSION CLOSED.`
 
+With sound on, a good password plays a short rising sound and a bad one a low sound.
+
 The terminal's owner can set a session to close by itself after some time with no key. Then the login screen comes back the same way.
 
 ### Mistakes
@@ -147,6 +149,8 @@ Type `SET PASSWORD`. The terminal asks for your old password, the new one, and t
 
 A user whose home holds `TERMINAL.CFG` gets a menu after the login instead of the command line. On a new card that is OPER.
 
+With sound on, each move of the selection ticks, and so does each step through a text.
+
 When the menu file cannot be read, does not parse or has no entry for you, the menu screen shows the error and BACK only logs you out. A file whose entries all need a privilege you lack shows `No menu entry for this user in TERMINAL.CFG`. A file whose entries are all bad shows its first error. A file with no entry at all shows `No menu entry in TERMINAL.CFG`. Ask the administrator to fix the file. A user with `SYSTEM` or `SECURITY` gets the command line in its place, under the line `%UOS-W-BADMENU, TERMINAL.CFG <text>: command line opened`.
 
 ```
@@ -243,6 +247,8 @@ To the right, the terminal keeps notes of what you tried, the newest at the bott
 - BACK leaves the game. Nothing is counted and the login comes back.
 
 A held arrow key keeps moving. A held SELECT or BACK acts once.
+
+With sound on, each cursor move ticks, a wrong word plays the bad password sound, the right word the good one, and a bracket a key click.
 
 A won game clears the count of failed logins, as a right password does.
 
