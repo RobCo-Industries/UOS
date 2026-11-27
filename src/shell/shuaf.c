@@ -132,16 +132,17 @@ static int last_admin(sh_job_t *j, const char *name)
 }
 
 /* The home folder, made with the caller's own rights. A folder that is there
- * already becomes the home as it is. A refusal leaves the user changed: an
- * operator makes the folder. */
+ * already becomes the home as it is. A file of that name is a refusal. A
+ * refusal leaves the user changed: an operator makes the folder. */
 static void home_step(sh_job_t *j, const char *home)
 {
     char spec[32];
+    vfs_entry_t e;
     int rc;
 
     k_snprintf(spec, sizeof(spec), "SD0:[HOME.%s]", home);
     rc = vfs_mkdir(j->ctx, j->privs, spec);
-    if (rc == VFS_E_EXISTS) {
+    if (rc == VFS_E_EXISTS && vfs_stat(j->ctx, j->privs, spec, &e) == VFS_OK && e.is_dir) {
         sh_say(j, DCL_SYS_HOMEUSED, home, 0);
     } else if (rc != VFS_OK) {
         sh_say(j, sh_err_msg(SH_SRC_VFS, rc, -1, 0), spec, 0);
