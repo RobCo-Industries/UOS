@@ -8,6 +8,7 @@ All notable changes to UOS are recorded here. The format follows [Keep a Changel
 
 - The chain card for the nightly run. `make sdimage CHAIN=1` takes `MAINT_SYS` and `DIAG_SYS`, copied to `/ROBCO/MAINT.SYS` and `/ROBCO/DIAG.SYS`, and `BOOT_CFG`, a file that replaces the one-entry `BOOT.CFG`. The tests take `--chain-card`, with `ROBCO_CHAIN_CARD` as its default, and a `chain_card` fixture that copies the card or skips. `after_chain()` takes `qtest=`. `tests/tools/test_chain_card.py` checks the card from stand-in files.
 - `tests/test_chain_terminal.py`, a whole-chain test on the chain card: one boot through RETROS-BIOS, MFBootAgent and UOS, then GUEST, ADMIN and OPER each log in and use the shell, a device and the menu.
+- Two whole-chain password game tests in `tests/test_chain_terminal.py`: on a card copy with only the `[hack]` keys changed, a won game starts a GUEST session, and a lost game locks the terminal until the lockout ends.
 - `check-pins` now runs `make check-workflows`, the library's workflow guard, so CI runs it in `test-host`. The target itself comes from the library's `mk/robco.mk`.
 - The fan. With `[audio] sound = on` and `fan = on` a quiet fan loops under the other sounds. Each sound over it plays a head, the sound mixed with the fan's first bytes, then the rest of the fan. The heads take 21 877 bytes of RAM. The service's poll keeps the fan going every 500 ms. With `fan = off` nothing changes. `make sfx-preview` now renders the session over the fan.
 
