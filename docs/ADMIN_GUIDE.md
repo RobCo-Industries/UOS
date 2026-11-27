@@ -35,9 +35,10 @@ You can edit the card on a computer. You can also edit it at the terminal as a u
 | `make` | `build/UOS.SYS` |
 | `make sdimage` | `build/sd.img`, 64 MiB, FAT32, with `/ROBCO/UOS.SYS` and the `card/` tree |
 | `make sdimage CHAIN=1 RETROS_IMG=... MFBOOT_SYS=...` | The same card with RETROS-BIOS, `/ROBCO/MFBOOT.SYS` and a `/ROBCO/BOOT.CFG` that boots UOS |
+| `make sdimage CHAIN=1 ... MAINT_SYS=... DIAG_SYS=... BOOT_CFG=...` | The chain card with `/ROBCO/MAINT.SYS`, `/ROBCO/DIAG.SYS` and the given file as `/ROBCO/BOOT.CFG` |
 | `make run BOARD=raspi2b` | Boots `build/sd.img` in QEMU |
 
-The chain card holds no `/ROBCO/MAINT.SYS`, the maintenance image, and its `BOOT.CFG` has no `[maint]` section. Add both by hand if the card needs them. Details: [BUILD.md](BUILD.md).
+Without `MAINT_SYS` and `DIAG_SYS`, the chain card holds neither image. Its `BOOT.CFG` has a `[maint]` section only when `BOOT_CFG` names a file that has one. Details: [BUILD.md](BUILD.md).
 
 ## Users
 

@@ -124,9 +124,10 @@ def after_chain1(chain1, image, board, sd=None):
 
 
 @contextlib.contextmanager
-def after_chain(retros, board, sd):
-    """Boots the whole chain from a card that holds MFBOOT.SYS and UOS.SYS."""
-    with boot(retros, board, sd=sd, serial2=True) as vm:
+def after_chain(retros, board, sd, qtest=False):
+    """Boots the whole chain from a card that holds MFBOOT.SYS and UOS.SYS.
+    qtest=True opens QEMU's test port, for PiGpio pin reads."""
+    with boot(retros, board, sd=sd, serial2=True, qtest=qtest) as vm:
         yield vm
 
 
