@@ -35,6 +35,7 @@
 #include <robco/wdog.h>
 
 #include "devs.h"
+#include "sfx.h"
 #include "uos.h"
 #include "uos_hwdog.h"
 #include "uos_maint.h"
@@ -297,6 +298,7 @@ static void wd_check(void)
     wd_fired = 1;
     UOS_MARK("wdog result=expired timeout_ms=%u", DEVS_WDOG_MS);
     drive_safe("wdog", &io_noi2c);
+    uos_sfx_stop();
     uart_flush();
     power_reboot();
 }

@@ -6,6 +6,7 @@ All notable changes to UOS are recorded here. The format follows [Keep a Changel
 
 ### Added
 
+- `UOS.CFG [audio]` opens the sound path: `sound = on|off`, default `off`, `fan = on|off`, default `off`, and `volume = 0..100`, default 80. With `sound = on` the new `sound` service starts the audio driver, plays the midpoint rest ramp, polls it in the loop and stops it at shutdown. Nothing is heard yet. `fan` is read and kept for later. A new `sound` boot marker gives `result=on`, `off` or `error` with the library's code, and the `config` marker now ends with `sound=`, `fan=` and `volume=`.
 - `docs/ADMIN_GUIDE.md` for the person who prepares the card, `docs/QUICK_REFERENCE.md`, and `docs/LORE.md`, which sets the in-world documents against the real system. Writing a menu moved from the user manual to the administrator guide.
 - `RUN HOLOTAPE` and the `HOLOTAPE` verb open the holotape reader; `HOLOTAPE <tape>` opens one tape. `RUN HACK` opens the password game's screen, which from a session shows the `busy` refusal. Both end the command at once, as `RUN TERMINAL` does.
 - `LOGIN <user>` ends the session and asks only for that user's password, with the login's retries and lockout.

@@ -12,6 +12,7 @@
 #include "uos.h"
 #include "uos_portcall.h"
 #include "uos_service.h"
+#include "sfx.h"
 
 static uos_evq_t evq;
 static uos_timerq_t tq;
@@ -274,6 +275,7 @@ void uos_loop_run(void)
         /* Time first: the queue holds at most the one event input_wait()
          * took, so the TICK and all 16 expiries fit before input. */
         take_time();
+        uos_sfx_poll();
         while (evq_room() && input_poll(&in)) {
             take_input(&in);
         }
