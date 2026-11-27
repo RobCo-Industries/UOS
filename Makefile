@@ -14,7 +14,10 @@
 #                             first two stages and their config
 #   make run BOARD=raspi2b    boot build/sd.img in QEMU on this terminal
 #                             (WINDOW=1 also opens the display window)
-#   make check-pins           CI workflow pins and doc links match the submodule
+#   make check-pins           CI workflow pins and doc links match the submodule,
+#                             then check-workflows
+#   make check-workflows      no ${{ }} in a run: block and every action pinned
+#                             by commit in .github/workflows/
 #   make sfx-table            src/sfx/sfx_table.c and .h from src/sfx/sfx_models.json
 #   make sfx-table-check      the committed table matches the model; every image
 #                             build runs it once per change of its inputs
@@ -164,7 +167,7 @@ $(VENV)/.installed: $(ROBCO_CORE)/tests/requirements.txt
 
 BOARD ?= all
 
-.PHONY: test test-target test-tools check-pins check-doc-links
+.PHONY: test test-target test-tools check-pins check-doc-links check-workflows
 test: test-host
 	$(MAKE) test-target
 
@@ -189,8 +192,17 @@ test-tools: venv $(HOST_TOOLS)
 # DOC_ROOT: the tree whose Markdown links check-doc-links reads.
 DOC_ROOT ?= .
 
-check-pins: check-doc-links
+check-pins: check-doc-links check-workflows
 	$(ROBCO_CORE)/tools/check_pins.sh .github/workflows/ci.yml
+
+# WORKFLOW_DIR: the folder whose workflow files check-workflows reads.
+WORKFLOW_DIR ?= .github/workflows
+
+# The library's guard: no ${{ }} inside a run: block, and every action or
+# reusable workflow pinned by a full commit.
+check-workflows:
+	$(PYTHON) -I $(ROBCO_CORE)/tools/check_workflow_exprs.py \
+	    $(wildcard $(WORKFLOW_DIR)/*.yml $(WORKFLOW_DIR)/*.yaml)
 
 check-doc-links:
 	$(ROBCO_CORE)/tools/check_doc_links.sh $(DOC_ROOT) external/robco-core
