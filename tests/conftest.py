@@ -20,6 +20,16 @@ def pytest_addoption(parser):
                      help="a RETROS.IMG for the whole-chain tests, as RETROS_IMG in the Makefile")
     parser.addoption("--mfboot-sys", default=None,
                      help="an MFBOOT.SYS for the whole-chain tests, as MFBOOT_SYS in the Makefile")
+    parser.addoption("--sfx-preview-log", default=None,
+                     help="test_sfx_preview_log.py: where to save the serial log of the session")
+
+
+def pytest_ignore_collect(collection_path, config):
+    """test_sfx_preview_log.py runs only when it is given a log path, for
+    make sfx-preview, so the suite neither skips it nor boots it."""
+    if collection_path.name == "test_sfx_preview_log.py" and not config.getoption("--sfx-preview-log"):
+        return True
+    return None
 
 
 @pytest.fixture(scope="session")

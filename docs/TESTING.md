@@ -78,6 +78,7 @@ The tests run from the repository root, so the ones that read the default card o
 | `test_mkwords.py` | `tools/mkwords.py`: check, `check --strict`, sort and sample over good and bad lists, the default card's lists |
 | `test_build_deps.py` | The image build rebuilds an object after a header it includes changes, with `BUILD` spelled relative then absolute and the other way round. It compiles one object into `build/deptest` with the cross compiler and asks `make -q`. |
 | `test_sfx_table.py` | The committed sound tables: `sfx_table.py --check --full` renders them again and compares bytes, and `sfx_check.py` measures the dumped tables against the model. `make -n` shows that `make`, `make sdimage` and `make run` each run the check before they compile the table |
+| `test_sfx_preview.py` | The library's `tools/audio_preview.py` as `make sfx-preview` runs it. A hand-written log with one key sound gives a WAV of the right length that is not silent. A buffer the dumped tables lack gives the warning that stops the target |
 | `test_mkholo.py` | `tools/mkholo.py`: build, list, check, the `rimg.py` lookup, every bad input, agreement with `holocheck`, a card `HOLO` folder with only `.HTP` files, each shipped tape against its source |
 
 ## Target tests
@@ -106,6 +107,7 @@ The tests run from the repository root, so the ones that read the default card o
 | `test_shell.py` | The shell through `sh run` as each default user, with `sess login` to skip the password cost. Every `SHOW` keyword, `/OUTPUT`, `HELP`, `ROBCO`, `RUN` with no name and a bad name, `MAIL` an unknown verb, bad verbs and keywords, `SET TERMINAL`. `DIRECTORY` with each qualifier, `TYPE` with a wildcard and `/PAGE`, `CREATE` of a file and a folder and cancelled, `COPY`, `RENAME` and `DELETE` with `/LOG`, wildcards and every `/CONFIRM` answer, `SET DEFAULT`, missing files and folders. `GUEST` refused in another home, by `AUTHORIZE`, `SET HALT` and a door; `SYSUAF.DAT` kept under `DELETE *.*`. `BOOT:` as the read-only volume. A 1 MiB copy cancelled with Ctrl-C, with no target and no work file left, a second command refused meanwhile. Lines typed through the line editor with `_$` and `_File:`, Ctrl-C at a prompt, `LOGOUT`. `AUTHORIZE` `ADD`, `LIST`, `MODIFY` and `REMOVE`, a login with the new password, `SET PASSWORD`, and no password on the serial lines. `/OUTPUT` onto an existing file: a failed `DIRECTORY`, a warning, no files and Ctrl-C between two steps, held with `sh hold`, leave its bytes as they were, read back from the card image; a success writes it whole. A test program, through `sh prog`, cancelled, a second `RUN`, then the first run's late end: ignored with `sh stale=prog`, and the second run ends with its own result. Wildcards with the real `SYSUAF.DAT`: every match refused is `NOPRIV` with `skipped=1`, a mixed `DELETE` deletes the others and prints `SKIPPED`, no match is `NOFILES` with `skipped=0`. `TYPE` of a 1 MiB file of one line: 8 rows a step, the tick advances during it, the longest step stays in its bound, `MAX_STEP_TICKS`, and Ctrl-C stops it. Ctrl-C through the console keys in the pager alone and over the shell, at a `/CONFIRM` question after one file, at a password, at a `CREATE` line with the on-screen keyboard open, and a program reporting `SH_CANCELLED`: each ends `CANCEL` with the message. `sh_run_line()` through `sh api`: `NOUSER` before login, `ARG` for an empty, blank, comment-only, NULL and too long line with no callback, `BUSY` under `sh hold`, one callback per started command with its status class, `SH_RUN_QUIET` printing nothing, and the prompt taking empty and comment lines. `sh api` is absent from the shipped image. Held keys through the test-only `hold`: in the `TYPE /PAGE` pager DOWN pages per repeat and BACK leaves once, at a `/CONFIRM` question SELECT answers one question, at the prompt SELECT runs the line once. |
 | `test_programs.py` | The shell's programs. `RUN HOLOTAPE` ends at once and opens the reader over the prompt, BACK brings the prompt back; `HOLOTAPE PROCS` opens that tape; an entry parameter is `MAXPARM`. `RUN HACK` from a session shows the game's `busy` refusal with no lockout, and BACK leaves the session as it was. `LOGIN GUEST` asks only the password: a wrong one counts and brings `USERNAME:` back, the right one starts GUEST's session; a name that breaks the rules is `IVNAME` and keeps the session. `RUN` with no name: `INSFPRM` through the API and `_Program:` at the prompt. `RUN BOGUS` is `IVKEYW`, `MAIL` is `IVVERB`. |
 | `test_env_hygiene.py` | No test copies the host environment |
+| `test_sfx_preview_log.py` | Runs only for `make sfx-preview`, which passes `--sfx-preview-log`. The suite does not collect it. See [The session's sounds](#the-sessions-sounds). |
 
 ### How the tests start UOS
 
@@ -194,6 +196,20 @@ The reader draws a loading line before the read. The test asserts no bound: it p
 ### Goldens and screenshots
 
 `menu_oper.txt` holds the test menu as OPER sees it at login. `holo_tapes.txt`, `holo_entry.txt`, `hack_start.txt` and `hack_two_guesses.txt` hold the reader's tape list, its first entry in the pager, and the game's board at start and after two wrong guesses with the fixed seed. `tests/golden/first.txt` holds the first screen as text, on a card with no user database: the system screen with the missing-database notice. It has no sizes, CRCs, times or toolchain text. `ROBCO_UPDATE_GOLDEN=1` rewrites it. `ROBCO_SHOT_DIR=<folder>` keeps the screenshots of `test_first.py`.
+
+## The session's sounds
+
+QEMU has no sound. `make sfx-preview` is how the sounds get heard before a board. It boots the test build on raspi2b, or on the board `BOARD` names, with `[audio] sound = on` and `trace = on`. It drives one session through the maintenance port:
+
+1. A wrong password for `ADMIN`, then the right one.
+2. One typed command, `DIRECTORY`.
+3. `OPER`'s menu, down three rows.
+4. The password game with five cursor moves.
+5. A wrong word, then the right word.
+
+Keys go one at a time, 120 ms apart, so each key sound plays whole. A `wait` on the port leaves about half a second of quiet between the parts. The guest's clock makes the gaps, so a slow host only makes them longer. The game uses the test-only fixed seed. A silent boot before the session plays the same game to learn its password.
+
+The target saves the serial log to `build/sfx_preview/serial.log` and dumps the tables to `build/sfx_preview/pcm/` with the library's `tools/sfx_table.py --dump`. The library's `tools/audio_preview.py` then renders `build/sfx_preview.wav`. The target fails when the log is missing, when the tool prints any warning, such as a buffer it cannot find, or when the WAV is silent. The WAV is a build product and nothing commits it.
 
 ## Screen redraws
 
