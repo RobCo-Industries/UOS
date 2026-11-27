@@ -106,6 +106,10 @@ typedef enum {
     DCL_SYS_PROGERR,
     DCL_SYS_SKIPPED,
     DCL_SYS_CFGERR,
+    DCL_SYS_LASTADMIN,
+    DCL_SYS_HOMEKEPT,
+    DCL_SYS_HOMEUSED,
+    DCL_SYS_NOMOVE,
     DCL_MSG_COUNT
 } dcl_msg_t;
 

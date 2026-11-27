@@ -82,6 +82,10 @@ static const struct {
     { DCL_SYS_PROGERR, "%UOS-E-PROGERR, the program could not start" },
     { DCL_SYS_SKIPPED, "%UOS-I-SKIPPED, 0 files skipped: not enough privilege" },
     { DCL_SYS_CFGERR, "%DEVICE-W-CFGERR, DEVICES.CFG " },
+    { DCL_SYS_LASTADMIN, "%UAF-E-LASTADMIN,  is the last user who can run AUTHORIZE" },
+    { DCL_SYS_HOMEKEPT, "%UAF-I-HOMEKEPT, SD0:[HOME.] is not deleted" },
+    { DCL_SYS_HOMEUSED, "%UAF-I-HOMEUSED, SD0:[HOME.] exists already and becomes the home as it is" },
+    { DCL_SYS_NOMOVE, "%UAF-I-NOMOVE, SD0:[HOME.] is not moved: copy its files by hand" },
 };
 
 TEST(every_message_text)
@@ -104,6 +108,20 @@ TEST(cfgerr_count)
 
     CHECK(dcl_format_message(buf, sizeof(buf), DCL_SYS_CFGERR, "cannot be read", 0) > 0);
     CHECK_STR(buf, "%DEVICE-W-CFGERR, DEVICES.CFG cannot be read");
+}
+
+TEST(uaf_home_and_admin_lines)
+{
+    char buf[DCL_MSG_SIZE];
+
+    CHECK(dcl_format_message(buf, sizeof(buf), DCL_SYS_LASTADMIN, "ADMIN", 0) > 0);
+    CHECK_STR(buf, "%UAF-E-LASTADMIN, ADMIN is the last user who can run AUTHORIZE");
+    CHECK(dcl_format_message(buf, sizeof(buf), DCL_SYS_HOMEKEPT, "BOB", 0) > 0);
+    CHECK_STR(buf, "%UAF-I-HOMEKEPT, SD0:[HOME.BOB] is not deleted");
+    CHECK(dcl_format_message(buf, sizeof(buf), DCL_SYS_HOMEUSED, "BOB", 0) > 0);
+    CHECK_STR(buf, "%UAF-I-HOMEUSED, SD0:[HOME.BOB] exists already and becomes the home as it is");
+    CHECK(dcl_format_message(buf, sizeof(buf), DCL_SYS_NOMOVE, "BOB", 0) > 0);
+    CHECK_STR(buf, "%UAF-I-NOMOVE, SD0:[HOME.BOB] is not moved: copy its files by hand");
 }
 
 TEST(parts)

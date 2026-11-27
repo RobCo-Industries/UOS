@@ -515,3 +515,29 @@ TEST(default_card)
     CHECK_EQ(db.rec[idx].privs, 0);
     CHECK_EQ(db.rec[idx].flags & UAF_FLAG_NOHACK, 0);
 }
+
+TEST(admins_count)
+{
+    uaf_db_t db;
+    uint8_t s[16];
+
+    CHECK_EQ(uaf_db_init(&db, 3), UAF_OK);
+    CHECK_EQ(uaf_admins(&db), 0);
+    make_db(&db);
+    CHECK_EQ(uaf_admins(&db), 1);
+    salt_of(s, 4);
+    CHECK_EQ(uaf_add(&db, "SEC", "SEC", UAF_PRIV_SECURITY, 0, s, "x"), UAF_OK);
+    CHECK_EQ(uaf_admins(&db), 2);
+    CHECK_EQ(uaf_add(&db, "READER", "R", UAF_PRIV_READALL | UAF_PRIV_OPER, 0, s, "x"), UAF_OK);
+    CHECK_EQ(uaf_admins(&db), 2);
+    CHECK_EQ(uaf_add(&db, "OFF", "OFF", UAF_PRIV_ALL, UAF_FLAG_DISABLED, s, "x"), UAF_OK);
+    CHECK_EQ(uaf_admins(&db), 2);
+    CHECK_EQ(uaf_set_flags(&db, "SEC", UAF_FLAG_DISABLED), UAF_OK);
+    CHECK_EQ(uaf_admins(&db), 1);
+    CHECK_EQ(uaf_set_privs(&db, "ADMIN", UAF_PRIV_OPER), UAF_OK);
+    CHECK_EQ(uaf_admins(&db), 0);
+    CHECK_EQ(uaf_set_flags(&db, "OFF", 0), UAF_OK);
+    CHECK_EQ(uaf_admins(&db), 1);
+    CHECK_EQ(uaf_remove(&db, "OFF"), UAF_OK);
+    CHECK_EQ(uaf_admins(&db), 0);
+}
