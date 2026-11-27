@@ -15,7 +15,12 @@
 #                             MAINT_SYS=... DIAG_SYS=... add the boot agent's
 #                             maintenance and diagnostics images, and
 #                             BOOT_CFG=<file> replaces the chain's BOOT.CFG
-#   make run BOARD=raspi2b    boot build/sd.img in QEMU on this terminal
+#   make bootdir DIR=<path> RETROS_IMG=... MFBOOT_SYS=...
+#                             the files of a real card for the whole chain,
+#                             with the Pi firmware unless FIRMWARE=0.
+#                             MAINT_SYS, DIAG_SYS and BOOT_CFG as for sdimage;
+#                             CLEAN=1 removes files of an earlier run
+#   make run BOARD=raspi2b   boot build/sd.img in QEMU on this terminal
 #                             (WINDOW=1 also opens the display window)
 #   make check-pins           CI workflow pins and doc links match the submodule,
 #                             then check-workflows
@@ -246,6 +251,28 @@ else
 	printf '$(CHAIN_CFG)' > $(SDIMAGE_STAGE)/ROBCO/BOOT.CFG
 endif
 endif
+
+# `make bootdir DIR=<path>` writes the files of a real card for the whole
+# chain into a folder: the stage of `make sdimage CHAIN=1`, so the same
+# files, plus the Pi firmware from the library's mkbootdir.sh. FIRMWARE=0
+# leaves the firmware out. It never writes a device. tools/syncbootdir.py
+# keeps DIR/UOSBOOT.LST, the files a run wrote, stops on a file no run
+# wrote, and with CLEAN=1 removes files an earlier run wrote that this
+# run does not. See docs/BUILD.md.
+BOOT_STAGE := $(BUILD)/bootstage
+
+.PHONY: bootdir
+bootdir:
+	$(if $(strip $(DIR)),,$(error DIR is not set: make bootdir DIR=<path>))
+	$(if $(RETROS_IMG),,$(error bootdir needs RETROS_IMG=<RETROS.IMG>: UOS alone cannot start on a real board))
+	$(if $(MFBOOT_SYS),,$(error bootdir needs MFBOOT_SYS=<MFBOOT.SYS>: UOS alone cannot start on a real board))
+	$(MAKE) --no-print-directory -f $(firstword $(MAKEFILE_LIST)) sdimage CHAIN=1
+	rm -rf $(BOOT_STAGE)
+	cp -R $(SDIMAGE_STAGE) $(BOOT_STAGE)
+ifneq ($(FIRMWARE),0)
+	$(ROBCO_CORE)/tools/mkbootdir.sh $(RETROS_IMG) $(BOOT_STAGE) --kernel-name RETROS.IMG
+endif
+	$(PYTHON) -I tools/syncbootdir.py $(BOOT_STAGE) $(DIR) $(if $(filter 1,$(CLEAN)),--clean)
 
 # Alone, a two-word image at 0x8000 jumps to UOS at its link address.
 $(BUILD)/tramp.img:
