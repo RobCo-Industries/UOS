@@ -54,8 +54,9 @@ def agent_settled(vm):
 
 def test_whole_chain_maintenance(board, chain_card, chain_images, need_mtools):
     # The road needs the full card: the maintenance image, and every image
-    # the scan is to check.
-    on_card = {n for n in card_names(chain_card, "ROBCO") if n.endswith(".SYS")}
+    # the scan is to check. The scan takes the names the loader takes.
+    on_card = {n for n in card_names(chain_card, "ROBCO")
+               if n.endswith((".SYS", ".BAK", ".IMG"))}
     assert {"MFBOOT.SYS", "UOS.SYS", "MAINT.SYS", "DIAG.SYS"} <= on_card, \
         f"the maintenance road needs a card built with MAINT_SYS, DIAG_SYS and BOOT_CFG: {on_card}"
     with after_chain(chain_images[0], board, chain_card) as vm:
