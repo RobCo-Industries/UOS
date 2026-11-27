@@ -4,20 +4,87 @@
  * the pin's rest level to the midpoint. With the default `off` it takes
  * nothing: no audio_init(), no tick slot, no trace line. Either way it
  * prints one "sound result=<on|off|error> rc=<rc>" marker.
+ *
+ * The audio trace. QEMU has no PWM, so the library queues one record per
+ * play and audio_poll() prints them with k_printf(). With
+ * `[audio] trace = on` the poll prints them, each on a line of its own:
+ * like uos_mark(), it ends a partly echoed input line first. With the
+ * default `off` the poll drains the records and drops them, so typing
+ * over the serial line is not flooded. The library has no call that
+ * drains without printing, so the poll points the k_printf() hook at a
+ * sink for the call and points it back at uart_putc() after. UOS never
+ * moves the hook anywhere else.
  */
 
 #include <robco/audio.h>
+#include <robco/irq.h>
+#include <robco/klibc.h>
+#include <robco/uart.h>
 
 #include "uos.h"
 #include "uos_service.h"
 #include "sfx.h"
+#include "sfx_table.h"
+#include "sfxrules.h"
 
-static int on;    /* audio_init() and the ramp succeeded */
+static int on;          /* audio_init() and the ramp succeeded */
+static int trace;       /* [audio] trace */
+static int line_start = 1;
+static sfx_pick_t pick;
+
+/* The k_printf() hook while the trace is on. */
+static void trace_keep(char c)
+{
+    if (line_start) {
+        uos_serial_break();
+    }
+    uart_putc(c);
+    line_start = c == '\n';
+}
+
+/* The k_printf() hook while the trace is off. */
+static void trace_drop(char c)
+{
+    (void)c;
+}
 
 void uos_sfx_poll(void)
 {
-    if (on) {
+    uint32_t s;
+
+    if (!on) {
+        return;
+    }
+    if (trace) {
+        k_console_set(trace_keep);
         audio_poll();
+        k_console_set(uart_putc);
+        return;
+    }
+    /* Masked: a marker from an IRQ handler must not land in the sink.
+     * The PWM backend queues no record, so this is short on a board. */
+    s = irq_save();
+    k_console_set(trace_drop);
+    audio_poll();
+    k_console_set(uart_putc);
+    irq_restore(s);
+}
+
+void uos_sfx(unsigned id)
+{
+    const sfx_sound_t *t = sfx_sound(id);
+
+    if (!on || t == NULL) {
+        return;
+    }
+    /* A refused play is dropped: a sound is never worth a wait. */
+    (void)audio_play_pcm(t->data, t->len, UOS_SFX_RATE_HZ, AUDIO_PRIORITY);
+}
+
+void uos_sfx_key(void)
+{
+    if (on) {
+        uos_sfx(sfx_pick_key(&pick));
     }
 }
 
@@ -33,6 +100,8 @@ static int sfx_init(void)
     const uos_settings_t *s = uos_settings();
     int rc = 0;
 
+    trace = s->trace_enabled;
+    sfx_pick_init(&pick);
     if (s->sound_enabled) {
         rc = audio_init();
         if (rc == 0) {
