@@ -262,7 +262,7 @@ Format: `AUTHORIZE keyword`. Needs `SECURITY`; `SYSTEM` grants it.
 | Keyword | Does |
 |---|---|
 | `LIST [user]` | Name, home, privileges and flags. Never a salt or a hash. |
-| `ADD user` | Adds a user. Asks `Password:` and `Verification:`, masked. The home defaults to the user name; a name longer than 8 characters needs `/HOME`. The shell then makes `SD0:[HOME.<home>]` with the caller's rights and reports a refusal without undoing the add. A folder that is there already becomes the home as it is: `%UAF-I-HOMEUSED`. |
+| `ADD user` | Adds a user. Asks `Password:` and `Verification:`, masked. The home defaults to the user name; a name longer than 8 characters needs `/HOME`. The shell then makes `SD0:[HOME.<home>]` with the caller's rights and reports a refusal without undoing the add. A folder that is there already becomes the home as it is: `%UAF-I-HOMEUSED`. A file of that name is a refusal: `%UOS-E-EXISTS`. |
 | `MODIFY user` | Changes the qualifiers given. A new `/HOME` moves no folder: `%UAF-I-NOMOVE` names the old one, then the new folder is made as `ADD` makes it. |
 | `REMOVE user` | Removes a user. The logged-in user cannot remove itself: `%UAF-E-SELF`. The home folder stays on the card: `%UAF-I-HOMEKEPT`. |
 

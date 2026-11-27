@@ -612,6 +612,33 @@ def test_second_admin_and_homes(board, hooks_image, need_mtools, tmp_path):
     assert users[b"ADMIN"] == bytes(4), users
 
 
+def test_home_name_is_a_file(board, hooks_image, need_mtools, tmp_path):
+    """A regular file where the home folder goes is not taken as the home: ADD and
+    MODIFY /HOME= report the refused folder, and the user is changed all the same."""
+    sd = shell_card(tmp_path, {"/UOS/HOME/DAVE": b"NOT A FOLDER\r\n"})
+    with alone(hooks_image, board, sd) as vm:
+        wait_ready(vm)
+        login(vm, "ADMIN")
+        res, s = add_user(vm, "AUTHORIZE ADD DAVE")
+        lines = out(vm, s)
+        assert res == "%UAF-S-ADDED, user DAVE added", res
+        assert not any("HOMEUSED" in l for l in lines), lines
+        refused = ["%UOS-E-EXISTS, file already exists", " \\SD0:[HOME.DAVE]\\"]
+        i = lines.index(refused[0])
+        assert lines[i + 1] == refused[1] and i < lines.index(res), lines
+        res, _ = add_user(vm, "AUTHORIZE ADD ERIN")
+        assert res == "%UAF-S-ADDED, user ERIN added", res
+        res, _, s = expect(vm, "AUTHORIZE MODIFY ERIN /HOME=DAVE", "MODIFIED")
+        lines = out(vm, s)
+        assert not any("HOMEUSED" in l for l in lines), lines
+        i = lines.index(refused[0])
+        assert lines[i + 1] == refused[1] and i < lines.index(res), lines
+        _, _, s = expect(vm, "AUTHORIZE LIST DAVE", "NORMAL")
+        assert any(re.match(r"DAVE +DAVE ", l) for l in out(vm, s)), out(vm, s)
+        _, _, s = expect(vm, "AUTHORIZE LIST ERIN", "NORMAL")
+        assert any(re.match(r"ERIN +DAVE ", l) for l in out(vm, s)), out(vm, s)
+
+
 def card_get(sd, path, tmp_path):
     """The bytes of one file on the card, through mtools."""
     dst = tmp_path / "get.bin"

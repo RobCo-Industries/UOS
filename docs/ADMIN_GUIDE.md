@@ -121,7 +121,7 @@ $ AUTHORIZE REMOVE BOB
 
 - `ADD` also makes `SD0:[HOME.<home>]` with the rights of the user who types it. A user with `SECURITY` alone may not create folders in `HOME`, so the folder is not made. The command prints why, and the user stays added. Make the folder as a `SYSTEM` user.
 - A name longer than 8 characters needs `/HOME=`, since a home is at most 8 characters: `AUTHORIZE ADD LONGNAMEUSER` gives `%UAF-E-IVHOME, invalid home folder name`.
-- When the home folder is there already, `ADD` uses it as it is and says `%UAF-I-HOMEUSED, SD0:[HOME.<home>] exists already and becomes the home as it is`. Two users may share a home.
+- When the home folder is there already, `ADD` uses it as it is and says `%UAF-I-HOMEUSED, SD0:[HOME.<home>] exists already and becomes the home as it is`. A file of that name is not a home: `ADD` reports `%UOS-E-EXISTS` and adds the user all the same. Two users may share a home.
 - `MODIFY /HOME=` with a new value never moves the old folder. It prints `%UAF-I-NOMOVE, SD0:[HOME.<old>] is not moved: copy its files by hand`, then makes the new folder as `ADD` does. The same value prints nothing new.
 - `REMOVE` never deletes the home folder and says `%UAF-I-HOMEKEPT, SD0:[HOME.<home>] is not deleted`. Delete it by hand when nobody else uses it. You cannot remove yourself: `%UAF-E-SELF, the user who is logged in cannot be removed`.
 - UOS keeps at least one enabled user with `SYSTEM` or `SECURITY`. A `REMOVE`, `/PRIVS`, `/NOPRIVS` or `/DISABLED` that would leave none is refused with `%UAF-E-LASTADMIN, <NAME> is the last user who can run AUTHORIZE`, and the file is not written. Give a second user `SYSTEM` or `SECURITY` first. A file that has no such user already stays as it is.
