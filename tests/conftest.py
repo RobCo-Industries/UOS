@@ -3,14 +3,21 @@ import sys
 
 # RobCo-Core's harness: the --board option, the board fixture, need_mtools
 # and robco_build. UOS adds --build-dir for the image under test, and
-# --retros-img with --mfboot-sys for the whole-chain tests.
+# --retros-img with --mfboot-sys for the whole-chain tests, and
+# --chain-card for the nightly's card.
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CORE = os.path.join(ROOT, "external", "robco-core")
 sys.path.insert(0, os.path.join(CORE, "tests"))
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 pytest_plugins = ["harness.plugin"]
 
+import shutil  # noqa: E402
+
 import pytest  # noqa: E402
+
+# The nightly passes its card through this variable: pytest refuses an
+# option it does not know, so the library's workflow cannot pass one.
+CHAIN_CARD_VAR = "ROBCO_CHAIN_CARD"
 
 
 def pytest_addoption(parser):
@@ -20,6 +27,9 @@ def pytest_addoption(parser):
                      help="a RETROS.IMG for the whole-chain tests, as RETROS_IMG in the Makefile")
     parser.addoption("--mfboot-sys", default=None,
                      help="an MFBOOT.SYS for the whole-chain tests, as MFBOOT_SYS in the Makefile")
+    parser.addoption("--chain-card", default=os.environ.get(CHAIN_CARD_VAR),
+                     help="a card that boots the whole chain, as build/sd.img of "
+                          "make sdimage CHAIN=1. ROBCO_CHAIN_CARD is the default")
     parser.addoption("--sfx-preview-log", default=None,
                      help="test_sfx_preview_log.py: where to save the serial log of the session")
 
@@ -105,3 +115,15 @@ def chain_images(request):
     for path in (retros, mfboot):
         assert os.path.isfile(path), f"{path} is missing"
     return retros, mfboot
+
+
+@pytest.fixture
+def chain_card(request, tmp_path):
+    """A copy of the --chain-card card in the test's temp folder, or a skip."""
+    card = request.config.getoption("--chain-card")
+    if not card:
+        pytest.skip(f"--chain-card and {CHAIN_CARD_VAR} are not set: no chain card test")
+    assert os.path.isfile(card), f"{card} is missing"
+    copy = tmp_path / "chain-sd.img"
+    shutil.copyfile(card, copy)
+    return str(copy)

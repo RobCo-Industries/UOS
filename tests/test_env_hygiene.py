@@ -56,6 +56,7 @@ def test_pattern_catches_the_old_forms():
                  "e = {k: v for k, v in os.environ.items() if k not in drop}"):
         assert FULL_COPY.search(line), line
     assert not FULL_COPY.search('os.environ.get("ROBCO_UPDATE_GOLDEN")')
+    assert not FULL_COPY.search('default=os.environ.get(CHAIN_CARD_VAR)')
 
 
 FAILING = """
