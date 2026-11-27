@@ -55,6 +55,8 @@ Three more variables give the card the boot agent's other images and a full conf
 | `DIAG_SYS=<file>` | Copies the diagnostics image to `/ROBCO/DIAG.SYS` |
 | `BOOT_CFG=<file>` | With `CHAIN=1`, copies the file to `/ROBCO/BOOT.CFG` in place of the one-entry config |
 
+`CARD_NOTE=<file>` copies that file to `/ROBCO/VERSIONS.TXT`, with or without `CHAIN=1`. The nightly run passes a text file that lists the commits the card holds. A `CARD_NOTE` that names no file stops the build. The path may hold a space, a quote or a dollar sign. No stage reads the file: the maintenance image's image check takes only names that end in `.SYS`, `.BAK` or `.IMG`. Without `CARD_NOTE` the card has no such file.
+
 The agent's menu finds the two images through `[entry MAINT]` and `[entry DIAG]` in `BOOT.CFG`. RETROS-BIOS's `boot/BOOT.CFG` has both entries, so the nightly run passes it as `BOOT_CFG`. The card gets no `[maint]` section unless the given file has one. Without it, the maintenance image keeps restore users off.
 
 ## A real card
@@ -63,7 +65,7 @@ The agent's menu finds the two images through `[entry MAINT]` and `[entry DIAG]`
 make bootdir DIR=path/to/dir RETROS_IMG=path/to/RETROS.IMG MFBOOT_SYS=path/to/MFBOOT.SYS
 ```
 
-This runs `make sdimage CHAIN=1` and copies its staged files into `DIR`, plus the Pi firmware files `bootcode.bin`, `start.elf` and `fixup.dat` from RobCo-Core's `tools/fetch_firmware.sh`. `DIR` gets `RETROS.IMG`, its `config.txt`, the `ROBCO` folder with `MFBOOT.SYS`, `UOS.SYS` and `BOOT.CFG`, and the `UOS` tree from `card/`. `MAINT_SYS`, `DIAG_SYS` and `BOOT_CFG` work as for the chain image. Without `RETROS_IMG` or `MFBOOT_SYS` it stops: UOS alone cannot start on a real board.
+This runs `make sdimage CHAIN=1` and copies its staged files into `DIR`, plus the Pi firmware files `bootcode.bin`, `start.elf` and `fixup.dat` from RobCo-Core's `tools/fetch_firmware.sh`. `DIR` gets `RETROS.IMG`, its `config.txt`, the `ROBCO` folder with `MFBOOT.SYS`, `UOS.SYS` and `BOOT.CFG`, and the `UOS` tree from `card/`. `MAINT_SYS`, `DIAG_SYS`, `BOOT_CFG` and `CARD_NOTE` work as for the chain image. Without `RETROS_IMG` or `MFBOOT_SYS` it stops: UOS alone cannot start on a real board.
 
 Copy the files to the root of a FAT32 card. The target writes a folder. It never formats a card and never writes a device. `FIRMWARE=0` leaves the firmware out, for a card that already has it and for the tests. No card from this target has booted a board yet.
 
@@ -88,7 +90,7 @@ It writes each file, and `UOSBOOT.LST` last, to `UOSBOOT.TMP` in the same folder
 - It stops when a file it would write is already there and no run wrote it, and names the file.
 - It stops when a file or folder on its way is a symbolic link, and names it. It never follows a link inside `DIR` and never writes or removes through one. `DIR` itself may be a link.
 - It stops when a file sits where it needs a folder, or a folder sits where it writes a file, and names it.
-- It stops when a file it wrote last time is no longer part of the card and nobody changed it, such as `ROBCO/MAINT.SYS` after a run without `MAINT_SYS`. `CLEAN=1` removes that file.
+- It stops when a file it wrote last time is no longer part of the card and nobody changed it, such as `ROBCO/MAINT.SYS` after a run without `MAINT_SYS`, or `ROBCO/VERSIONS.TXT` after a run without `CARD_NOTE`. `CLEAN=1` removes that file.
 - A changed file never stops a run, whether the card still ships it or not. The run keeps it, names it and keeps its line in `UOSBOOT.LST`, so a later run that ships it again treats it as a changed file: kept, or replaced with `REPLACE=1`.
 - It never deletes or moves a folder, so home folders stay.
 - It compares names without regard to case, as a FAT32 card does: `FOO.TXT` from the build and `foo.txt` on the card are one file. It writes and names a file as the build spells it, through the entry already on the card, so no second entry appears. A folder keeps its spelling on the card. It stops when two names in `DIR` differ only by case, which a FAT32 card cannot hold, and names them.
