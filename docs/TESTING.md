@@ -90,6 +90,7 @@ The tests run from the repository root, so the ones that read the default card o
 | `test_buttons.py` | The six panel buttons through real pin levels with the library's `harness.pigpio`. A plain boot reads `disabled_stuck` and gives no key. `buttons = off` with the lines high reads `off`, and a press gives no key. Lines high on a card with no user file read `active`, and each button reaches the first screen as its key: a press is held until its marker shows, then released. `SHOW SYSTEM` shows the `Buttons` line. A device on pin 16 loads and one on pin 5 is `PINUSED`, with the buttons on and off. |
 | `test_entry.py` | Every bring-up marker in order, `gpio=later` and the `buttons` marker; the trust rule after `examples/chain1`, with a good and a broken boot info; the whole chain |
 | `test_sound.py` | `[audio]` off and on: no `ev=audio` line by default, the rest ramp first, the last tick slot, the stop at shutdown. Five characters and Enter at the login give six plays at 37500 Hz with the pinned `key_a` and `key_b` CRCs. With `trace = off` no `ev=audio` line shows and the echo stays on one line. With `trace = on` no trace line splits the echo. A key sent at the `sound` marker gives no key sound and the ramp still ends with `last=881`; in QEMU the first screen takes that key. Its cards set `trace = on` unless a test needs it off. |
+| `test_sound_fan.py` | `[audio] fan = on`, read by the header's CRCs. The first play after the ramp is the fan's whole table, and a queued pass joins it about every 2.2 s. A key and a bad password each give their head as `op=pcm` and the fan's rest as `op=pcm_next`. With `fan = off` a key plays its plain table. A reboot stops the fan. |
 | `test_card.py` | No card, no `/UOS` folder, no `UOS.CFG`, a syntax error, bad and clamped values, the scheme and the name |
 | `test_loop.py` | Keys from the port and the serial console reach the screen; a periodic timer fires the right number of times in its bound; a cancelled timer never fires; F2 twice runs one cancel probe; the timer listing; a key flood during the banner still shows the first screen in its bound, and the services tick through it; `type` with 1, 15, 30 and 31 characters |
 | `test_panic.py` | The panic path for an undefined instruction, a prefetch abort and a `uos_panic()` call; a failed tick and a fault right after the exception hook, both before the input layer starts, with `state`, `dump` and `reboot` answering; in both, `help` lists exactly the base commands, `timers` answers and `type` answers `err not ready`; `reboot`; an `nm` check that the shipped image has no test hooks |
@@ -199,7 +200,7 @@ The reader draws a loading line before the read. The test asserts no bound: it p
 
 ## The session's sounds
 
-QEMU has no sound. `make sfx-preview` is how the sounds get heard before a board. It boots the test build on raspi2b, or on the board `BOARD` names, with `[audio] sound = on` and `trace = on`. It drives one session through the maintenance port:
+QEMU has no sound. `make sfx-preview` is how the sounds get heard before a board. It boots the test build on raspi2b, or on the board `BOARD` names, with `[audio] sound = on`, `fan = on` and `trace = on`. It drives one session through the maintenance port:
 
 1. A wrong password for `ADMIN`, then the right one.
 2. One typed command, `DIRECTORY`.
@@ -209,7 +210,7 @@ QEMU has no sound. `make sfx-preview` is how the sounds get heard before a board
 
 Keys go one at a time, 120 ms apart, so each key sound plays whole. A `wait` on the port leaves about half a second of quiet between the parts. The guest's clock makes the gaps, so a slow host only makes them longer. The game uses the test-only fixed seed. A silent boot before the session plays the same game to learn its password.
 
-The target saves the serial log to `build/sfx_preview/serial.log` and dumps the tables to `build/sfx_preview/pcm/` with the library's `tools/sfx_table.py --dump`. The library's `tools/audio_preview.py` then renders `build/sfx_preview.wav`. The target fails when the log is missing, when the tool prints any warning, such as a buffer it cannot find, or when the WAV is silent. The WAV is a build product and nothing commits it.
+The target saves the serial log to `build/sfx_preview/serial.log` and dumps the tables to `build/sfx_preview/pcm/` with the library's `tools/sfx_table.py --dump --bed fan`, which also writes each head and rest, so the preview tool finds them by CRC. The library's `tools/audio_preview.py` then renders `build/sfx_preview.wav`. The target fails when the log is missing, when the tool prints any warning, such as a buffer it cannot find, or when the WAV is silent. The WAV is a build product and nothing commits it.
 
 ## Screen redraws
 

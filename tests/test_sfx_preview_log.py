@@ -1,6 +1,6 @@
 """Saves the serial log of one terminal session with the sound on, for `make sfx-preview`.
 
-It runs only with --sfx-preview-log PATH. The card has `[audio] sound = on`,
+It runs only with --sfx-preview-log PATH. The card has `[audio] sound = on`, `fan = on`,
 `trace = on` and the password game on. The session has five parts, each
 after a `wait` on the maintenance port, so the guest's own clock leaves
 some quiet between them:
@@ -29,7 +29,7 @@ from test_shell import marks
 from test_sound import check_ramp
 from uos import alone, answer, batch, wait_marker, wait_ready
 
-AUDIO_CFG = "[audio]\nsound = on\nvolume = 80\ntrace = on\n"
+AUDIO_CFG = "[audio]\nsound = on\nfan = on\nvolume = 80\ntrace = on\n"
 # The longest sound is under 0.2 s, so a 700 ms wait leaves about 0.5 s of quiet.
 GAP = "wait 700"
 STEP = "wait 150"

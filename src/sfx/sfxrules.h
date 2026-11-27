@@ -154,4 +154,29 @@ void sfx_lane_took(sfx_lane_t *l, unsigned id, uint32_t now_tick);
  */
 unsigned sfx_hack_sound(int ev);
 
+/*
+ * The fan, a quiet loop under the other sounds. The service mixes each
+ * one-shot with the fan's first bytes into a head, once:
+ * head[i] = clamp(shot[i] + bed[i] - 128, 0, 255) for i below n, the
+ * one-shot's length. To play a one-shot over the fan, it starts the
+ * head, then queues the fan's rest, bed[n .. end), behind it.
+ */
+void sfx_mix_head(uint8_t *head, const uint8_t *shot, const uint8_t *bed, size_t n);
+
+/*
+ * The top-up. Every SFX_TOPUP_MS the service asks what keeps the fan
+ * going. `busy` is audio_busy(), `can_queue` is audio_pcm_can_queue().
+ * A free queue takes the next pass of the fan. When nothing plays, the
+ * fan starts again. When a buffer already waits, nothing is done.
+ */
+#define SFX_TOPUP_MS 500u
+
+enum {
+    SFX_TOPUP_NONE,             /* a buffer waits: nothing to do */
+    SFX_TOPUP_QUEUE,            /* queue the whole fan */
+    SFX_TOPUP_START             /* nothing plays: start the fan */
+};
+
+unsigned sfx_topup(int busy, int can_queue);
+
 #endif
