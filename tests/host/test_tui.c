@@ -344,11 +344,13 @@ TEST(tui_empty_and_failed_root)
 
     start(empty, 0);
     CHECK_EQ(t.level[0].menu.hidden, 1);
+    CHECK_STR(t.msg, "No menu entry for this user in TERMINAL.CFG");
     CHECK_STR(dump(),
               "00 N NORTH YARD\n"
               "01 N Nothing\n"
               "02 D " RULE "\n"
               "04 D (no entries)\n"
+              "27 N No menu entry for this user in TERMINAL.CFG\n"
               "28 D Nothing\n"
               "29 D BACK: log out\n");
     CHECK_EQ(key(INPUT_KEY_SELECT), TUI_ACT_NONE);

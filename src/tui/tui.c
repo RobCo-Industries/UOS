@@ -323,6 +323,11 @@ int tui_give_menu(tui_t *t, const char *text, size_t len)
                    (unsigned)l->menu.err[0].line);
         set_msg(t, buf);
     }
+    /* A root file with no entry for this user says why. BACK logs out. */
+    if (t->depth == 1 && l->menu.count == 0) {
+        k_snprintf(buf, sizeof(buf), "No menu entry for this user in %s", l->file);
+        set_msg(t, buf);
+    }
     if (l->menu.header[0]) {
         copy_line(t->name, l->menu.header, TUI_FILE_MAX);
         return wait_for(t, TUI_ACT_LOAD_HEADER);

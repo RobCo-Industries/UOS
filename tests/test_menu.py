@@ -309,6 +309,28 @@ def test_empty_menu_file(board, hooks_image, need_mtools, tmp_path):
         dump_until(vm, lambda r: any(row.strip() == line for row in r))
 
 
+def test_no_entry_for_user(board, hooks_image, need_mtools, tmp_path):
+    """Every entry needs SECURITY: OPER gets the menu screen with the reason
+    and can only log out."""
+    text = b"[entry 1]\nlabel = Locked\ntype = logout\nprivs = 4\n"
+    with alone(hooks_image, board, refused_card(tmp_path, text)) as vm:
+        wait_ready(vm)
+        wait_marker(vm, "login state=user", 1)
+        answer(vm, "sess login OPER")
+        wait_marker(vm, "session screen=menu", 1)
+        chk = wait_marker(vm, "tui op=check user=OPER", 1)
+        assert (chk["result"], chk["why"]) == ("menu", "empty"), chk
+        st = wait_menu(vm, state="menu")
+        assert st["count"] == "0", st
+        assert msg(vm) == "No menu entry for this user in TERMINAL.CFG"
+        answer(vm, "key back")
+        wait_menu(vm, state="confirm")
+        answer(vm, "key select")
+        end = wait_marker(vm, "session state=end", 1)
+        assert (end["user"], end["reason"]) == ("OPER", "user"), end
+        assert not marks(vm, "session screen=shell")
+
+
 def test_each_entry_type(board, hooks_image, need_mtools, tmp_path):
     """text, menu, command, device and holotape each do their job and come back to
     the menu with the selection kept. Keys come from the console, a GPIO button and

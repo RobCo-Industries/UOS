@@ -193,6 +193,8 @@ int tui_event(tui_t *t, const input_event_t *ev);
  * TUI_ACT_NONE. A text that does not parse shows "Bad menu file NAME
  * (line L)" and returns TUI_ACT_NONE. TUI_E_STATE when no menu was asked.
  * Errors inside the file show "NAME: E errors" on the message line.
+ * A root menu with no visible entry shows "No menu entry for this user
+ * in NAME".
  */
 int tui_give_menu(tui_t *t, const char *text, size_t len);
 
