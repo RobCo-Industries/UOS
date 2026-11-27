@@ -22,6 +22,8 @@ Nothing in UOS is validated on real hardware. What follows is how it behaves in 
 | `/UOS/HOLO/*.HTP` | Holotapes | Each time the reader opens |
 | `/UOS/SYS/HELP/*.HLP` | The text of `HELP` | Each time `HELP` runs |
 
+The card holds only what a terminal reads. The sources of the sample holotapes live in `tools/holotapes/`, and the default users in `tools/default_users.ini`.
+
 The formats are in [FORMATS.md](FORMATS.md). A file the boot reads takes effect at the next start. The others take effect the next time they are read.
 
 You can edit the card on a computer. You can also edit it at the terminal as a user with `SYSTEM`: that user may read and write every file under `/UOS` except `SYSUAF.DAT` and `SYSUAF.DEF`. Other users may write only in their own home. The access table is in [vfs-path](modules/vfs-path.md#access-rules).
@@ -99,6 +101,18 @@ BOB              home=BOB      privs=OPER flags=-
 
 ```
 mkuaf: users.ini: [BOB]: unknown privilege 'ROOT'
+```
+
+Two cases print a note on stderr and still build, with exit code 0. A name or home in lower case is stored in upper case, as UOS folds typed names the same way:
+
+```
+mkuaf: users.ini: [bob]: note: stored as BOB
+```
+
+A file where no enabled user holds `SYSTEM` or `SECURITY` builds too, but nobody can change users at the terminal:
+
+```
+mkuaf: users.ini: note: no enabled user holds SYSTEM or SECURITY, nobody can run AUTHORIZE
 ```
 
 Copy the file to `/UOS/SYSUAF.DAT` and create each home folder under `/UOS/HOME`. The tool makes no folder. The default card is built from `tools/default_users.ini`, with the command in its first lines. In this repository `card/UOS/SYSUAF.DEF` and `card/UOS/SYSUAF.DAT` hold the same bytes, the default users, and `tests/test_maint.py` checks it. On a card of your own, `SYSUAF.DEF` is the recovery set: build it once from accounts whose passwords you store safely, and do not copy the live file over it after each change. See [Lost passwords](#lost-passwords).
@@ -249,11 +263,10 @@ A holotape is a `.HTP` file in `/UOS/HOLO`, which users see as `SYS$HOLO`. Every
 - A tape holds 1 to 32 entries. An entry is at most 65536 bytes of text, its name at most 31 characters. A tape title is at most 63 characters.
 - A tape up to 2 MiB loads. UOS reads it whole into memory each time it opens.
 
-Build a tape from a folder of `.TXT` files, in one of two forms. Without an `ORDER.TXT` file, the first line of each file is the entry's name, the rest is its text, and files go in name order. With an `ORDER.TXT` file, each of its lines reads `FILE.TXT Entry name` and gives the order and the name, and the whole `.TXT` file is the entry's text: do not repeat the name on its first line. `ORDER.TXT` must list every `.TXT` file. The tool needs RobCo-Core's `tools/rimg.py`, through `--rimg` or `ROBCO_CORE`:
+Build a tape from a folder of `.TXT` files, in one of two forms. Without an `ORDER.TXT` file, the first line of each file is the entry's name, the rest is its text, and files go in name order. With an `ORDER.TXT` file, each of its lines reads `FILE.TXT Entry name` and gives the order and the name, and the whole `.TXT` file is the entry's text: do not repeat the name on its first line. `ORDER.TXT` must list every `.TXT` file. The tool needs RobCo-Core's `tools/rimg.py`. It uses `--rimg PATH` if you give it. Otherwise it uses `$ROBCO_CORE/tools/rimg.py` if `ROBCO_CORE` is set. An empty `ROBCO_CORE` counts as not set. Otherwise it uses `external/robco-core/tools/rimg.py` in the UOS checkout it runs from. It never swaps a path you gave for another file: a `--rimg` path or a `ROBCO_CORE` folder without `rimg.py` stops the tool with exit code 3. It also stops with exit code 3 when it finds no `rimg.py` at all. The sources of the sample tapes are in `tools/holotapes/`:
 
 ```
-$ export ROBCO_CORE=$PWD/external/robco-core
-$ python3 tools/mkholo.py build --title "The rake with the longer handle" --out STORY.HTP card/UOS/HOLO/SRC/STORY
+$ python3 tools/mkholo.py build --title "The rake with the longer handle" --out STORY.HTP tools/holotapes/STORY
 STORY.HTP: 1660 bytes
 $ python3 tools/mkholo.py list STORY.HTP
 title: The rake with the longer handle
@@ -282,10 +295,12 @@ The difficulty in `UOS.CFG` picks the length and the number of words on the boar
 | `expert` | 9 or 10 | 14 |
 | `master` | 11 or 12 | 16 |
 
-`tools/mkwords.py` checks the lists. It is stricter than UOS: it wants every list present, sorted, 64 to 512 words, and free of the words on its deny list.
+`tools/mkwords.py check` checks the lists. It fails with exit code 1 only on what UOS refuses: a character outside `A` to `Z`, a wrong length, a repeated word, more than 512 words, fewer words than the board needs, or a file larger than 7232 bytes. UOS counts that size in bytes on the card, line ends included. It prints the rest as `note:` lines and keeps exit code 0: a missing list, an unsorted list, fewer than 64 words, or a word on its deny list. `check --strict` makes every note a failure. The last line counts the good lists present.
 
 ```
 $ python3 tools/mkwords.py check card/UOS/WORDS
+mkwords: 9 lists ok
+$ python3 tools/mkwords.py check --strict card/UOS/WORDS
 mkwords: 9 lists ok
 $ python3 tools/mkwords.py sort card/UOS/WORDS
 $ python3 tools/mkwords.py sample 4 --length 5

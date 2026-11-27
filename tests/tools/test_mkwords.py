@@ -2,6 +2,7 @@
 import contextlib
 import io
 import os
+import re
 import shutil
 import sys
 import tempfile
@@ -59,6 +60,25 @@ def bad_case(n, words, expect, crlf=False):
         shutil.rmtree(d)
 
 
+def note_case(n, words, expect):
+    """A note keeps exit 0 by default and fails under --strict."""
+    d = make_dir()
+    try:
+        if words is None:
+            os.remove(os.path.join(d, mkwords.list_name(n)))
+        else:
+            write(d, n, words)
+        rc, out, err = run(["check", d])
+        assert rc == 0, err
+        assert "note: " in err and expect in err, err
+        assert "8 lists ok" in out if words is None else "9 lists ok" in out
+        rc, out, err = run(["check", "--strict", d])
+        assert rc == 1 and expect in err and "note: " not in err, err
+        assert "8 lists ok" in out
+    finally:
+        shutil.rmtree(d)
+
+
 def base(n=4):
     return mkwords.read_words(os.path.join(CARD, mkwords.list_name(n)))
 
@@ -78,11 +98,102 @@ def test_duplicate():
 
 
 def test_unsorted():
-    bad_case(4, list(reversed(base())), "not sorted")
+    note_case(4, list(reversed(base())), "not sorted")
 
 
 def test_too_few():
-    bad_case(4, base()[:63], "63 words, want at least 64")
+    note_case(4, base()[:63], "63 words, want at least 64")
+
+
+def test_fewer_than_the_board_needs():
+    bad_case(4, base()[:7], "7 words, the board needs 8")
+    bad_case(6, base(6)[:11], "11 words, the board needs 12")
+    bad_case(9, base(9)[:13], "13 words, the board needs 14")
+    bad_case(12, base(12)[:15], "15 words, the board needs 16")
+
+
+def test_board_minimum_ok():
+    d = make_dir()
+    try:
+        for n, need in mkwords.BOARD_WORDS.items():
+            write(d, n, base(n)[:need])
+        rc, out, err = run(["check", d])
+        assert rc == 0, err
+        assert "9 lists ok" in out
+    finally:
+        shutil.rmtree(d)
+
+
+def test_too_many():
+    words = ["Q%c%cZ" % (chr(65 + i // 26), chr(65 + i % 26)) for i in range(513)]
+    bad_case(4, words, "513 words, want at most 512")
+
+
+def test_file_max_matches_uos():
+    defs = {}
+    for name in ("hack/hack.h", "hack/hackscr.c"):
+        with open(os.path.join(ROOT, "src", name)) as f:
+            for m in re.finditer(r"^#define\s+(\w+)\s+(.+?)\s*(?:/\*.*)?$", f.read(), re.M):
+                defs[m.group(1)] = m.group(2)
+    expr = defs["WORDS_FILE_MAX"]
+    for k in ("HK_LIST_MAX", "HK_WORD_MAX"):
+        expr = expr.replace(k, defs[k])
+    assert re.fullmatch(r"[0-9()+* ]+", expr), expr
+    assert mkwords.FILE_MAX == eval(expr)
+
+
+def sized_list(size):
+    """Good sorted 12-letter CR LF words, padded with blank lines to size bytes."""
+    words = base(12)
+    body = "".join(w + "\r\n" for w in words)
+    assert len(body) <= size
+    return body + "\n" * (size - len(body))
+
+
+def test_file_at_limit_ok():
+    d = make_dir()
+    try:
+        with open(os.path.join(d, mkwords.list_name(12)), "w", newline="") as f:
+            f.write(sized_list(mkwords.FILE_MAX))
+        rc, out, err = run(["check", d])
+        assert rc == 0, err
+        assert "9 lists ok" in out
+    finally:
+        shutil.rmtree(d)
+
+
+def test_file_over_limit_fails():
+    d = make_dir()
+    try:
+        path = os.path.join(d, mkwords.list_name(12))
+        with open(path, "w", newline="") as f:
+            f.write(sized_list(mkwords.FILE_MAX + 1))
+        rc, out, err = run(["check", d])
+        assert rc == 1
+        assert "%s: %d bytes, UOS reads at most %d" % (path, mkwords.FILE_MAX + 1,
+                                                       mkwords.FILE_MAX) in err
+    finally:
+        shutil.rmtree(d)
+
+
+def test_unsorted_short_list_passes_with_notes():
+    d = make_dir()
+    try:
+        write(d, 6, list(reversed(base(6)[:20])))
+        rc, out, err = run(["check", d])
+        assert rc == 0, err
+        assert "note: " in err and "not sorted" in err and "20 words" in err
+        assert "9 lists ok" in out
+        rc, _, err = run(["check", "--strict", d])
+        assert rc == 1
+    finally:
+        shutil.rmtree(d)
+
+
+def test_card_lists_pass_strict():
+    rc, out, err = run(["check", "--strict", CARD])
+    assert rc == 0, err
+    assert "9 lists ok" in out and err == ""
 
 
 def test_at_minimum_ok():
@@ -96,17 +207,11 @@ def test_at_minimum_ok():
 
 
 def test_deny_list():
-    bad_case(4, sorted(base() + ["KILL"]), "deny list")
+    note_case(4, sorted(base() + ["KILL"]), "deny list")
 
 
 def test_missing_file():
-    d = make_dir()
-    try:
-        os.remove(os.path.join(d, "W07.TXT"))
-        rc, _, err = run(["check", d])
-        assert rc == 1 and "missing" in err
-    finally:
-        shutil.rmtree(d)
+    note_case(7, None, "missing")
 
 
 def test_sort_fixes_order_and_dups():
@@ -133,6 +238,56 @@ def test_sample():
     assert out2 == out
     rc, _, err = run(["sample", "0", CARD])
     assert rc == 1 and "sample size" in err
+
+
+def raw_case(data, ok, expect=""):
+    """Writes W04.TXT as raw bytes and checks it the way UOS reads it."""
+    d = make_dir()
+    try:
+        with open(os.path.join(d, mkwords.list_name(4)), "wb") as f:
+            f.write(data)
+        rc, _, err = run(["check", d])
+        assert rc == (0 if ok else 1), err
+        assert expect in err, err
+    finally:
+        shutil.rmtree(d)
+
+
+def words8():
+    return [w.encode() for w in base()[:8]]
+
+
+def test_two_crs_before_lf_fail():
+    # UOS strips one CR and refuses the other one.
+    raw_case(b"\n".join(words8()) + b"\r\r\n", False, "line 8 ")
+
+
+def test_crlf_list_passes():
+    raw_case(b"".join(w + b"\r\n" for w in words8()), True)
+
+
+def test_last_line_without_lf_passes():
+    raw_case(b"\n".join(words8()), True)
+
+
+def test_line_of_one_cr_is_blank():
+    raw_case(b"\r\n".join(words8()[:4] + [b""] + words8()[4:]) + b"\r\n", True)
+
+
+def test_line_of_two_crs_fails():
+    raw_case(b"\n".join(words8() + [b"\r\r"]) + b"\n", False, "line 9 ")
+
+
+def test_bytes_after_last_lf_count_as_a_line():
+    raw_case(b"\n".join(words8()) + b"\nAB\r", False, "line 9 'AB'")
+
+
+def test_error_reports_line_number_with_blank_lines():
+    raw_case(b"\n\n".join(words8()) + b"\n\tABC\n", False, "line 16 ")
+
+
+def test_space_fails():
+    raw_case(b"\n".join(words8()) + b"\n \n", False, "line 9 ' ': not A to Z")
 
 
 if __name__ == "__main__":

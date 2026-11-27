@@ -2,7 +2,7 @@
 
 The holo module reads data holotapes. A tape is a file `/UOS/HOLO/NAME.HTP` that holds a few text entries under a title. The pure code validates a whole tape in memory, gives access to its title and entries, and runs the reader model: the tape list, the entry list and the request to show one entry in the pager. Nothing here is validated on real hardware.
 
-Files: `src/holo/holofmt.h` (public header), `src/holo/holofmt.c` (format), `src/holo/holoread.c` (reader model), `src/holo/holoscan.c` and `holoscan.h` (the screen's pure rules, prefix `hs_`), `src/holo/holoscr.c` and `holoscr.h` (the screen and the `holo` service), `tools/mkholo.py` (tape builder), `card/UOS/HOLO/` (sample tapes and their sources).
+Files: `src/holo/holofmt.h` (public header), `src/holo/holofmt.c` (format), `src/holo/holoread.c` (reader model), `src/holo/holoscan.c` and `holoscan.h` (the screen's pure rules, prefix `hs_`), `src/holo/holoscr.c` and `holoscr.h` (the screen and the `holo` service), `tools/mkholo.py` (tape builder), `card/UOS/HOLO/` (sample tapes), `tools/holotapes/` (their sources).
 
 ## File layout
 
@@ -213,7 +213,7 @@ mkholo.py check [--rimg PATH] NAME.HTP...
 
 `build` takes the `.TXT` files of `FOLDER` in name order. Without `ORDER.TXT`, the first line of each file is the entry name and the rest is the body. With `ORDER.TXT`, each line that is not blank and does not start with `#` holds a file name, spaces, and the entry name; the whole file is the body, and every `.TXT` file must be listed once.
 
-The tool finds RobCo-Core's `tools/rimg.py` through `--rimg` or `$ROBCO_CORE/tools/rimg.py`. `rimg.py seal` and `pack` refuse data tapes, because they validate the slot and subtype 2 has none. So `build` loads `rimg.py` as a module, uses its layout constants, title encoding and CRC, writes the header itself, and validates the result before it writes the file. `rimg.py info` reads the result and reports `crc_ok=1`.
+Every command takes the first `tools/rimg.py` it finds of `--rimg`, `$ROBCO_CORE/tools/rimg.py`, then `external/robco-core/tools/rimg.py` beside the tool's own `tools/` folder. Without one it prints `mkholo: error: rimg.py not found: give --rimg, set ROBCO_CORE, or run from a UOS checkout` and exits 3. `rimg.py seal` and `pack` refuse data tapes, because they validate the slot and subtype 2 has none. So `build` loads `rimg.py` as a module, uses its layout constants, title encoding and CRC, writes the header itself, and validates the result before it writes the file. `rimg.py info` reads the result and reports `crc_ok=1`.
 
 `list` prints the title and one line per entry with its length. `check` prints `ok` or the error name and text for each tape, with the same names and order as `hf_open()`.
 
@@ -233,7 +233,7 @@ The tool finds RobCo-Core's `tools/rimg.py` through `--rimg` or `$ROBCO_CORE/too
 | `PROCS.HTP` | Alder Creek operating procedures | 4, with `ORDER.TXT` |
 | `STORY.HTP` | The rake with the longer handle | 4 |
 
-Sources are in `card/UOS/HOLO/SRC/<TAPE>/`. The text is original lore about a small water pump station. A test rebuilds each tape from its source and compares the bytes.
+Sources are in `tools/holotapes/<TAPE>/`, so the card holds only the `.HTP` files. The text is original lore about a small water pump station. A test rebuilds each tape from its source and compares the bytes.
 
 ## Tests
 

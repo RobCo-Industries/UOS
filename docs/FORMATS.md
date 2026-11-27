@@ -113,11 +113,11 @@ As built:
 
 ## Word lists
 
-`/UOS/WORDS/W04.TXT` to `W12.TXT`: one list per word length, 4 to 12. One word per line, `A` to `Z` only, all the same length, at most 512 words. `tools/mkwords.py check` checks the lists. Layout: [hack](modules/hack.md#word-list-format).
+`/UOS/WORDS/W04.TXT` to `W12.TXT`: one list per word length, 4 to 12. One word per line, `A` to `Z` only, all the same length, at most 512 words. `tools/mkwords.py check` checks the lists and fails only on what UOS refuses; `--strict` also wants every list present, sorted, at least 64 words and free of its deny list. Layout: [hack](modules/hack.md#word-list-format).
 
 ## Holotapes
 
-`/UOS/HOLO/*.HTP`: a sealed rimg of subtype 2, data, with an HTXT archive of up to 32 text files as its payload. `tools/mkholo.py` builds a tape from a folder of text files. The sources of the sample tapes are in `card/UOS/HOLO/SRC`. Layout: [holo](modules/holo.md#file-layout).
+`/UOS/HOLO/*.HTP`: a sealed rimg of subtype 2, data, with an HTXT archive of up to 32 text files as its payload. `tools/mkholo.py` builds a tape from a folder of text files. The sources of the sample tapes are in `tools/holotapes`, outside the card. Layout: [holo](modules/holo.md#file-layout).
 
 ## Help files
 

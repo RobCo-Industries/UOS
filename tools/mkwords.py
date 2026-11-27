@@ -1,10 +1,16 @@
 #!/usr/bin/env python3
 """Check, sort and sample the minigame word lists W04.TXT to W12.TXT.
 
-  mkwords.py check [DIR]            validate every list, exit 1 on a problem
+  mkwords.py check [--strict] [DIR] validate every list, exit 1 on a problem
   mkwords.py sort [DIR]             rewrite every list sorted, LF line ends
   mkwords.py sample N [--length L] [--seed S] [DIR]
                                     print N distinct random words of one list
+
+check fails only on what UOS refuses: a character outside A to Z, a wrong
+length, a repeated word, more than 512 words, fewer words than the board
+needs, or a file larger than FILE_MAX bytes. A missing list, an unsorted list, fewer than 64 words and a
+deny-list word print as "note:" and keep exit 0. --strict makes every note
+a failure. The last line counts the good lists present.
 
 DIR defaults to card/UOS/WORDS. sample uses Python's random module and does
 not mirror the C selection rule.
@@ -17,6 +23,11 @@ import sys
 LENGTHS = range(4, 13)
 MIN_WORDS = 64
 MAX_WORDS = 512  # HK_LIST_MAX in src/hack/hack.h
+# Words on the board, per word length: the hk_diff table in src/hack/hack.c.
+BOARD_WORDS = {4: 8, 5: 8, 6: 12, 7: 12, 8: 12, 9: 14, 10: 14, 11: 16, 12: 16}
+# WORDS_FILE_MAX in src/hack/hackscr.c: UOS refuses a list file larger
+# than this many bytes on the card, line ends included.
+FILE_MAX = MAX_WORDS * (12 + 2) + 64
 DEFAULT_DIR = os.path.join("card", "UOS", "WORDS")
 
 # Words a list must never hold: violence, harm and insults.
@@ -36,42 +47,71 @@ def read_words(path):
     return [line.rstrip("\r") for line in text.split("\n") if line.rstrip("\r") != ""]
 
 
+def read_lines(path):
+    """Returns (line number, word) pairs, split the way hk_list_parse does.
+
+    Lines end at LF. One CR before the LF goes; any other CR stays and is
+    refused as a character. An empty line is skipped but counted.
+    """
+    with open(path, "rb") as f:
+        text = f.read().decode("ascii", errors="replace")
+    out = []
+    for i, line in enumerate(text.split("\n"), 1):
+        if line.endswith("\r"):
+            line = line[:-1]
+        if line != "":
+            out.append((i, line))
+    return out
+
+
 def check_list(path, n):
-    """Returns a list of problem strings for one file."""
+    """Returns (errors, notes) for one file. Errors are what UOS refuses."""
     if not os.path.isfile(path):
-        return ["%s: missing" % path]
-    problems = []
-    words = read_words(path)
+        return [], ["%s: missing" % path]
+    errors, notes = [], []
+    size = os.path.getsize(path)
+    if size > FILE_MAX:
+        errors.append("%s: %d bytes, UOS reads at most %d" % (path, size, FILE_MAX))
+    lines = read_lines(path)
+    words = [w for _, w in lines]
     seen = set()
-    for i, w in enumerate(words, 1):
+    for i, w in lines:
         if not (w.isascii() and w.isalpha() and w.isupper()):
-            problems.append("%s: word %d %r: not A to Z" % (path, i, w))
+            errors.append("%s: line %d %r: not A to Z" % (path, i, w))
         elif len(w) != n:
-            problems.append("%s: word %d %r: length %d, want %d" % (path, i, w, len(w), n))
+            errors.append("%s: line %d %r: length %d, want %d" % (path, i, w, len(w), n))
         if w in seen:
-            problems.append("%s: word %d %r: duplicate" % (path, i, w))
+            errors.append("%s: line %d %r: duplicate" % (path, i, w))
         seen.add(w)
         if w in DENY:
-            problems.append("%s: word %d %r: on the deny list" % (path, i, w))
+            notes.append("%s: line %d %r: on the deny list" % (path, i, w))
     if words != sorted(words):
-        problems.append("%s: not sorted" % path)
-    if len(words) < MIN_WORDS:
-        problems.append("%s: %d words, want at least %d" % (path, len(words), MIN_WORDS))
+        notes.append("%s: not sorted" % path)
+    if len(words) < BOARD_WORDS[n]:
+        errors.append("%s: %d words, the board needs %d" % (path, len(words), BOARD_WORDS[n]))
+    elif len(words) < MIN_WORDS:
+        notes.append("%s: %d words, want at least %d" % (path, len(words), MIN_WORDS))
     if len(words) > MAX_WORDS:
-        problems.append("%s: %d words, want at most %d" % (path, len(words), MAX_WORDS))
-    return problems
+        errors.append("%s: %d words, want at most %d" % (path, len(words), MAX_WORDS))
+    return errors, notes
 
 
-def cmd_check(d):
-    problems = []
+def cmd_check(d, strict=False):
+    good = 0
+    failed = False
     for n in LENGTHS:
-        problems += check_list(os.path.join(d, list_name(n)), n)
-    for p in problems:
-        print(p, file=sys.stderr)
-    if problems:
-        return 1
-    print("mkwords: %d lists ok" % len(LENGTHS))
-    return 0
+        path = os.path.join(d, list_name(n))
+        errors, notes = check_list(path, n)
+        for e in errors:
+            print(e, file=sys.stderr)
+        for note in notes:
+            print(("%s" if strict else "note: %s") % note, file=sys.stderr)
+        bad = errors or (strict and notes)
+        failed = failed or bool(bad)
+        if os.path.isfile(path) and not bad:
+            good += 1
+    print("mkwords: %d lists ok" % good)
+    return 1 if failed else 0
 
 
 def cmd_sort(d):
@@ -99,6 +139,7 @@ def main(argv=None):
     ap = argparse.ArgumentParser(description="Check, sort and sample the word lists.")
     sub = ap.add_subparsers(dest="cmd", required=True)
     p = sub.add_parser("check")
+    p.add_argument("--strict", action="store_true", help="make every note a failure")
     p.add_argument("dir", nargs="?", default=DEFAULT_DIR)
     p = sub.add_parser("sort")
     p.add_argument("dir", nargs="?", default=DEFAULT_DIR)
@@ -109,7 +150,7 @@ def main(argv=None):
     p.add_argument("dir", nargs="?", default=DEFAULT_DIR)
     a = ap.parse_args(argv)
     if a.cmd == "check":
-        return cmd_check(a.dir)
+        return cmd_check(a.dir, a.strict)
     if a.cmd == "sort":
         return cmd_sort(a.dir)
     return cmd_sample(a.dir, a.count, a.length, a.seed)

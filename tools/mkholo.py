@@ -2,7 +2,7 @@
 """Build, list and check UOS data holotapes. See docs/modules/holo.md.
 
     mkholo.py build --title TEXT --out NAME.HTP [--rimg PATH] FOLDER
-    mkholo.py list NAME.HTP
+    mkholo.py list [--rimg PATH] NAME.HTP
     mkholo.py check [--rimg PATH] NAME.HTP...
 
 build takes the .TXT files of FOLDER in name order. With ORDER.TXT, each
@@ -10,8 +10,12 @@ non-blank line not starting with '#' is "FILE.TXT Entry title" and gives
 the order; every .TXT file must be listed. Without it, the first line of
 each file is the entry title and the rest is the body.
 
-The rimg layer comes from RobCo-Core's tools/rimg.py, found through
---rimg or $ROBCO_CORE/tools/rimg.py. rimg.py seal and pack refuse data
+The rimg layer comes from RobCo-Core's tools/rimg.py. Every command uses
+--rimg if given, else $ROBCO_CORE/tools/rimg.py if ROBCO_CORE is set and
+not empty, else
+external/robco-core/tools/rimg.py beside this tools/ folder. A path given
+by --rimg or ROBCO_CORE that does not exist is an error, with no fallback.
+rimg.py seal and pack refuse data
 tapes because subtype 2 has no slot, so build reuses rimg.py's layout
 constants, title encoding and CRC and writes the header itself.
 
@@ -59,14 +63,35 @@ class TapeError(Exception):
         self.name = name
 
 
-def load_rimg(path):
-    if path is None:
-        core = os.environ.get("ROBCO_CORE")
-        if not core:
-            raise FileNotFoundError("no --rimg given and ROBCO_CORE is not set")
-        path = os.path.join(core, "tools", "rimg.py")
-    if not os.path.isfile(path):
-        raise FileNotFoundError(f"rimg.py not found at {path}")
+RIMG_NOT_FOUND = "rimg.py not found: give --rimg, set ROBCO_CORE, or run from a UOS checkout"
+
+
+class RimgMissing(Exception):
+    pass
+
+
+def rimg_path(path=None):
+    """The rimg.py to load. A path the user gave is never replaced by another."""
+    if path is not None:
+        if not os.path.isfile(path):
+            raise RimgMissing(f"--rimg {path}: no such file")
+        return path
+    # An empty ROBCO_CORE counts as not set.
+    core = os.environ.get("ROBCO_CORE")
+    if core:
+        found = os.path.join(core, "tools", "rimg.py")
+        if not os.path.isfile(found):
+            raise RimgMissing(f"ROBCO_CORE is set and {found} does not exist")
+        return found
+    here = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    found = os.path.join(here, "external", "robco-core", "tools", "rimg.py")
+    if not os.path.isfile(found):
+        raise RimgMissing(RIMG_NOT_FOUND)
+    return found
+
+
+def load_rimg(path=None):
+    path = rimg_path(path)
     spec = importlib.util.spec_from_file_location("rimg", path)
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
@@ -284,19 +309,19 @@ def main(argv=None):
     b = sub.add_parser("build", help="build a tape from a folder of .TXT files")
     b.add_argument("--title", required=True)
     b.add_argument("--out", required=True)
-    b.add_argument("--rimg")
+    b.add_argument("--rimg", metavar="PATH")
     b.add_argument("folder")
     li = sub.add_parser("list", help="show a tape's title and entries")
-    li.add_argument("--rimg")
+    li.add_argument("--rimg", metavar="PATH")
     li.add_argument("tape")
     c = sub.add_parser("check", help="validate tapes")
-    c.add_argument("--rimg")
+    c.add_argument("--rimg", metavar="PATH")
     c.add_argument("tapes", nargs="+")
     args = p.parse_args(argv)
 
     try:
         rimg = load_rimg(args.rimg)
-    except FileNotFoundError as e:
+    except RimgMissing as e:
         print(f"mkholo: error: {e}", file=sys.stderr)
         return EX_RIMG
 

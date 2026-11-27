@@ -11,7 +11,7 @@ src/dcl/ src/vfs/ src/session/ src/osk/ src/dev/ src/tui/ src/hack/ src/holo/
               the pure modules, one folder each
 src/shell/    the command shell and its commands
 card/         the default card: /UOS/UOS.CFG, SYSUAF.DAT, SYSUAF.DEF, DEVICES.CFG, HOME/, WORDS/, HOLO/, SYS/HELP/
-tools/        card tools: mkuaf.py, mkwords.py, mkholo.py
+tools/        card tools: mkuaf.py, mkwords.py, mkholo.py, and the holotape sources in holotapes/
 tests/host/   host tests of the pure files, and host tools such as holocheck.c
 tests/tools/  pytest tests of the card tools
 tests/        QEMU target tests
