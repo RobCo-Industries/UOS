@@ -192,7 +192,7 @@ None names the password before the game ends.
 
 `tools/mkwords.py`, Python 3, standard library only:
 
-- `check [DIR]`: every list `W04.TXT` to `W12.TXT` exists, holds only A to Z words of its length, is sorted, has no duplicates, holds 64 to 512 words and has no word from the deny list in the tool. Exit 1 on any problem.
+- `check [--strict] [DIR]`: fails with exit 1 only on what UOS refuses: a character outside A to Z, a wrong length, a duplicate, more than 512 words, or fewer words than the board needs. That is 8 for `W04` and `W05`, 12 for `W06` to `W08`, 14 for `W09` and `W10`, 16 for `W11` and `W12`. A missing list, an unsorted list, fewer than 64 words and a deny-list word print as `note:` and keep exit 0. `--strict` makes every note a failure. The last line counts the good lists present.
 - `sort [DIR]`: rewrites each list sorted, without duplicates, with LF line ends.
 - `sample N [--length L] [--seed S] [DIR]`: prints `N` distinct random words of one list. It uses Python's `random` and does not mirror the C selection rule.
 

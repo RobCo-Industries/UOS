@@ -74,9 +74,9 @@ The tests run from the repository root, so the ones that read the default card o
 | File | Covers |
 |---|---|
 | `test_mkuaf.py` | `tools/mkuaf.py`: build, check, the shared vectors, every bad input, the default card's file |
-| `test_mkwords.py` | `tools/mkwords.py`: check, sort and sample over good and bad lists, the default card's lists |
+| `test_mkwords.py` | `tools/mkwords.py`: check, `check --strict`, sort and sample over good and bad lists, the default card's lists |
 | `test_build_deps.py` | The image build rebuilds an object after a header it includes changes, with `BUILD` spelled relative then absolute and the other way round. It compiles one object into `build/deptest` with the cross compiler and asks `make -q`. |
-| `test_mkholo.py` | `tools/mkholo.py`: build, list, check, every bad input, agreement with `holocheck` |
+| `test_mkholo.py` | `tools/mkholo.py`: build, list, check, the `rimg.py` lookup, every bad input, agreement with `holocheck`, a card `HOLO` folder with only `.HTP` files, each shipped tape against its source |
 
 ## Target tests
 

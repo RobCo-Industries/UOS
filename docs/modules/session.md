@@ -141,6 +141,8 @@ python3 tools/mkuaf.py vectors-h tests/vectors/uaf.json -o uaf_vectors.h
 
 `USERS.INI` has one section per user. The section name is the user name. Keys: `password` (required), `privs` (a comma list or a number, default none), `home` (default the user name), `flags` (`DISABLED`, `NOHACK` as a list, or a number). Unknown keys are errors. Without `--seed` each salt comes from `os.urandom`. With `--seed` the salt is the first 16 bytes of `SHA-256(seed || 0x00 || NAME)`. `check` validates like `uaf_validate` and lists users, homes, privileges and flags. It never prints salts or hashes.
 
+`build` prints a note on stderr for a name or home it folds to upper case, `mkuaf: <file>: [bob]: note: stored as BOB`, and when no enabled user holds `SYSTEM` or `SECURITY`, `mkuaf: <file>: note: no enabled user holds SYSTEM or SECURITY, nobody can run AUTHORIZE`. Both keep exit code 0.
+
 Exit codes: 0 success, 1 bad input or a bad file with a `mkuaf:` message on stderr, 2 bad usage.
 
 The shared vectors in `tests/vectors/uaf.json` come from `vectors`. The C test reads them through a header that `vectors-h` generates during the build. A header is simpler than a JSON parser in C.
