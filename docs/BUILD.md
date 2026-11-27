@@ -74,7 +74,7 @@ Copy the files to the root of a FAT32 card. The target writes a folder. It never
 
 ### Running bootdir again
 
-Use a new, empty folder for the first run. A first run stops when `DIR` holds files and no `UOSBOOT.LST`, and changes nothing. `UOSBOOT.LST` has one line per file a run wrote: the SHA-256 of the bytes written, two spaces and the path, as `shasum -a 256` prints it. The card does not need it, but it does no harm there.
+Use a new, empty folder for the first run. A first run stops when `DIR` holds files and no `UOSBOOT.LST`, and changes nothing. One case passes: a folder that holds only files of this run with the same bytes, which is what a first run leaves when it stops before the list is written. The next run finishes it. `UOSBOOT.LST` has one line per file a run wrote: the SHA-256 of the bytes written, two spaces and the path, as `shasum -a 256` prints it. The card does not need it, but it does no harm there.
 
 ### Updating a card in use
 

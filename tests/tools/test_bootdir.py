@@ -487,3 +487,40 @@ def test_a_folder_with_the_temporary_name_stops_before_any_write(tmp_path):
     (dest / "MINE" / "UOSBOOT.TMP").mkdir()
     assert sync(stage, dest).returncode == 0
     assert tree(dest)["SUB/B.SYS"] == b"b2"
+
+
+def test_a_stopped_first_run_and_a_stopped_new_file_are_finished(tmp_path):
+    """Before the list is written, a stopped run leaves stage files with
+    the stage's bytes. The next run takes them as written and goes on."""
+    stage, dest = tmp_path / "stage", tmp_path / "card"
+    (stage / "SUB").mkdir(parents=True)
+    (stage / "A.SYS").write_bytes(b"a1")
+    (stage / "SUB" / "B.SYS").write_bytes(b"b1")
+    # A first run that stopped after one file: no list yet.
+    dest.mkdir()
+    (dest / "A.SYS").write_bytes(b"a1")
+    r = sync(stage, dest)
+    assert r.returncode == 0, r.stderr
+    assert "kept" not in r.stdout
+    assert tree(dest)["SUB/B.SYS"] == b"b1" and LIST in tree(dest)
+    # An update that adds a file and stopped after it: the list is old.
+    (stage / "C.SYS").write_bytes(b"c1")
+    (dest / "C.SYS").write_bytes(b"c1")
+    r = sync(stage, dest)
+    assert r.returncode == 0, r.stderr
+    assert "C.SYS" in (dest / LIST).read_text()
+    # Other bytes under a stage name, with no record, are still a clash.
+    (stage / "D.SYS").write_bytes(b"d1")
+    (dest / "D.SYS").write_bytes(b"mine")
+    before = tree(dest)
+    r = sync(stage, dest)
+    assert r.returncode != 0 and "D.SYS" in r.stderr
+    assert tree(dest) == before
+    # And a folder with a stranger and no list is still refused.
+    other = tmp_path / "other"
+    other.mkdir()
+    (other / "A.SYS").write_bytes(b"a1")
+    (other / "kernel.img").write_bytes(b"x")
+    r = sync(stage, other)
+    assert r.returncode != 0 and "kernel.img" in r.stderr
+    assert sorted(os.listdir(other)) == ["A.SYS", "kernel.img"]

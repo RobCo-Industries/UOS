@@ -224,14 +224,24 @@ def main():
     temps = [have.pop(k) for k in list(have) if k.rsplit("/", 1)[-1] == TMP.casefold()]
     list_name = have.pop(key(LIST), LIST)
     list_path = os.path.join(a.dir, list_name)
+    d = lambda k: os.path.join(a.dir, have[k])  # noqa: E731
+
+    def same(k):
+        """True when DIR holds this stage file with the stage's bytes: a
+        run that stopped before it wrote the list put it there."""
+        return (k in want and k in have and not os.path.islink(d(k))
+                and digest(d(k)) == digest(os.path.join(a.stage, want[k])))
+
     if os.path.isfile(list_path) and not os.path.islink(list_path):
         rec = read_list(list_path)
     else:
-        if have or list_name != LIST:
+        # No list: an empty folder, or what a first run that stopped left,
+        # which is stage files with the stage's bytes and nothing else.
+        strangers = [have[k] for k in have if not same(k)]
+        if strangers or list_name != LIST:
             stop(f"{a.dir} is not empty and has no {LIST}; pick an empty DIR",
-                 list(have.values()) + ([list_name] if list_name != LIST else []))
+                 strangers + ([list_name] if list_name != LIST else []))
         rec = {}
-    d = lambda k: os.path.join(a.dir, have[k])  # noqa: E731
 
     # Checks, before any write.
     blocked = {w for w in (in_the_way(a.dir, n) for n in list(want.values()) + [LIST]) if w}
@@ -249,13 +259,14 @@ def main():
                         for n in dirs if n.casefold() == TMP.casefold()}
     if blocked:
         stop("folders and files in DIR are in the way of this run", blocked)
-    clash = {have[k] for k in set(want) & set(have) if k not in rec}
+    clash = {have[k] for k in set(want) & set(have) if k not in rec and not same(k)}
     if clash:
         stop("files in DIR that no run wrote clash with files of this run", clash)
     gone = {k for k in rec if k in have and k not in want and k not in outside}
     # Bytes that match the stage are what a stopped run wrote: not a change.
     changed = {k for k in (set(want) | gone) & set(have)
-               if digest(d(k)) not in (rec[k][1], want.get(k) and digest(os.path.join(a.stage, want[k])))}
+               if digest(d(k)) not in (rec.get(k, (None, None))[1],
+                                       want.get(k) and digest(os.path.join(a.stage, want[k])))}
     stale = gone - changed
     if stale and not a.clean:
         stop("an earlier run wrote files this run does not; CLEAN=1 removes them",
