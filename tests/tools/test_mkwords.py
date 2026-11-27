@@ -2,6 +2,7 @@
 import contextlib
 import io
 import os
+import re
 import shutil
 import sys
 import tempfile
@@ -126,6 +127,53 @@ def test_board_minimum_ok():
 def test_too_many():
     words = ["Q%c%cZ" % (chr(65 + i // 26), chr(65 + i % 26)) for i in range(513)]
     bad_case(4, words, "513 words, want at most 512")
+
+
+def test_file_max_matches_uos():
+    defs = {}
+    for name in ("hack/hack.h", "hack/hackscr.c"):
+        with open(os.path.join(ROOT, "src", name)) as f:
+            for m in re.finditer(r"^#define\s+(\w+)\s+(.+?)\s*(?:/\*.*)?$", f.read(), re.M):
+                defs[m.group(1)] = m.group(2)
+    expr = defs["WORDS_FILE_MAX"]
+    for k in ("HK_LIST_MAX", "HK_WORD_MAX"):
+        expr = expr.replace(k, defs[k])
+    assert re.fullmatch(r"[0-9()+* ]+", expr), expr
+    assert mkwords.FILE_MAX == eval(expr)
+
+
+def sized_list(size):
+    """Good sorted 12-letter CR LF words, padded with blank lines to size bytes."""
+    words = base(12)
+    body = "".join(w + "\r\n" for w in words)
+    assert len(body) <= size
+    return body + "\n" * (size - len(body))
+
+
+def test_file_at_limit_ok():
+    d = make_dir()
+    try:
+        with open(os.path.join(d, mkwords.list_name(12)), "w", newline="") as f:
+            f.write(sized_list(mkwords.FILE_MAX))
+        rc, out, err = run(["check", d])
+        assert rc == 0, err
+        assert "9 lists ok" in out
+    finally:
+        shutil.rmtree(d)
+
+
+def test_file_over_limit_fails():
+    d = make_dir()
+    try:
+        path = os.path.join(d, mkwords.list_name(12))
+        with open(path, "w", newline="") as f:
+            f.write(sized_list(mkwords.FILE_MAX + 1))
+        rc, out, err = run(["check", d])
+        assert rc == 1
+        assert "%s: %d bytes, UOS reads at most %d" % (path, mkwords.FILE_MAX + 1,
+                                                       mkwords.FILE_MAX) in err
+    finally:
+        shutil.rmtree(d)
 
 
 def test_unsorted_short_list_passes_with_notes():

@@ -7,8 +7,8 @@
                                     print N distinct random words of one list
 
 check fails only on what UOS refuses: a character outside A to Z, a wrong
-length, a repeated word, more than 512 words, or fewer words than the
-board needs. A missing list, an unsorted list, fewer than 64 words and a
+length, a repeated word, more than 512 words, fewer words than the board
+needs, or a file larger than FILE_MAX bytes. A missing list, an unsorted list, fewer than 64 words and a
 deny-list word print as "note:" and keep exit 0. --strict makes every note
 a failure. The last line counts the good lists present.
 
@@ -25,6 +25,9 @@ MIN_WORDS = 64
 MAX_WORDS = 512  # HK_LIST_MAX in src/hack/hack.h
 # Words on the board, per word length: the hk_diff table in src/hack/hack.c.
 BOARD_WORDS = {4: 8, 5: 8, 6: 12, 7: 12, 8: 12, 9: 14, 10: 14, 11: 16, 12: 16}
+# WORDS_FILE_MAX in src/hack/hackscr.c: UOS refuses a list file larger
+# than this many bytes on the card, line ends included.
+FILE_MAX = MAX_WORDS * (12 + 2) + 64
 DEFAULT_DIR = os.path.join("card", "UOS", "WORDS")
 
 # Words a list must never hold: violence, harm and insults.
@@ -49,6 +52,9 @@ def check_list(path, n):
     if not os.path.isfile(path):
         return [], ["%s: missing" % path]
     errors, notes = [], []
+    size = os.path.getsize(path)
+    if size > FILE_MAX:
+        errors.append("%s: %d bytes, UOS reads at most %d" % (path, size, FILE_MAX))
     words = read_words(path)
     seen = set()
     for i, w in enumerate(words, 1):
