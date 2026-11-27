@@ -70,7 +70,7 @@ Estimate for an ARM1176 at 700 MHz, unverified. The cross GCC at `-O2` builds th
 |---|---|---|
 | 0 | `SYSTEM` | everything |
 | 1 | `OPER` | device control, `SET HALT` |
-| 2 | `SECURITY` | user management, skips the minigame lockout |
+| 2 | `SECURITY` | user management with `AUTHORIZE`, reading `SYSUAF.DAT` |
 | 3 | `READALL` | read every home |
 
 | Bit | Flag | Meaning |

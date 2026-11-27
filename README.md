@@ -37,6 +37,15 @@ make run        # boot build/sd.img in QEMU on this terminal
 
 See [docs/BUILD.md](docs/BUILD.md), [docs/TESTING.md](docs/TESTING.md) and [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
+## Documentation
+
+- [docs/USER_MANUAL.md](docs/USER_MANUAL.md): for the person at the terminal
+- [docs/QUICK_REFERENCE.md](docs/QUICK_REFERENCE.md): commands, keys, paths and login rules on two screens
+- [docs/ADMIN_GUIDE.md](docs/ADMIN_GUIDE.md): preparing and looking after a terminal's card
+- [docs/COMMANDS.md](docs/COMMANDS.md): every command
+- [docs/FORMATS.md](docs/FORMATS.md): every file on the card
+- [docs/LORE.md](docs/LORE.md): what the in-world documents claim and what is true
+
 ## Licence
 
 MIT. See [LICENSE](LICENSE).

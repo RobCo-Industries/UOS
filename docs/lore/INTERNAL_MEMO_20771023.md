@@ -1,4 +1,4 @@
-> Lore: in-world fiction, original to this project. It does not describe how UOS works.
+> Out of world: this memo is fiction, original to this project. Where it states how UOS behaves, it matches the real system. For how UOS really works, read the [user manual](../USER_MANUAL.md), the [administrator guide](../ADMIN_GUIDE.md) and [lore and real](../LORE.md).
 
 # RobCo Industries Internal Memorandum
 
@@ -26,22 +26,22 @@ This memorandum serves as official notification of the release of Unified Operat
 
 1. **Security Patch 0x2847**: Addressed unauthorized access vulnerability in maintenance mode
    - *Note from Security Team: Patch partially implemented due to cost constraints*
-   - *Known Issue: SET HALT RESTART/MAINT still accessible - will address in v7.1*
+   - *Known Issue: any operator can still send a terminal to the maintenance screen with SET HALT RESTART /MAINTENANCE - will address in v7.1*
 
 2. **Kernel Stability**: UOSKRNL.303 resolves memory leak in terminal multiplexer
    - Uptime improved to 200+ years (theoretical)
    - Vault-Tec has confirmed long-term reliability requirements met
 
-3. **Terminal Protocol**: RobCo Termlink v3.0 compatibility
-   - Backward compatible with v2.x terminals
-   - Enhanced error reporting (8-digit hex codes)
+3. **Terminal Messages**: one message format for every command
+   - Each message names its facility, severity and code, such as `%UOS-E-NOPRIV`
+   - Termlink network support is not part of this release
 
 ### Known Issues (Non-Critical)
 
 #### Issue #4721: Maintenance Mode Security
 **Status:** DEFERRED TO v7.1  
 **Reporter:** Sarah Chen, Security Division  
-**Description:** The SET HALT RESTART/MAINT command can be used to dump system credentials to memory location 0x000FFF00. While this is technically a security vulnerability, Legal has determined this is acceptable due to:
+**Description:** Any account with the OPER privilege can type SET HALT RESTART /MAINTENANCE. At the next start the boot agent opens its maintenance screen, which asks for no login. When the card's BOOT.CFG turns `restore_users` on, anyone at that screen can put the default accounts back, with their printed passwords. The shipped setting is off. While this is technically a security vulnerability, Legal has determined this is acceptable due to:
 - Physical access requirement
 - Cost of implementing proper fix ($4.2M estimated)
 - Low priority given terminal deployment locations (secure facilities)
@@ -51,14 +51,14 @@ This memorandum serves as official notification of the release of Unified Operat
 #### Issue #4835: Password Storage
 **Status:** WILL NOT FIX  
 **Reporter:** James Rodriguez, Cryptography Team  
-**Description:** Current MD5 hashing without salt is cryptographically weak.  
-**Management Response:** "Our customers don't need military-grade encryption. This is cost-prohibitive for civilian terminal deployments." - Finance Department
+**Description:** Passwords are stored as a salted SHA-256, repeated 2000 times. Cryptography asks for twenty times more rounds.  
+**Management Response:** "Our customers don't need military-grade encryption. Twenty times the rounds means twenty times the wait at every login on a Model 4000." - Finance Department
 
 #### Issue #4912: Buffer Overflow in Login
 **Status:** INVESTIGATING  
 **Reporter:** Michael Chang, QA Team  
 **Description:** Username and password buffers can be overflowed with crafted input.  
-**Status Update:** Development team unable to reproduce. Closing as "Cannot Reproduce."
+**Status Update:** Development team unable to reproduce. The prompt takes at most 16 characters for a name and 32 for a password, and LOGIN refuses a longer name with `%UAF-E-IVNAME`. Closing as "Cannot Reproduce."
 
 ### Deployment Statistics
 
@@ -92,24 +92,23 @@ As of October 15, 2077:
 - 512 KB RAM
 - 1 MB Flash storage
 - Color display (optional)
-- Network interface card
 
 ### Supported Hardware Platforms
 
 - ARM Cortex-A Series processors
-- Legacy x86 systems (limited support)
-- Custom Vault-Tec hardware
-- Military hardened systems
+- Custom Vault-Tec hardware on the same ARM boards
+- Military hardened systems on the same ARM boards
+- Legacy x86 systems: support dropped in v7.0
 
 ## Installation Instructions
 
 ### For System Administrators
 
-1. Backup current configuration to holotape
-2. Insert UOS v7.0.2.8 installation media
-3. Boot to maintenance mode
-4. Follow on-screen prompts
-5. Restore configuration from backup
+1. Copy the terminal's `/UOS` folder to a spare card. Holotapes are read-only and cannot hold a backup.
+2. Replace `/ROBCO/UOS.SYS` on the card with the v7.0.2.8 image
+3. Restart the terminal
+4. Log in as ADMIN
+5. Check `SHOW SYSTEM`
 6. Verify system operation
 
 **IMPORTANT:** Do not interrupt power during update process. System corruption may occur.
@@ -118,11 +117,11 @@ As of October 15, 2077:
 
 **REMINDER:** Change default passwords immediately after installation!
 
-- Administrator: ADMIN/ADMIN
-- Guest Account: GUEST/GUEST  
-- Maintenance: MAINT/MAINT
+- Administrator: ADMIN/ADMIN-CHANGE-ME
+- Operator: OPER/OPER-CHANGE-ME
+- Guest Account: GUEST/GUEST
 
-*Security Note: These defaults are hard-coded for emergency access. They cannot be disabled without custom firmware build.*
+*Security Note: These accounts live in the user file like any other. Change each password with SET PASSWORD, or turn an account off with AUTHORIZE MODIFY /DISABLED.*
 
 ## Training and Documentation
 
@@ -138,7 +137,7 @@ As of October 15, 2077:
 
 3. **Service Bulletins** (Monthly publication)
    - Technical updates and patches
-   - Subscribe via internal mail system
+   - Pick up a copy at the Building 7 front desk
 
 ### Training Schedule
 

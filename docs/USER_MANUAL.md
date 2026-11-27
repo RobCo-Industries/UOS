@@ -2,6 +2,8 @@
 
 This manual is for the person at the terminal. Nothing in UOS is validated on real hardware yet: what follows is how it behaves in the QEMU emulator.
 
+The [quick reference](QUICK_REFERENCE.md) fits on two screens. The person who prepares the card reads the [administrator guide](ADMIN_GUIDE.md).
+
 ## Logging in
 
 ### What you see
@@ -54,7 +56,7 @@ This manual prints these passwords, so anyone can read them. Change them before 
 
 ### Buttons and the on-screen keyboard
 
-A terminal with buttons and no keyboard works too. At `USERNAME:` or `PASSWORD:`, press any button: the on-screen keyboard opens over the bottom of the screen. That first press does nothing else.
+At `USERNAME:` or `PASSWORD:`, press F4 to open the on-screen keyboard over the bottom of the screen. It is meant for a terminal with buttons and no keyboard, but UOS does not read GPIO buttons yet, so today F4 is the only way to open it. That key does nothing else.
 
 - The arrow buttons move the highlight.
 - SELECT types the highlighted key.
@@ -189,53 +191,7 @@ The menu is your whole session. You reach the command line only through a comman
 
 ### Writing a menu
 
-This part is for the person who sets up the terminal. A menu is an INI file in the user's home folder, `/UOS/HOME/<home>/TERMINAL.CFG`. Other menus it opens are `.CFG` files in the same folder. The full rules are in [tui](modules/tui.md#terminalcfg).
-
-```
-[terminal]
-title = Pump house
-header = WELCOME.TXT
-
-[entry 1]
-label = Read the shift notes
-type = text
-target = NOTES.TXT
-
-[entry 2]
-label = Pump controls
-type = menu
-target = PUMPS.CFG
-
-[entry 3]
-label = List my files
-type = command
-target = DIRECTORY
-
-[entry 4]
-label = Pump room light
-type = device
-target = LIGHT1 TOGGLE
-
-[entry 5]
-label = Training tapes
-type = holotape
-
-[entry 6]
-label = Log out
-type = logout
-```
-
-- `title` shows on the second row. `header` names a text file whose first 8 lines show above the entries.
-- Entries show in the order of their numbers, up to 16 a file.
-- A `text`, `menu` or `header` file must be a plain 8.3 name in the same home.
-- A `command` is one command line, as you would type it at `$`.
-- A `device` target is a device name from `DEVICES.CFG` and an action word.
-- A `holotape` target is a tape name in `SYS$HOLO`, or empty for the list.
-- `privs = 2` shows the entry only to users who hold OPER. The value is a mask of privilege bits: 1 SYSTEM, 2 OPER, 4 SECURITY, 8 READALL. SYSTEM sees every entry.
-
-Every entry runs with the user's own rights. A menu entry cannot do what the user could not do at the command line.
-
-To give a user the command line again, delete their `TERMINAL.CFG`. A user at the command line can open their menu with `RUN TERMINAL`; BACK at its top then closes it.
+Writing a menu is in the [administrator guide](ADMIN_GUIDE.md#writing-a-menu).
 
 ## Reading holotapes
 
