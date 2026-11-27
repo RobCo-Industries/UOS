@@ -90,9 +90,11 @@ def test_bootdir_needs_the_chain(stand_ins, tmp_path, drop):  # noqa: F811
 
 
 def test_bootdir_dir_with_a_space(stand_ins, tmp_path):  # noqa: F811
+    """A space, a quote and a dollar sign reach the tool as they were typed."""
     build, files = stand_ins
-    dest = tmp_path / "UOS CARD"
+    dest = tmp_path / "UOS $CARD's"
     bootdir(build, files, dest)
+    assert sorted(os.listdir(tmp_path)).count("UOS $CARD's") == 1
     got = tree(dest)
     assert got["ROBCO/UOS.SYS"] == files["UOS.SYS"].read_bytes()
     assert LIST in got
@@ -461,3 +463,27 @@ def test_bootdir_refuses_a_staging_folder_and_clears_nothing(stand_ins, folder):
     r = bootdir(build, files, dest, ok=False)
     assert f"refusing DIR {dest}" in r.stderr
     assert (dest / "MINE.TXT").read_bytes() == b"keep"
+
+
+def test_a_folder_with_the_temporary_name_stops_before_any_write(tmp_path):
+    """The run would fail at the file beside that folder, with earlier
+    files already replaced. It stops first and changes nothing."""
+    stage, dest = tmp_path / "stage", tmp_path / "card"
+    (stage / "SUB").mkdir(parents=True)
+    (stage / "A.SYS").write_bytes(b"a1")
+    (stage / "SUB" / "B.SYS").write_bytes(b"b1")
+    assert sync(stage, dest).returncode == 0
+    before = tree(dest)
+    (stage / "A.SYS").write_bytes(b"a2")
+    (stage / "SUB" / "B.SYS").write_bytes(b"b2")
+    (dest / "SUB" / "UOSBOOT.TMP").mkdir()
+    r = sync(stage, dest)
+    assert r.returncode != 0
+    assert "SUB/UOSBOOT.TMP: a folder with the temporary name" in r.stderr
+    assert tree(dest) == before
+    # A folder of that name where the run writes nothing is not in the way.
+    (dest / "SUB" / "UOSBOOT.TMP").rmdir()
+    (dest / "MINE").mkdir()
+    (dest / "MINE" / "UOSBOOT.TMP").mkdir()
+    assert sync(stage, dest).returncode == 0
+    assert tree(dest)["SUB/B.SYS"] == b"b2"

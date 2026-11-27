@@ -277,19 +277,25 @@ BOOT_STAGE := $(BUILD)/bootstage
 # With FIRMWARE=0 a run leaves them and their records alone.
 FIRMWARE_FILES := bootcode.bin start.elf fixup.dat
 
+# The recipe reads DIR from the environment, so a space, a quote or a
+# dollar sign in the path reaches the tool as it was typed. $(value ...)
+# takes the text make was given, before make reads a `$` in it.
+override DIR := $(value DIR)
+export DIR
+
 .PHONY: bootdir
 bootdir:
 	$(if $(strip $(DIR)),,$(error DIR is not set: make bootdir DIR=<path>))
 	$(if $(RETROS_IMG),,$(error bootdir needs RETROS_IMG=<RETROS.IMG>: UOS alone cannot start on a real board))
 	$(if $(MFBOOT_SYS),,$(error bootdir needs MFBOOT_SYS=<MFBOOT.SYS>: UOS alone cannot start on a real board))
-	$(PYTHON) -I tools/syncbootdir.py guard "$(DIR)" $(SDIMAGE_STAGE) $(BOOT_STAGE)
+	$(PYTHON) -I tools/syncbootdir.py guard "$$DIR" $(SDIMAGE_STAGE) $(BOOT_STAGE)
 	$(MAKE) --no-print-directory -f $(firstword $(MAKEFILE_LIST)) sdimage CHAIN=1
 	rm -rf $(BOOT_STAGE)
 	cp -R $(SDIMAGE_STAGE) $(BOOT_STAGE)
 ifneq ($(FIRMWARE),0)
 	$(ROBCO_CORE)/tools/mkbootdir.sh $(RETROS_IMG) $(BOOT_STAGE) --kernel-name RETROS.IMG
 endif
-	$(PYTHON) -I tools/syncbootdir.py $(BOOT_STAGE) "$(DIR)" $(if $(filter 1,$(CLEAN)),--clean) $(if $(filter 1,$(REPLACE)),--replace) \
+	$(PYTHON) -I tools/syncbootdir.py $(BOOT_STAGE) "$$DIR" $(if $(filter 1,$(CLEAN)),--clean) $(if $(filter 1,$(REPLACE)),--replace) \
 	    $(if $(filter 0,$(FIRMWARE)),$(addprefix --outside ,$(FIRMWARE_FILES)))
 
 # Alone, a two-word image at 0x8000 jumps to UOS at its link address.

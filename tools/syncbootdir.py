@@ -238,6 +238,15 @@ def main():
     blocked |= {w for w in (in_the_way(a.dir, rec[k][0], kinds=False)
                             for k in set(rec) - outside) if w}
     blocked |= {f"{t}: a symbolic link" for t in temps if os.path.islink(os.path.join(a.dir, t))}
+    # A folder with the temporary name, where this run writes a file, would
+    # stop the run at that file, after earlier files were replaced.
+    writes_in = {key(os.path.dirname(n)) for n in want.values()} | {""}
+    for top, dirs, _ in os.walk(a.dir) if os.path.isdir(a.dir) else ():
+        here = os.path.relpath(top, a.dir).replace(os.sep, "/")
+        here = "" if here == "." else here
+        if key(here) in writes_in:
+            blocked |= {f"{(here + '/') if here else ''}{n}: a folder with the temporary name {TMP}"
+                        for n in dirs if n.casefold() == TMP.casefold()}
     if blocked:
         stop("folders and files in DIR are in the way of this run", blocked)
     clash = {have[k] for k in set(want) & set(have) if k not in rec}
