@@ -67,7 +67,7 @@ void uos_serial_break(void)
 
 void uos_mark(const char *fmt, ...)
 {
-    char buf[224];
+    char buf[UOS_MARK_MAX];
     va_list ap;
 
     va_start(ap, fmt);
@@ -192,6 +192,20 @@ static void mount_card(void)
     UOS_MARK("mount result=ok lba=%u", (unsigned)vol.start_lba);
 }
 
+/*
+ * The full config marker, the longest one. Its worst case: the format's own
+ * text, which counts each conversion as two characters, plus every field at
+ * its widest. 12 numbers at 11 characters, the name and the hack user at
+ * their limits, and 22 for result, scheme and difficulty. A new field must
+ * fit too, or the build fails here.
+ */
+#define CONFIG_FMT                                                                  \
+    "config result=%s line=%u keys=%u bad=%u clamped=%u unknown=%u name=%s "        \
+    "scheme=%s retries=%u login_lockout=%u hack=%d user=%s attempts=%u "            \
+    "difficulty=%s hack_lockout=%u console=%u buttons=%d"
+#define CONFIG_MARK_WORST (sizeof(CONFIG_FMT) + 12 * 11 + UOS_NAME_MAX + UOS_USER_MAX + 22)
+_Static_assert(CONFIG_MARK_WORST < UOS_MARK_MAX, "the config marker can be cut");
+
 /* UOS.CFG, when the card has one. The scheme applies unless the boot info gave one. */
 static void read_config(void)
 {
@@ -201,18 +215,20 @@ static void read_config(void)
 
     uos_settings_default(&settings);
     if (uos.card != UOS_CARD_OK) {
-        UOS_MARK("config result=skipped name=%s", name_word());
+        UOS_MARK("config result=skipped name=%s buttons=%d", name_word(),
+                 settings.buttons_enabled);
         return;
     }
     rc = fs_read_file(UOS_CFG_PATH, cfg_text, sizeof(cfg_text), &len);
     if (rc == FS_ERR_NOENT) {
-        UOS_MARK("config result=missing name=%s", name_word());
+        UOS_MARK("config result=missing name=%s buttons=%d", name_word(),
+                 settings.buttons_enabled);
         return;
     }
     if (rc != 0) {
         uos.cfg_bad = 1;
         uos_set_error("config");
-        UOS_MARK("config result=bad why=read rc=%d", rc);
+        UOS_MARK("config result=bad why=read rc=%d buttons=%d", rc, settings.buttons_enabled);
         return;
     }
     rc = uos_settings_parse(cfg_text, len, &settings, &r);
@@ -223,9 +239,7 @@ static void read_config(void)
     if (settings.scheme != UOS_SCHEME_UNSET && inherited_scheme() < 0 && uos.fb_ok) {
         console_set_scheme((unsigned)settings.scheme);
     }
-    UOS_MARK("config result=%s line=%u keys=%u bad=%u clamped=%u unknown=%u name=%s "
-             "scheme=%s retries=%u login_lockout=%u hack=%d user=%s attempts=%u "
-             "difficulty=%s hack_lockout=%u console=%u buttons=%d",
+    UOS_MARK(CONFIG_FMT,
              rc == UOS_CFG_OK ? "ok" : "syntax", r.err_line, r.keys, r.bad, r.clamped,
              r.unknown, name_word(), uos_scheme_name(settings.scheme),
              settings.login_retries, settings.login_lockout_s, settings.hack_enabled,
