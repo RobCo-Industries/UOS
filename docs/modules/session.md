@@ -87,6 +87,7 @@ Estimate for an ARM1176 at 700 MHz, unverified. The cross GCC at `-O2` builds th
 - `uaf_db_init`, `uaf_write`: start an empty database; write an image with a fresh CRC. A short buffer gives `UAF_E_BUFFER` and writes nothing.
 - `uaf_check_name`, `uaf_check_home`, `uaf_check_password`: the rules.
 - `uaf_find`: index by name, case-insensitive.
+- `uaf_admins`: the users who can run `AUTHORIZE`, those with `SYSTEM` or `SECURITY` and without `DISABLED`. `AUTHORIZE` refuses a change that takes this count from at least 1 to 0.
 - `uaf_hash`, `uaf_hash_equal`, `uaf_verify`: the hash and the login check.
 - `uaf_add`, `uaf_remove`, `uaf_set_password`, `uaf_set_privs`, `uaf_set_flags`, `uaf_set_home`: edits for `AUTHORIZE`. The caller supplies each salt. At most 32 users.
 - `uaf_privs_format`, `uaf_privs_parse`, `uaf_priv_name`: privilege text.

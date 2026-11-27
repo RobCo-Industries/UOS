@@ -130,6 +130,8 @@ uaf_err_t uaf_check_password(const char *pw);
 
 /* Index of the user, name compared case-insensitively, or -1. */
 int uaf_find(const uaf_db_t *db, const char *name);
+/* Users who can run AUTHORIZE: SYSTEM or SECURITY, and not DISABLED. */
+unsigned uaf_admins(const uaf_db_t *db);
 
 /*
  * The iterated hash. pw must pass uaf_check_password (else UAF_E_PASSWORD_*

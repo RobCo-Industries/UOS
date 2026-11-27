@@ -99,6 +99,56 @@ static int load_work(sh_job_t *j)
     return 0;
 }
 
+/* A record field as a C string: names and homes may fill the field. */
+static void field_text(char *dst, const char *field, size_t len)
+{
+    k_memcpy(dst, field, len);
+    dst[len] = '\0';
+}
+
+/*
+ * Refuses a change that leaves no enabled user with SYSTEM or SECURITY when
+ * the live file has one. A file that has none already stays as it is.
+ * 0 when the change may go on, else 1 after sh_end().
+ */
+static int last_admin(sh_job_t *j, const char *name)
+{
+    const uaf_db_t *db = sess_db();
+    char who[UAF_NAME_MAX + 1];
+    int idx;
+
+    if (uaf_admins(db) == 0u || uaf_admins(&work) != 0u) {
+        return 0;
+    }
+    idx = uaf_find(db, name);
+    if (idx >= 0) {
+        field_text(who, db->rec[idx].name, UAF_NAME_MAX);
+    } else {
+        k_snprintf(who, sizeof(who), "%s", name);
+    }
+    UOS_MARK("uaf result=refused why=lastadmin user=%s", who);
+    (void)sh_end(j, DCL_SYS_LASTADMIN, who, 0, 1);
+    return 1;
+}
+
+/* The home folder, made with the caller's own rights. A folder that is there
+ * already becomes the home as it is. A file of that name is a refusal. A
+ * refusal leaves the user changed: an operator makes the folder. */
+static void home_step(sh_job_t *j, const char *home)
+{
+    char spec[32];
+    vfs_entry_t e;
+    int rc;
+
+    k_snprintf(spec, sizeof(spec), "SD0:[HOME.%s]", home);
+    rc = vfs_mkdir(j->ctx, j->privs, spec);
+    if (rc == VFS_E_EXISTS && vfs_stat(j->ctx, j->privs, spec, &e) == VFS_OK && e.is_dir) {
+        sh_say(j, DCL_SYS_HOMEUSED, home, 0);
+    } else if (rc != VFS_OK) {
+        sh_say(j, sh_err_msg(SH_SRC_VFS, rc, -1, 0), spec, 0);
+    }
+}
+
 /* ---- Masked reads: three in a row ---- */
 
 typedef void (*pw_next_fn)(sh_job_t *j);
@@ -302,10 +352,13 @@ static void auth_apply(sh_job_t *j)
     int add = k_strcmp(j->cmd.keyword->name, "ADD") == 0;
     int pw = add || dcl_cmd_qual(&j->cmd, "PASSWORD") != NULL;
     uint8_t s[UAF_SALT_SIZE];
+    char old_home[UAF_HOME_FIELD + 1];
+    char new_home[UAF_HOME_FIELD + 1];
     int idx;
     uint32_t privs;
     int rc;
 
+    old_home[0] = '\0';
     if (pw && check_new(j) != 0) {
         sh_resume(j, SH_DONE);
         return;
@@ -324,6 +377,9 @@ static void auth_apply(sh_job_t *j)
         rc = uaf_add(&work, name, home != NULL ? home : name, privs, quals_flags(j, 0), s, pw_new);
     } else {
         rc = idx < 0 ? UAF_E_NO_USER : UAF_OK;
+        if (rc == UAF_OK) {
+            field_text(old_home, work.rec[idx].home, UAF_HOME_FIELD);
+        }
         if (rc == UAF_OK && quals_privs(j, work.rec[idx].privs, &privs) == 0) {
             rc = uaf_set_privs(&work, name, privs);
         }
@@ -342,24 +398,25 @@ static void auth_apply(sh_job_t *j)
         sh_resume(j, sh_end_err(j, SH_SRC_UAF, rc, name));
         return;
     }
+    if (!add && last_admin(j, name) != 0) {
+        sh_resume(j, SH_DONE);
+        return;
+    }
     if (commit(j) != 0) {
         sh_resume(j, SH_DONE);
         return;
     }
     j->tally.done = 1;
     if (add) {
-        char spec[32];
-        const uaf_rec_t *r = &work.rec[work.count - 1u];
-        char h[UAF_HOME_FIELD + 1];
-
-        /* The home folder, made with the caller's own rights. A refusal
-         * leaves the user added: an operator makes the folder. */
-        k_memcpy(h, r->home, UAF_HOME_FIELD);
-        h[UAF_HOME_FIELD] = '\0';
-        k_snprintf(spec, sizeof(spec), "SD0:[HOME.%s]", h);
-        rc = vfs_mkdir(j->ctx, j->privs, spec);
-        if (rc != VFS_OK && rc != VFS_E_EXISTS) {
-            sh_say(j, sh_err_msg(SH_SRC_VFS, rc, -1, 0), spec, 0);
+        field_text(new_home, work.rec[work.count - 1u].home, UAF_HOME_FIELD);
+        home_step(j, new_home);
+    } else if (home != NULL) {
+        idx = uaf_find(&work, name);
+        field_text(new_home, work.rec[idx].home, UAF_HOME_FIELD);
+        if (k_strcmp(old_home, new_home) != 0) {
+            /* No folder moves: the old one stays, the new one is made. */
+            sh_say(j, DCL_SYS_NOMOVE, old_home, 0);
+            home_step(j, new_home);
         }
     }
     sh_resume(j, sh_end(j, add ? DCL_SYS_UADDED : DCL_SYS_UMODIFIED, name, 0, 1));
@@ -409,6 +466,8 @@ static int auth_change(sh_job_t *j)
 static int auth_remove(sh_job_t *j)
 {
     const char *name = username(j);
+    char home[UAF_HOME_FIELD + 1];
+    int idx;
     int rc;
 
     if (sess_db() == NULL) {
@@ -420,14 +479,24 @@ static int auth_remove(sh_job_t *j)
     if (load_work(j) != 0) {
         return SH_DONE;
     }
+    idx = uaf_find(&work, name);
+    home[0] = '\0';
+    if (idx >= 0) {
+        field_text(home, work.rec[idx].home, UAF_HOME_FIELD);
+    }
     rc = uaf_remove(&work, name);
     if (rc != UAF_OK) {
         return sh_end_err(j, SH_SRC_UAF, rc, name);
+    }
+    if (last_admin(j, name) != 0) {
+        return SH_DONE;
     }
     if (commit(j) != 0) {
         return SH_DONE;
     }
     j->tally.done = 1;
+    /* No folder is deleted: two users may share a home. */
+    sh_say(j, DCL_SYS_HOMEKEPT, home, 0);
     return sh_end(j, DCL_SYS_UREMOVED, name, 0, 1);
 }
 

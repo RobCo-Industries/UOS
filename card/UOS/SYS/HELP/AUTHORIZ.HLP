@@ -6,6 +6,7 @@ Manages the users. Needs SECURITY.
   AUTHORIZE ADD user        adds a user and asks for the password twice
   AUTHORIZE MODIFY user     changes a user
   AUTHORIZE REMOVE user     removes a user. You cannot remove yourself.
+                            The home folder stays on the card.
 
 Qualifiers of ADD and MODIFY:
   /PASSWORD          asks for a new password twice, hidden as you type
@@ -16,3 +17,10 @@ Qualifiers of ADD and MODIFY:
 
 A password is never typed on the command line. Changes apply at the
 user's next login.
+
+At least one enabled user keeps SYSTEM or SECURITY. A change that
+would leave none is refused and nothing is written.
+
+No folder is ever deleted or moved. ADD uses a home folder that is
+there already. A new /HOME leaves the old folder: copy its files by
+hand.

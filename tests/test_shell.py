@@ -2,7 +2,8 @@
 qualifier, wildcards, access refusals per user, a read-only volume, a missing file,
 a stepped copy cancelled with Ctrl-C, LOGOUT, typing through
 the line editor with the continuation and missing-parameter prompts, AUTHORIZE and
-SET PASSWORD with masked reads, and no password on the serial lines. /OUTPUT keeps the
+SET PASSWORD with masked reads, the last administrator kept, homes never deleted or
+moved, and no password on the serial lines. /OUTPUT keeps the
 old file on a failure and a Ctrl-C; a late program end is ignored; wildcards count the
 refused matches; a 1 MiB line prints in bounded steps."""
 
@@ -527,6 +528,115 @@ def test_authorize_and_set_password(board, hooks_image, need_mtools, tmp_path):
     # The card holds a valid database of the three default users.
     names = card_names(tmp_path / "sd.img", "UOS")
     assert "SYSUAF.DAT" in names and not [n for n in names if n[0] in "~#"], names
+
+
+LASTADMIN = "%UAF-E-LASTADMIN, {} is the last user who can run AUTHORIZE"
+
+
+def add_user(vm, line, pw="Pass-1"):
+    """AUTHORIZE ADD with the password typed twice; returns (result, start)."""
+    c = send_line(vm, line)
+    reply(vm, "password", pw)
+    reply(vm, "password", pw)
+    res, _, start = wait_done(vm, c)
+    return res, start
+
+
+def refused_lastadmin(vm, line, user):
+    """The line ends with LASTADMIN, its marker, and no write of SYSUAF.DAT."""
+    w = n_marks(vm, "uaf result=written")
+    r = n_marks(vm, f"uaf result=refused why=lastadmin user={user}")
+    res, _, _ = expect(vm, line, "LASTADMIN")
+    assert res == LASTADMIN.format(user), res
+    assert n_marks(vm, f"uaf result=refused why=lastadmin user={user}") == r + 1
+    assert n_marks(vm, "uaf result=written") == w
+
+
+def test_last_admin_refused(board, hooks_image, need_mtools, tmp_path):
+    """On the default card ADMIN is the only administrator: demoting or disabling
+    it is refused, and SYSUAF.DAT keeps its bytes."""
+    sd = shell_card(tmp_path)
+    before = card_get(sd, "UOS/SYSUAF.DAT", tmp_path)
+    with alone(hooks_image, board, sd) as vm:
+        wait_ready(vm)
+        login(vm, "ADMIN")
+        refused_lastadmin(vm, "AUTHORIZE MODIFY ADMIN /NOPRIVS", "ADMIN")
+        refused_lastadmin(vm, "AUTHORIZE MODIFY ADMIN /PRIVS=OPER", "ADMIN")
+        refused_lastadmin(vm, "AUTHORIZE MODIFY ADMIN /DISABLED", "ADMIN")
+        _, _, s = expect(vm, "AUTHORIZE LIST ADMIN", "NORMAL")
+        assert any(re.match(r"ADMIN +ADMIN +SYSTEM +NOHACK", l) for l in out(vm, s)), \
+            out(vm, s)
+    assert card_get(sd, "UOS/SYSUAF.DAT", tmp_path) == before
+
+
+def test_second_admin_and_homes(board, hooks_image, need_mtools, tmp_path):
+    """With a second administrator, remove, demote and disable pass. A session keeps
+    its privileges, so the remove of the last one is refused after a demotion.
+    Homes are kept on REMOVE, reused on ADD and never moved."""
+    sd = shell_card(tmp_path)
+    with alone(hooks_image, board, sd) as vm:
+        wait_ready(vm)
+        login(vm, "ADMIN")
+        res, _ = add_user(vm, "AUTHORIZE ADD CAROL /PRIVS=SYSTEM")
+        assert res == "%UAF-S-ADDED, user CAROL added", res
+        res, _, s = expect(vm, "AUTHORIZE REMOVE CAROL", "REMOVED")
+        lines = out(vm, s)
+        kept = "%UAF-I-HOMEKEPT, SD0:[HOME.CAROL] is not deleted"
+        assert kept in lines and lines.index(kept) < lines.index(res), lines
+        res, s = add_user(vm, "AUTHORIZE ADD CAROL")
+        lines = out(vm, s)
+        used = ("%UAF-I-HOMEUSED, SD0:[HOME.CAROL] exists already and becomes the "
+                "home as it is")
+        assert used in lines and lines.index(used) < lines.index(res), lines
+        assert res == "%UAF-S-ADDED, user CAROL added", res
+        res, _, s = expect(vm, "AUTHORIZE MODIFY CAROL /HOME=CAROLNEW", "MODIFIED")
+        lines = out(vm, s)
+        nomove = "%UAF-I-NOMOVE, SD0:[HOME.CAROL] is not moved: copy its files by hand"
+        assert nomove in lines and lines.index(nomove) < lines.index(res), lines
+        assert not any("HOMEUSED" in l for l in lines), lines
+        _, _, s = expect(vm, "AUTHORIZE MODIFY CAROL /HOME=CAROLNEW", "MODIFIED")
+        assert not any("NOMOVE" in l or "HOMEUSED" in l for l in out(vm, s)), out(vm, s)
+        res, _ = add_user(vm, "AUTHORIZE ADD BOB /PRIVS=SECURITY")
+        assert res == "%UAF-S-ADDED, user BOB added", res
+        expect(vm, "AUTHORIZE MODIFY ADMIN /DISABLED", "MODIFIED")
+        expect(vm, "AUTHORIZE MODIFY ADMIN /NODISABLED", "MODIFIED")
+        expect(vm, "AUTHORIZE MODIFY ADMIN /NOPRIVS", "MODIFIED")
+        refused_lastadmin(vm, "AUTHORIZE REMOVE BOB", "BOB")
+        refused_lastadmin(vm, "AUTHORIZE MODIFY BOB /DISABLED", "BOB")
+    names = card_names(sd, "UOS/HOME")
+    assert "CAROL" in names and "CAROLNEW" in names, names
+    data = card_get(sd, "UOS/SYSUAF.DAT", tmp_path)
+    users = {data[32 + i * 96:48 + i * 96].rstrip(b"\0"): data[96 + i * 96:100 + i * 96]
+             for i in range((len(data) - 32) // 96)}
+    assert users[b"BOB"] == (4).to_bytes(4, "little"), users
+    assert users[b"ADMIN"] == bytes(4), users
+
+
+def test_home_name_is_a_file(board, hooks_image, need_mtools, tmp_path):
+    """A regular file where the home folder goes is not taken as the home: ADD and
+    MODIFY /HOME= report the refused folder, and the user is changed all the same."""
+    sd = shell_card(tmp_path, {"/UOS/HOME/DAVE": b"NOT A FOLDER\r\n"})
+    with alone(hooks_image, board, sd) as vm:
+        wait_ready(vm)
+        login(vm, "ADMIN")
+        res, s = add_user(vm, "AUTHORIZE ADD DAVE")
+        lines = out(vm, s)
+        assert res == "%UAF-S-ADDED, user DAVE added", res
+        assert not any("HOMEUSED" in l for l in lines), lines
+        refused = ["%UOS-E-EXISTS, file already exists", " \\SD0:[HOME.DAVE]\\"]
+        i = lines.index(refused[0])
+        assert lines[i + 1] == refused[1] and i < lines.index(res), lines
+        res, _ = add_user(vm, "AUTHORIZE ADD ERIN")
+        assert res == "%UAF-S-ADDED, user ERIN added", res
+        res, _, s = expect(vm, "AUTHORIZE MODIFY ERIN /HOME=DAVE", "MODIFIED")
+        lines = out(vm, s)
+        assert not any("HOMEUSED" in l for l in lines), lines
+        i = lines.index(refused[0])
+        assert lines[i + 1] == refused[1] and i < lines.index(res), lines
+        _, _, s = expect(vm, "AUTHORIZE LIST DAVE", "NORMAL")
+        assert any(re.match(r"DAVE +DAVE ", l) for l in out(vm, s)), out(vm, s)
+        _, _, s = expect(vm, "AUTHORIZE LIST ERIN", "NORMAL")
+        assert any(re.match(r"ERIN +DAVE ", l) for l in out(vm, s)), out(vm, s)
 
 
 def card_get(sd, path, tmp_path):

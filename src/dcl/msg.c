@@ -84,6 +84,11 @@ static const dcl_msgdef_t msgs[DCL_MSG_COUNT] = {
     [DCL_SYS_PROGERR] = { "UOS", 'E', "PROGERR", "the program could not start" },
     [DCL_SYS_SKIPPED] = { "UOS", 'I', "SKIPPED", "!N file!P skipped: not enough privilege" },
     [DCL_SYS_CFGERR] = { "DEVICE", 'W', "CFGERR", "DEVICES.CFG !S" },
+    [DCL_SYS_LASTADMIN] = { "UAF", 'E', "LASTADMIN", "!S is the last user who can run AUTHORIZE" },
+    [DCL_SYS_HOMEKEPT] = { "UAF", 'I', "HOMEKEPT", "SD0:[HOME.!S] is not deleted" },
+    [DCL_SYS_HOMEUSED] = { "UAF", 'I', "HOMEUSED",
+                           "SD0:[HOME.!S] exists already and becomes the home as it is" },
+    [DCL_SYS_NOMOVE] = { "UAF", 'I', "NOMOVE", "SD0:[HOME.!S] is not moved: copy its files by hand" },
 };
 
 static const dcl_msgdef_t *def_of(dcl_msg_t id)

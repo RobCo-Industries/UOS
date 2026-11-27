@@ -297,6 +297,20 @@ int uaf_find(const uaf_db_t *db, const char *name)
     return -1;
 }
 
+unsigned uaf_admins(const uaf_db_t *db)
+{
+    unsigned n = 0;
+    uint32_t i;
+
+    for (i = 0; i < db->count; i++) {
+        if ((db->rec[i].privs & (UAF_PRIV_SYSTEM | UAF_PRIV_SECURITY)) != 0u &&
+            (db->rec[i].flags & UAF_FLAG_DISABLED) == 0u) {
+            n++;
+        }
+    }
+    return n;
+}
+
 /* The hash with no checks; pw is 0 to 32 bytes. */
 static void hash_raw(const uint8_t salt[UAF_SALT_SIZE], const char *pw, size_t pw_len,
                      uint32_t iterations, uint8_t out[UAF_HASH_SIZE], uaf_work_t *work)
