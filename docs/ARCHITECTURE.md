@@ -78,7 +78,7 @@ Each step prints one marker, `@RC stage=uos ev=<name> ...`, in this order:
 | `input` | The console backend and the maintenance port commands. `gpio=later`: the `buttons` step starts the GPIO backend. |
 | `selfcheck` | `rimg_self_check()`, run first at entry and reported here. Information only. |
 | `mount` | The card by `fs_mount_boot()` with markers `/UOS/UOS.CFG` and `/ROBCO/UOS.SYS`, then the `/UOS` folder: `result=ok`, `none` or `notree` |
-| `config` | `UOS.CFG`: `result=ok`, `syntax`, `missing`, `skipped` or `bad`, with every setting and the counts. It has no `mode=` field: UOS reads no `mode` key. Every `config` marker ends with `buttons=<0\|1>`, the `[input] buttons` setting that applies, the default `1` when the file is missing or cannot be read, then `sound=<0\|1> fan=<0\|1> volume=<0-100>`, the `[audio]` settings that apply. |
+| `config` | `UOS.CFG`: `result=ok`, `syntax`, `missing`, `skipped` or `bad`, with every setting and the counts. It has no `mode=` field: UOS reads no `mode` key. Every `config` marker ends with `buttons=<0\|1>`, the `[input] buttons` setting that applies, the default `1` when the file is missing or cannot be read, then `sound=<0\|1> fan=<0\|1> volume=<0-100> trace=<0\|1>`, the `[audio]` settings that apply. |
 | `buttons` | The six panel buttons of `src/kernel/buttons.c`: UP 5, DOWN 6, LEFT 17, RIGHT 22, SELECT 26, BACK 27, active low with pull-ups and a 20 ms debounce. It calls `input_gpio_start()`, then sleeps in `wfi` until the library's 10-tick stuck-line guard ends, 30 ticks at most. `result=active`, `disabled_stuck`, `off`, `error` or `checking`, with `rc`, `setting`, `repeat` and `ticks`, the wait. Repeat, 500 ms then every 150 ms, is set before the guard, so a button held through it repeats. The step turns it off again unless the result is `active`. `repeat` holds the code of the call that set it when `active`, else `none`. `off` touches no pin. `error` sets `error=buttons`. A plain QEMU boot drives no line, so it reads `disabled_stuck`. |
 | `rtc` | I2C and a DS1307 or DS3231 clock, if one answers |
 | `sound` | Printed by the first service, `sound`, before the `service` lines. `result=off` with `rc=0` when `[audio] sound` is off, `on` when `audio_init()` and the rest ramp started, `error` with the library's code otherwise. See [Sound](#sound). |
@@ -909,17 +909,34 @@ QEMU's reset says nothing about the level of a real Pi's pins during and after a
 
 ## Sound
 
-The `sound` service in `src/sfx/sfx.c` opens the audio path. It starts first, so it stops last. Nothing is heard yet: the path is open, and no key or event plays a sound.
+The `sound` service in `src/sfx/sfx.c` opens the audio path and plays the sound tables on it. It starts first, so it stops last.
 
 With the default `[audio] sound = off` the service does nothing. It never calls `audio_init()`, takes no tick slot and prints no `ev=audio` line. It prints `ev=sound result=off rc=0`.
 
-With `sound = on` its init calls `audio_init()`, sets the `[audio] volume`, and calls `audio_rest_mid()`. That ramp moves the pin's rest level to the midpoint: 882 samples at 22050 Hz, at full scale whatever the volume. It is the first `ev=audio` line, `op=pcm rate=22050 len=882`, then `op=pcm_end`. The marker is `ev=sound result=on rc=0`. A failed call gives `result=error` with the library's code and sets `error=sound`.
+With `sound = on` its init calls `audio_init()`, sets the `[audio] volume`, and calls `audio_rest_mid()`. That ramp moves the pin's rest level to the midpoint: 882 samples at 22050 Hz, at full scale whatever the volume. It is the first `ev=audio` line, `op=pcm rate=22050 len=882`, then `op=pcm_end`. The marker is `ev=sound result=on rc=0`. A failed call gives `result=error` with the library's code and sets `error=sound`. No effect plays until the ramp has reached its last sample, so a key never cuts it: `uos_sfx()` drops the sound while the driver is busy, then asks `audio_rest_mid()` again, which starts nothing once a ramp has ended and starts one more after a cut. After a second failed ramp no effect plays until the next boot.
 
-The loop calls `audio_poll()` on every pass, which prints the trace lines. The service's shutdown calls `audio_stop()` before a reboot, a halt and from the panic path. The device watchdog calls it too before its reset. A stop after the ramp's end prints nothing more.
+The loop calls `uos_sfx_poll()` on every pass. QEMU has no PWM, so the library queues one trace record per play, and `audio_poll()` prints the queue with `k_printf()`. The library has no call that drains the queue without printing. So the poll points the `k_printf()` hook somewhere else for the call, then back at `uart_putc()`:
+
+- With `[audio] trace = on` the hook ends a partly echoed input line with `uos_serial_break()` before each trace line, as `uos_mark()` does. Each `ev=audio` line starts a line of its own, and the next echo draws the input line again.
+- With the default `trace = off` the hook drops every character, with IRQs masked so that no marker from an IRQ handler is lost. No `ev=audio` line shows, and typing over the serial line is not flooded. On a board the PWM backend queues no record, so the drain is short.
+
+The service's shutdown calls `audio_stop()` before a reboot, a halt and from the panic path. The device watchdog calls it too before its reset. A stop after the ramp's end prints nothing more.
 
 The tick has 4 callback slots. With everything on, UOS takes all 4: the GPIO button sampling, the key repeat, the device watchdog and audio.
 
 `[audio] fan` is read and shown in the `config` marker. Nothing uses it yet.
+
+### The sounds
+
+All sounds are original synthesis from the parameters in `src/sfx/sfx_models.json`. The library's `tools/sfx_table.py` renders that model into `src/sfx/sfx_table.c` and `sfx_table.h`: one 8-bit table per sound at 37500 Hz, with its length, peak and CRC-32. Both files are committed. `make sfx-table` writes them, and `make sfx-table-check`, which every build runs first, stops the build when the model changed and the table did not. The model holds six sounds. The key sounds use two of them now.
+
+`uos_sfx(id)` plays one table with `audio_play_pcm()` at 37500 Hz and `AUDIO_PRIORITY`, so a new sound replaces the one that plays. It never blocks. With the sound off it does nothing, and a play the driver refuses is dropped. A new play starts at the next tick, so two keys within 10 ms give one play.
+
+A key the line editor takes plays a key sound: a typed character, a deletion, a cursor move and Enter. A key it ignores, a cancel and an on-screen keyboard move play nothing. The keys come from the serial line, the panel buttons, the maintenance port and the on-screen keyboard alike, and one event plays at most one sound. The read screen in `src/console/readline.c` calls `uos_sfx_key()`.
+
+Each key picks `key_a` or `key_b` with the pure rule in `src/sfx/sfxrules.c`: `rnd = rnd * 1103515245 + 12345` from seed 1 at boot, and bit 16 of the new value picks `key_b` when set. A strict alternation would tick like a clock.
+
+One sound plays at a time, and a loop sits under it later. The loudest one-shot plus the loudest loop stays within 127 steps of the midpoint: `tests/host/test_sfx.c` checks it from the header.
 
 ## Memory
 

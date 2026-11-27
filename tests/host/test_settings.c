@@ -31,6 +31,7 @@ TEST(defaults)
     CHECK_EQ(s.sound_enabled, 0);
     CHECK_EQ(s.fan_enabled, 0);
     CHECK_EQ(s.volume, 80u);
+    CHECK_EQ(s.trace_enabled, 0);
 }
 
 TEST(audio_keys)
@@ -38,8 +39,10 @@ TEST(audio_keys)
     uos_settings_t s;
     uos_settings_report_t r;
 
-    CHECK_EQ(parse("[audio]\nsound = on\nfan = on\nvolume = 35\n", &s, &r), UOS_CFG_OK);
-    CHECK_EQ(r.keys, 3u);
+    CHECK_EQ(parse("[audio]\nsound = on\nfan = on\nvolume = 35\ntrace = on\n", &s, &r),
+             UOS_CFG_OK);
+    CHECK_EQ(r.keys, 4u);
+    CHECK_EQ(s.trace_enabled, 1);
     CHECK_EQ(s.sound_enabled, 1);
     CHECK_EQ(s.fan_enabled, 1);
     CHECK_EQ(s.volume, 35u);
@@ -52,14 +55,16 @@ TEST(audio_keys)
     CHECK_EQ(parse("[audio]\nvolume = 101\n", &s, &r), UOS_CFG_OK);
     CHECK_EQ(r.clamped, 1u);
     CHECK_EQ(s.volume, 100u);
-    CHECK_EQ(parse("[audio]\nsound = loud\nfan = maybe\nvolume = high\nbeep = on\n", &s, &r),
+    CHECK_EQ(parse("[audio]\nsound = loud\nfan = maybe\nvolume = high\ntrace = loud\nbeep = on\n",
+                   &s, &r),
              UOS_CFG_OK);
-    CHECK_EQ(r.bad, 3u);
+    CHECK_EQ(r.bad, 4u);
     CHECK_EQ(r.unknown, 1u);
     CHECK_EQ(r.keys, 0u);
     CHECK_EQ(s.sound_enabled, 0);
     CHECK_EQ(s.fan_enabled, 0);
     CHECK_EQ(s.volume, 80u);
+    CHECK_EQ(s.trace_enabled, 0);
 }
 
 TEST(input_buttons_key)
@@ -313,4 +318,5 @@ TEST(shipped_card_keeps_watchdog_off)
     CHECK_EQ(s.sound_enabled, 0);
     CHECK_EQ(s.fan_enabled, 0);
     CHECK_EQ(s.volume, 80u);
+    CHECK_EQ(s.trace_enabled, 0);
 }

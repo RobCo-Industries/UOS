@@ -195,20 +195,24 @@ static void mount_card(void)
 /*
  * The full config marker, the longest one. Its worst case: the format's own
  * text, which counts each conversion as two characters, plus every field at
- * its widest. 15 numbers at 11 characters, the name and the hack user at
+ * its widest. 16 numbers at 11 characters, the name and the hack user at
  * their limits, and 22 for result, scheme and difficulty. A new field must
  * fit too, or the build fails here.
  */
 #define CONFIG_FMT                                                                  \
     "config result=%s line=%u keys=%u bad=%u clamped=%u unknown=%u name=%s "        \
     "scheme=%s retries=%u login_lockout=%u hack=%d user=%s attempts=%u "            \
-    "difficulty=%s hack_lockout=%u console=%u buttons=%d sound=%d fan=%d volume=%u"
-#define CONFIG_MARK_WORST (sizeof(CONFIG_FMT) + 15 * 11 + UOS_NAME_MAX + UOS_USER_MAX + 22)
+    "difficulty=%s hack_lockout=%u console=%u buttons=%d sound=%d fan=%d volume=%u "    \
+    "trace=%d"
+#define CONFIG_MARK_WORST (sizeof(CONFIG_FMT) + 16 * 11 + UOS_NAME_MAX + UOS_USER_MAX + 22)
 _Static_assert(CONFIG_MARK_WORST < UOS_MARK_MAX, "the config marker can be cut");
+/* Room for the next fields. */
+_Static_assert(CONFIG_MARK_WORST + 64 <= UOS_MARK_MAX, "the config marker leaves less than 64 bytes");
 
 /* The [audio] fields, last in every config marker. */
-#define AUDIO_FIELDS "sound=%d fan=%d volume=%u"
-#define AUDIO_ARGS   settings.sound_enabled, settings.fan_enabled, settings.volume
+#define AUDIO_FIELDS "sound=%d fan=%d volume=%u trace=%d"
+#define AUDIO_ARGS   settings.sound_enabled, settings.fan_enabled, settings.volume, \
+                     settings.trace_enabled
 
 /* UOS.CFG, when the card has one. The scheme applies unless the boot info gave one. */
 static void read_config(void)

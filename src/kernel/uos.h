@@ -27,7 +27,7 @@
 /* Prints "@RC stage=uos ev=<fmt>" as one line on the PL011. Any context.
  * The text is cut at UOS_MARK_MAX - 1 characters. The longest marker is
  * config; main.c checks at build time that it fits. */
-#define UOS_MARK_MAX            448
+#define UOS_MARK_MAX            544
 void uos_mark(const char *fmt, ...) __attribute__((format(printf, 1, 2)));
 #define UOS_MARK(...) uos_mark(__VA_ARGS__)
 

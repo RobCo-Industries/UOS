@@ -48,6 +48,7 @@ buttons = on
 sound = off
 fan = off
 volume = 80
+trace = off
 ```
 
 | Section | Key | Value | Default |
@@ -65,9 +66,10 @@ volume = 80
 | `watchdog` | `enabled` | as `hack` `enabled`. Turns the hardware watchdog on. Keep it off in QEMU, which resets at once when it starts | off |
 | `watchdog` | `timeout_ms` | 1000 to 15000: the time without a loop tick before the board resets | 8000 |
 | `input` | `buttons` | as `hack` `enabled`. Starts the six panel buttons at boot | on |
-| `audio` | `sound` | as `hack` `enabled`. Starts the audio driver and the rest ramp at boot. Nothing else plays yet. | off |
+| `audio` | `sound` | as `hack` `enabled`. Starts the audio driver and the rest ramp at boot, and plays the key sounds. | off |
 | `audio` | `fan` | as `hack` `enabled`. Read and kept. Nothing uses it yet. | off |
 | `audio` | `volume` | 0 to 100 | 80 |
+| `audio` | `trace` | as `hack` `enabled`. Prints the audio driver's trace lines on the serial line. Off, UOS drops them. | off |
 
 Rules:
 

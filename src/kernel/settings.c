@@ -231,6 +231,8 @@ static int on_key(const char *section, const char *key, const char *value, unsig
             set_bool(c, value, &s->fan_enabled);
         } else if (same(key, "volume")) {
             set_range(c, value, &s->volume, UOS_VOLUME_MIN, UOS_VOLUME_MAX);
+        } else if (same(key, "trace")) {
+            set_bool(c, value, &s->trace_enabled);
         } else {
             c->r->unknown++;
         }
@@ -262,6 +264,7 @@ void uos_settings_default(uos_settings_t *s)
     s->sound_enabled = 0;
     s->fan_enabled = 0;
     s->volume = UOS_VOLUME_DEF;
+    s->trace_enabled = 0;
 }
 
 int uos_settings_parse(const char *text, size_t len, uos_settings_t *s,

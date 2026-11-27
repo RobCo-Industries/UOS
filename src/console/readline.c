@@ -17,6 +17,7 @@
 #include "conint.h"
 #include "conview.h"
 #include "osk.h"
+#include "sfx.h"
 #include "uos.h"
 
 static struct {
@@ -31,6 +32,7 @@ static struct {
     osk_t osk;
     con_line_fn cb;
     void *ctx;
+    int took;                   /* the line editor took a key in this event */
 } rl;
 
 static void place_cursor(void)
@@ -111,6 +113,10 @@ static int feed(const input_event_t *ev)
     le_redraw_t rd;
     int r = le_event(&rl.le, ev, &rd);
 
+    /* A key the editor takes clicks: a change, a cursor move or Enter. */
+    if (r == LE_ACCEPT || (r == LE_EDITING && rd.what != LE_RD_NONE)) {
+        rl.took = 1;
+    }
     if (r != LE_EDITING) {
         return r;
     }
@@ -196,6 +202,11 @@ static int rl_event(uos_screen_t *s, const uos_event_t *ev)
         }
     } else {
         r = feed(&in);
+    }
+    /* One event, one sound, whatever the input source. */
+    if (rl.took) {
+        rl.took = 0;
+        uos_sfx_key();
     }
     if (r != LE_EDITING) {
         if (was_open) {

@@ -397,9 +397,10 @@ A bad entry inside a good file is skipped and the rest of the menu works. To giv
 | `watchdog` | `enabled` | off | The hardware watchdog. Keep it off in QEMU. |
 | `watchdog` | `timeout_ms` | 8000 | 1000 to 15000 |
 | `input` | `buttons` | on | The six panel buttons on GPIO 5, 6, 17, 22, 26 and 27 |
-| `audio` | `sound` | off | Opens the sound path at boot. Nothing is heard yet. |
+| `audio` | `sound` | off | Turns the sound on. Each key the line editor takes clicks. |
 | `audio` | `fan` | off | Read and kept for a later release. It does nothing yet. |
 | `audio` | `volume` | 80 | 0 to 100 |
+| `audio` | `trace` | off | Prints one `ev=audio` line on the serial line for each sound. Leave it off when you work over serial: every key would print a line. |
 
 A bad value keeps the default. A number out of range is brought to the nearest limit. A line that does not parse stops the reader, and the keys before it apply. In each of these cases, and for an unknown key, the first screen and the login screen show `SETTINGS: SOME VALUES IGNORED`. The serial line's `config` marker counts each kind. An old card that still has `mode = shell` counts one unknown key: delete the line. A missing file uses every default.
 

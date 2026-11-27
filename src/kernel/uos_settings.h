@@ -70,6 +70,7 @@ typedef struct {
     int sound_enabled;          /* [audio] sound: 1 or 0, off by default */
     int fan_enabled;            /* [audio] fan: 1 or 0, off by default; not used yet */
     unsigned volume;            /* [audio] volume, 0 to 100 */
+    int trace_enabled;          /* [audio] trace: 1 or 0, off by default */
 } uos_settings_t;
 
 /* Parse results. */
