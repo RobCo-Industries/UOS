@@ -264,6 +264,8 @@ endif
 # files an earlier run wrote that this run does not.
 # It stops on a symbolic link inside DIR and never writes through one.
 # Names compare without regard to case, as on a FAT32 card.
+# Each file goes to UOSBOOT.TMP beside it first, then into place, so a
+# failed copy damages nothing and the next run finishes the update.
 # DIR may hold spaces, as a mounted card often does: the recipe quotes it
 # and passes it through no make function that splits words.
 # See docs/BUILD.md.

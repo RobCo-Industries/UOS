@@ -78,7 +78,9 @@ Use a new, empty folder for the first run. A first run stops when `DIR` holds fi
 
 ### Updating a card in use
 
-You can run `make bootdir` again with `DIR` set to the card itself, or to a copy of it. The run checks everything before it writes anything, so a run that stops has changed nothing.
+You can run `make bootdir` again with `DIR` set to the card itself, or to a copy of it. The run checks everything before it writes anything, so a run that stops on a check has changed nothing.
+
+It writes each file, and `UOSBOOT.LST` last, to `UOSBOOT.TMP` in the same folder first, then moves it into place. A copy that fails, such as on a full card or a card pulled out, leaves the old file as it was. A run that stopped half way has written some files and not the new list. Run it again: it removes every `UOSBOOT.TMP` it finds, takes a file whose bytes already match the build as written, says nothing about it, and finishes the rest. Do not keep your own files named `UOSBOOT.TMP` in `DIR`.
 
 - It replaces a file it wrote last time when nobody changed it since, such as `ROBCO/UOS.SYS`.
 - It keeps a file it wrote that has changed since, such as `UOS/SYSUAF.DAT` after a password change or an edited `UOS/UOS.CFG`, and prints a line that names it. The next run keeps it again. `REPLACE=1` writes the shipped file over it.

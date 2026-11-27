@@ -388,3 +388,55 @@ def test_names_that_differ_only_by_case_stop_the_run(tmp_path, where):
     r = sync(stage, dest)
     assert r.returncode == 1 and "A.TXT" in r.stderr and "a.txt" in r.stderr
     assert not (dest / "NEW.TXT").exists()
+
+
+def test_a_failed_copy_damages_nothing_and_the_next_run_finishes(tmp_path, monkeypatch):
+    import errno
+    import importlib.util
+    spec = importlib.util.spec_from_file_location(
+        "syncbootdir", os.path.join(ROOT, "tools", "syncbootdir.py"))
+    tool = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(tool)
+
+    names = ["A.SYS", "B.SYS", "C.SYS", "SUB/D.SYS"]
+    stage = stage_of(tmp_path / "s", {n: b"old " + n.encode() for n in names})
+    dest = tmp_path / "card"
+    assert sync(stage, dest).returncode == 0
+    stage_of(stage, {n: b"new " + n.encode() * 100 for n in names})
+    old = tree(dest)
+
+    calls = []
+    real = shutil.copyfileobj
+
+    def full_card(i, o):
+        calls.append(1)
+        if len(calls) == 3:
+            o.write(i.read(5))
+            raise OSError(errno.ENOSPC, "card full")
+        real(i, o)
+
+    monkeypatch.setattr(tool.shutil, "copyfileobj", full_card)
+    monkeypatch.setattr(sys, "argv", ["syncbootdir.py", str(stage), str(dest)])
+    with pytest.raises(SystemExit) as stopped:
+        tool.main()
+    assert stopped.value.code == 1
+    monkeypatch.undo()
+    got = tree(dest)
+    assert got["A.SYS"] == (stage / "A.SYS").read_bytes()
+    assert got["B.SYS"] == (stage / "B.SYS").read_bytes()
+    assert got["C.SYS"] == old["C.SYS"] and got["SUB/D.SYS"] == old["SUB/D.SYS"]
+    assert got[LIST] == old[LIST]
+    assert tool.TMP not in got
+    # A temporary file left by a run that lost power goes too.
+    (dest / "SUB" / tool.TMP).write_bytes(b"half")
+
+    r = sync(stage, dest)
+    assert r.returncode == 0, r.stderr
+    assert "kept" not in r.stdout
+    got = tree(dest)
+    assert all(not n.endswith(tool.TMP) for n in got)
+    for line in got.pop(LIST).decode().splitlines():
+        h, n = line.split("  ", 1)
+        assert h == hashlib.sha256(got.pop(n)).hexdigest() == \
+            hashlib.sha256((stage / n).read_bytes()).hexdigest(), n
+    assert got == {}

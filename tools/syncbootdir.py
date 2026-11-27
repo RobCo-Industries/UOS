@@ -34,6 +34,15 @@ appears even where case matters. A folder keeps its spelling on the
 card. Two names in DIR or in the stage with one key stop the run. The
 list keeps one record per key.
 
+Each file is written to UOSBOOT.TMP beside it, flushed and synced,
+then moved into place with os.replace, and so is the list. A copy that
+fails removes that file and leaves the old one as it was. A run removes
+every UOSBOOT.TMP in DIR left by a run that stopped, once its checks
+pass; it never treats that name as the terminal's data. A run that
+stopped half way replaced some files and not the list: a listed file
+whose bytes match the stage, not its record, is one that run wrote. It
+takes the new record and is not named.
+
 Every check comes before the first write. No folder is ever removed.
 Exit codes: 0 done, 1 stopped, 2 bad usage.
 """
@@ -46,6 +55,8 @@ import stat
 import sys
 
 LIST = "UOSBOOT.LST"
+# The temporary name of a file being written. 8.3, one per folder.
+TMP = "UOSBOOT.TMP"
 
 
 def key(rel):
@@ -122,6 +133,30 @@ def in_the_way(root, rel, kinds=True):
     return None
 
 
+def put(dst, write):
+    """Write dst through TMP beside it: write(f), flush, sync, os.replace.
+    On a failure TMP goes and dst stays as it was."""
+    tmp = os.path.join(os.path.dirname(dst), TMP)
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0), 0o644)
+    try:
+        with os.fdopen(fd, "wb") as f:
+            write(f)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp, dst)
+    except BaseException:
+        try:
+            os.remove(tmp)
+        except FileNotFoundError:
+            pass
+        raise
+
+
+def copy(src, dst):
+    with open(src, "rb") as i:
+        put(dst, lambda o: shutil.copyfileobj(i, o))
+
+
 def read_list(path):
     """The records by key: (name, hash). One record per key, the last."""
     rec = {}
@@ -166,6 +201,7 @@ def main():
     have, twins = files_under(a.dir) if os.path.isdir(a.dir) else ({}, set())
     if twins:
         stop("DIR holds names that differ only by case; a FAT32 card cannot", twins)
+    temps = [have.pop(k) for k in list(have) if k.rsplit("/", 1)[-1] == TMP.casefold()]
     list_name = have.pop(key(LIST), LIST)
     list_path = os.path.join(a.dir, list_name)
     if os.path.isfile(list_path) and not os.path.islink(list_path):
@@ -181,18 +217,23 @@ def main():
     blocked = {w for w in (in_the_way(a.dir, n) for n in list(want.values()) + [LIST]) if w}
     blocked |= {w for w in (in_the_way(a.dir, rec[k][0], kinds=False)
                             for k in set(rec) - outside) if w}
+    blocked |= {f"{t}: a symbolic link" for t in temps if os.path.islink(os.path.join(a.dir, t))}
     if blocked:
         stop("folders and files in DIR are in the way of this run", blocked)
     clash = {have[k] for k in set(want) & set(have) if k not in rec}
     if clash:
         stop("files in DIR that no run wrote clash with files of this run", clash)
     gone = {k for k in rec if k in have and k not in want and k not in outside}
-    changed = {k for k in (set(want) | gone) & set(have) if digest(d(k)) != rec[k][1]}
+    # Bytes that match the stage are what a stopped run wrote: not a change.
+    changed = {k for k in (set(want) | gone) & set(have)
+               if digest(d(k)) not in (rec[k][1], want.get(k) and digest(os.path.join(a.stage, want[k])))}
     stale = gone - changed
     if stale and not a.clean:
         stop("an earlier run wrote files this run does not; CLEAN=1 removes them",
              {have[k] for k in stale})
 
+    for t in temps:
+        os.remove(os.path.join(a.dir, t))
     new_rec = {k: r for k, r in rec.items() if k in have or k in outside}
 
     for k in sorted(gone & changed):
@@ -207,15 +248,20 @@ def main():
             continue
         dst = on_card(a.dir, n)
         os.makedirs(os.path.dirname(dst), exist_ok=True)
-        shutil.copyfile(os.path.join(a.stage, n), dst)
+        try:
+            copy(os.path.join(a.stage, n), dst)
+        except OSError as e:
+            print(f"syncbootdir: writing {n} failed: {e}. Files before it are written;"
+                  f" run again to finish.", file=sys.stderr)
+            sys.exit(1)
         # Through the existing entry, then to the stage's spelling: a
         # rename, so no second entry appears where case matters.
         spelled = os.path.join(os.path.dirname(dst), os.path.basename(n))
         if dst != spelled:
             os.rename(dst, spelled)
         new_rec[k] = (n, digest(spelled))
-    with open(on_card(a.dir, LIST), "w", encoding="utf-8") as f:
-        f.write("".join(f"{h}  {n}\n" for n, h in sorted(new_rec.values())))
+    text = "".join(f"{h}  {n}\n" for n, h in sorted(new_rec.values())).encode()
+    put(on_card(a.dir, LIST), lambda f: f.write(text))
     if os.path.basename(on_card(a.dir, LIST)) != LIST:
         os.rename(on_card(a.dir, LIST), os.path.join(a.dir, LIST))
     print(f"syncbootdir: {a.dir} is ready. Copy its files to the root of a FAT32 card.")
