@@ -21,7 +21,8 @@ The library lives in the submodule `external/robco-core`. Run `git submodule upd
 | `make test-tools` | Runs pytest over `tests/tools/` |
 | `make sdimage` | Writes `build/sd.img` with `/ROBCO/UOS.SYS` and the `card/` tree |
 | `make run BOARD=raspi2b` | Boots `build/sd.img` in QEMU on this terminal. `WINDOW=1` opens the display. |
-| `make check-pins` | Checks that the CI workflow pins match the submodule, and the doc links |
+| `make check-pins` | Checks that the CI workflow pins match the submodule, and the doc links. It runs `check-workflows` too. |
+| `make check-workflows` | Runs the library's workflow guard on `.github/workflows/`. It fails on a `${{ }}` inside a `run:` block and on an action not pinned by a full commit. CI runs it through `test-host`. |
 | `make sfx-table` | Writes `src/sfx/sfx_table.c` and `.h` from `src/sfx/sfx_models.json` with the library's `tools/sfx_table.py`. Commit both files. |
 | `make sfx-table-check` | Checks that the committed table matches the model's hash and the generator's revision. Every image build, `make`, `make sdimage` and `make run` included, runs it before it compiles the table and stops on a stale one. A passed check leaves the stamp `build/sfx-table.ok` and runs again only when the model, the table or the generator changes. |
 | `make sfx-preview BOARD=raspi0` | Boots a session with the sound on in QEMU and renders its sounds into `build/sfx_preview.wav`. `BOARD` is raspi2b by default. See [the session's sounds](TESTING.md#the-sessions-sounds). |
