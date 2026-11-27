@@ -17,6 +17,8 @@ bytes written, two spaces and the path, as `shasum -a 256` prints it.
   record, whether the stage holds it or not. It never stops a run.
 - A listed file the stage no longer holds, with the bytes the list
   records, stops the run. --clean removes it.
+- A file where a stage file needs a folder, or a folder where a stage
+  file goes, stops the run.
 - A file named by --outside is left alone: never stale, never removed,
   and its record stays. `make bootdir FIRMWARE=0` names the firmware.
 
@@ -28,6 +30,7 @@ import argparse
 import hashlib
 import os
 import shutil
+import stat
 import sys
 
 LIST = "UOSBOOT.LST"
@@ -51,6 +54,24 @@ def stop(msg, names):
     for n in sorted(names):
         print(f"  {n}", file=sys.stderr)
     sys.exit(1)
+
+
+def in_the_way(root, rel):
+    """Why the path rel under root cannot be written as a file, or None."""
+    parts = rel.split("/")
+    p = root
+    for i, part in enumerate(parts):
+        p = os.path.join(p, part)
+        try:
+            mode = os.lstat(p).st_mode
+        except FileNotFoundError:
+            return None
+        here = "/".join(parts[:i + 1])
+        if i < len(parts) - 1 and not stat.S_ISDIR(mode):
+            return f"{here}: a file where a folder is needed"
+        if i == len(parts) - 1 and stat.S_ISDIR(mode):
+            return f"{here}: a folder where a file goes"
+    return None
 
 
 def read_list(path):
@@ -97,6 +118,9 @@ def main():
         rec = {}
 
     # Checks, before any write.
+    blocked = {w for w in (in_the_way(a.dir, n) for n in want | {LIST}) if w}
+    if blocked:
+        stop("folders and files in DIR are in the way of this run", blocked)
     clash = {n for n in want & have if n not in rec}
     if clash:
         stop("files in DIR that no run wrote clash with files of this run", clash)

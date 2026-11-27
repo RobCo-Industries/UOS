@@ -6,6 +6,7 @@ and nothing is downloaded. The folder must hold the files of the
 """
 import hashlib
 import os
+import shutil
 import sys
 import subprocess
 
@@ -143,6 +144,27 @@ def test_bootdir_clash_stops_and_changes_nothing(stand_ins, tmp_path):  # noqa: 
     before = tree(dest)
     r = bootdir(build, files, dest, f"MAINT_SYS={files['MAINT.SYS']}", "REPLACE=1", ok=False)
     assert "ROBCO/MAINT.SYS" in r.stderr
+    assert tree(dest) == before
+
+
+@pytest.mark.parametrize("kind", ["file", "folder"])
+def test_bootdir_file_and_folder_clash_changes_nothing(stand_ins, tmp_path, kind):  # noqa: F811
+    build, files = stand_ins
+    dest = tmp_path / "card"
+    bootdir(build, files, dest)
+    # New bytes for a file the run writes before it reaches the clash.
+    files["UOS.SYS"].write_bytes(b"NEW UOS" * 64)
+    if kind == "file":
+        shutil.rmtree(dest / "UOS")
+        (dest / "UOS").write_bytes(b"a file")
+        name = "UOS: a file where a folder is needed"
+    else:
+        (dest / "UOS" / "SYSUAF.DAT").unlink()
+        (dest / "UOS" / "SYSUAF.DAT").mkdir()
+        name = "UOS/SYSUAF.DAT: a folder where a file goes"
+    before = tree(dest)
+    r = bootdir(build, files, dest, "REPLACE=1", ok=False)
+    assert name in r.stderr
     assert tree(dest) == before
 
 
