@@ -44,6 +44,18 @@ def menu_labels():
     return [cfg[s]["label"] for s in entries]
 
 
+def boot_cfg(sd, tmp_path):
+    """The card's BOOT.CFG: its entry names in order, the default and the timeout.
+
+    A chain card built without BOOT_CFG has one entry, the nightly's card has
+    three. The agent must report what the card holds."""
+    cfg = configparser.ConfigParser(comment_prefixes=(";", "#"))
+    cfg.read_string(card_file(sd, "ROBCO/BOOT.CFG", tmp_path).decode())
+    names = [s.split()[1] for s in cfg.sections() if s.startswith("entry ")]
+    default = cfg["boot"]["default"]
+    return names, default, cfg["boot"]["timeout"], cfg[f"entry {default}"]["path"]
+
+
 def pin_level(on, active):
     return int(on) if active == "high" else int(not on)
 
@@ -54,6 +66,8 @@ def test_whole_chain_terminal(board, chain_card, chain_images, need_mtools, tmp_
         assert card_file(chain_card, "RETROS.IMG", tmp_path) == f.read()
     with open(mfboot, "rb") as f:
         assert card_file(chain_card, "ROBCO/MFBOOT.SYS", tmp_path) == f.read()
+    names, default, timeout, path = boot_cfg(chain_card, tmp_path)
+    assert default == "UOS", "the session needs a card that starts UOS"
     light_pin, light_active = device("LIGHT1")
     door_pin, door_active = device("DOOR1")
 
@@ -75,12 +89,13 @@ def test_whole_chain_terminal(board, chain_card, chain_images, need_mtools, tmp_
         req = one(vm, "maint_req", "bootagent")
         assert (req["result"], req["rc"]) == ("none", "0"), req
         ent = one(vm, "entries", "bootagent")
-        assert (ent["count"], ent["default"], ent["timeout"]) == ("3", "UOS", "3"), ent
+        assert (ent["count"], ent["default"], ent["timeout"]) == \
+            (str(len(names)), default, timeout), ent
         cd = one(vm, "countdown", "bootagent")
-        assert (cd["state"], cd["seconds"]) == ("start", "3"), cd
+        assert (cd["state"], cd["seconds"]) == ("start", timeout), cd
         ch = one(vm, "choose", "bootagent")
         assert (ch["index"], ch["name"], ch["path"], ch["via"]) == \
-            ("1", "UOS", "/ROBCO/UOS.SYS", "timeout"), ch
+            (str(names.index(default) + 1), default, path, "timeout"), ch
 
         # UOS, trusted after the agent, at the login screen.
         wait_ready(vm)
