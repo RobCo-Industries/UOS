@@ -110,6 +110,7 @@ typedef enum {
     DCL_SYS_HOMEKEPT,
     DCL_SYS_HOMEUSED,
     DCL_SYS_NOMOVE,
+    DCL_SYS_BADMENU,
     DCL_MSG_COUNT
 } dcl_msg_t;
 

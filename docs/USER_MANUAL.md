@@ -147,6 +147,8 @@ Type `SET PASSWORD`. The terminal asks for your old password, the new one, and t
 
 A user whose home holds `TERMINAL.CFG` gets a menu after the login instead of the command line. On a new card that is OPER.
 
+When the menu file cannot be read, does not parse or has no entry for you, the menu screen shows the error and BACK only logs you out. A file whose entries all need a privilege you lack shows `No menu entry for this user in TERMINAL.CFG`. A file whose entries are all bad shows its first error. A file with no entry at all shows `No menu entry in TERMINAL.CFG`. Ask the administrator to fix the file. A user with `SYSTEM` or `SECURITY` gets the command line in its place, under the line `%UOS-W-BADMENU, TERMINAL.CFG <text>: command line opened`.
+
 ```
  ROBCO TERMINAL
  Operator console

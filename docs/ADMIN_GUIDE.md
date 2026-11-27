@@ -353,7 +353,15 @@ Every entry runs with the user's own rights. A menu entry cannot do what the use
 
 A user at the command line can open their own menu with `RUN TERMINAL`. BACK at its top then closes it. Try a new menu this way before the user logs in to it.
 
-A `TERMINAL.CFG` that exists but does not parse still replaces the command line at login. The menu then shows `Bad menu file TERMINAL.CFG (line N)`, and the user can only log out. A bad entry is skipped and the rest of the menu works. To give a user the command line again, delete their `TERMINAL.CFG`. Users may write in their own home, so a user at the command line can change or delete their own menu.
+UOS reads and parses `TERMINAL.CFG` at each login before it chooses the screen. It refuses the file when it cannot be read, when it does not parse, or when it parses with no entry this user can see. A refused file never gives the command line to a user without `SYSTEM` or `SECURITY`. That user gets the menu screen with `Bad menu file TERMINAL.CFG (line N)`, `Cannot read TERMINAL.CFG: <reason>`, `No menu entry for this user in TERMINAL.CFG`, the first entry error or `No menu entry in TERMINAL.CFG`, and can only log out. A user with `SYSTEM` or `SECURITY` gets the command line, with one bright line under the shell banner:
+
+```
+%UOS-W-BADMENU, TERMINAL.CFG does not parse at line N: command line opened
+```
+
+The end of the line is `does not parse at line N`, `cannot be read` or `has no usable entry`. Fix or delete the file from there.
+
+A bad entry inside a good file is skipped and the rest of the menu works. To give a user the command line again, delete their `TERMINAL.CFG`. Users may write in their own home, so a user at the command line can change or delete their own menu.
 
 ## Settings
 
@@ -408,6 +416,7 @@ At boot and at the login:
 |---|---|---|
 | `CARD: NO CARD. INSERT A CARD AND RESTART.` | No card | Insert the card, restart |
 | `CARD: NO /UOS FOLDER. SYSTEM FILES ARE MISSING.` | A card without `/UOS` | Copy the `card/` tree onto it |
+| `%UOS-W-BADMENU, TERMINAL.CFG <text>: command line opened` | A user with `SYSTEM` or `SECURITY` has a menu file UOS refused | Fix or delete the file, see [Testing a menu](#testing-a-menu) |
 | `SETTINGS: SOME VALUES IGNORED` | `UOS.CFG` has a bad, unknown or out-of-range value, or a bad line | Fix the file. The serial line's `config` marker counts each kind. The login screen keeps the line in its header. |
 | `USER DATABASE MISSING. NO ONE CAN LOG IN.` | No `/UOS/SYSUAF.DAT` | Copy the file back, press F4 |
 | `USER DATABASE DAMAGED (<WHY>). NO ONE CAN LOG IN.` | The file does not load. `<WHY>` names the check, such as `CRC` | Copy a good file back, press F4 |
@@ -448,7 +457,10 @@ In the menu and the holotape reader:
 | Message | Meaning |
 |---|---|
 | `File NAME not found` | A menu entry or header names a file the home does not hold |
-| `Bad menu file NAME (line N)` | The menu file does not parse |
+| `Bad menu file NAME (line N)` | The menu file does not parse. For `TERMINAL.CFG` at login the user can only log out. |
+| `No menu entry for this user in TERMINAL.CFG` | The root menu file parses, but every valid entry needs a privilege the user lacks. The user can only log out. |
+| `TERMINAL.CFG: E errors, first: <error> (line L)` with no entry | The root menu file parses, but every entry is bad. Fix the entry at line L. The user can only log out. |
+| `No menu entry in TERMINAL.CFG` | The root menu file parses, but holds no entry. The user can only log out. |
 | `No holotape NAME.HTP` | A holotape entry names a tape that is not in `SYS$HOLO` |
 | `This card has no holotape folder, SYS$HOLO.` | No `/UOS/HOLO` |
 | `DAMAGED:` and a reason, in place of a title | The tape fails its checks. Run `tools/mkholo.py check` on it. |

@@ -86,6 +86,7 @@ static const struct {
     { DCL_SYS_HOMEKEPT, "%UAF-I-HOMEKEPT, SD0:[HOME.] is not deleted" },
     { DCL_SYS_HOMEUSED, "%UAF-I-HOMEUSED, SD0:[HOME.] exists already and becomes the home as it is" },
     { DCL_SYS_NOMOVE, "%UAF-I-NOMOVE, SD0:[HOME.] is not moved: copy its files by hand" },
+    { DCL_SYS_BADMENU, "%UOS-W-BADMENU, TERMINAL.CFG : command line opened" },
 };
 
 TEST(every_message_text)
@@ -108,6 +109,14 @@ TEST(cfgerr_count)
 
     CHECK(dcl_format_message(buf, sizeof(buf), DCL_SYS_CFGERR, "cannot be read", 0) > 0);
     CHECK_STR(buf, "%DEVICE-W-CFGERR, DEVICES.CFG cannot be read");
+}
+
+TEST(badmenu_line)
+{
+    char buf[DCL_MSG_SIZE];
+
+    CHECK(dcl_format_message(buf, sizeof(buf), DCL_SYS_BADMENU, "does not parse at line 1", 0) > 0);
+    CHECK_STR(buf, "%UOS-W-BADMENU, TERMINAL.CFG does not parse at line 1: command line opened");
 }
 
 TEST(uaf_home_and_admin_lines)

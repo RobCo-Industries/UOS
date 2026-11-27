@@ -193,6 +193,7 @@ int tui_event(tui_t *t, const input_event_t *ev);
  * TUI_ACT_NONE. A text that does not parse shows "Bad menu file NAME
  * (line L)" and returns TUI_ACT_NONE. TUI_E_STATE when no menu was asked.
  * Errors inside the file show "NAME: E errors" on the message line.
+ * A root menu with no visible entry shows the line tui_empty_why() picks.
  */
 int tui_give_menu(tui_t *t, const char *text, size_t len);
 
@@ -241,6 +242,48 @@ const char *tui_state_name(int state);
 
 /* Rows of entries in the window for the current level. */
 unsigned tui_rows(const tui_t *t);
+
+/* ---- The choice at login ---- */
+
+/* Why a root menu file is refused. */
+enum {
+    TUI_WHY_NONE = 0,       /* no file, or a good one */
+    TUI_WHY_READ,           /* the file cannot be read */
+    TUI_WHY_SYNTAX,         /* tui_cfg_parse() returned TUI_E_SYNTAX */
+    TUI_WHY_EMPTY,          /* it parses with no entry this user can see */
+};
+
+#define TUI_OPEN_SHELL      0
+#define TUI_OPEN_MENU       1
+
+/*
+ * What opens at login. `has_file`: the home holds the root menu file.
+ * `read_ok`: it was read. `parse_rc`: what tui_cfg_parse() returned.
+ * `visible`: the entries it left for this user. No file opens the command
+ * line; a good file opens the menu. A refused file opens the menu screen,
+ * which shows the error and can only log out, unless `privs` holds SYSTEM
+ * or SECURITY: then the command line opens. `*why` (if not NULL) gets a
+ * TUI_WHY_*. Returns TUI_OPEN_MENU or TUI_OPEN_SHELL.
+ */
+int tui_login_choice(int has_file, int read_ok, int parse_rc, unsigned visible,
+                     uint32_t privs, int *why);
+
+/* What a root menu with no visible entry shows. */
+enum {
+    TUI_EMPTY_NONE = 0,     /* it has a visible entry */
+    TUI_EMPTY_USER,         /* "No menu entry for this user in NAME" */
+    TUI_EMPTY_ERRORS,       /* the first parser error */
+    TUI_EMPTY_FILE,         /* "No menu entry in NAME" */
+};
+
+/*
+ * Picks the TUI_EMPTY_* line from what tui_cfg_parse() counted: `count`
+ * visible entries, `hidden` valid entries hidden by privileges, `errors`.
+ */
+int tui_empty_why(unsigned count, unsigned hidden, unsigned errors);
+
+/* "none", "read", "syntax", "empty"; "?" for others. */
+const char *tui_why_name(int why);
 
 /* ---- Layout ---- */
 

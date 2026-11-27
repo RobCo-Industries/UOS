@@ -752,7 +752,9 @@ flowchart LR
     M -->|BACK at the top, then ENTER, or a logout entry| L[login]
 ```
 
-At each login the shell asks the menu first. The menu checks `TERMINAL.CFG` in the user's home with `vfs_exists()` and the user's rights, and marks `tui op=check result=<menu|shell>`. The menu is then the session's whole screen. A user reaches the shell only through a `command` entry.
+At each login the shell asks the menu first. The menu reads `TERMINAL.CFG` in the user's home with the user's rights and parses it. `tui_login_choice()` then picks the screen. No card, no `/UOS`, no home folder or no file gives the shell. A good file gives the menu. A file that cannot be read, does not parse or has no visible entry is refused. A refused file gives the menu screen, which shows the error and can only log out, unless the user has `SYSTEM` or `SECURITY`. Then the shell opens, and `sh_session_notice()` puts `%UOS-W-BADMENU` bright under its banner once.
+
+The marker is `tui op=check user=<NAME> result=<menu|shell> rc=<n> why=<none|read|syntax|empty> line=<n>`. `result` is what opens. `rc` is 1 when the file was read, 0 when it is missing, else the read's error. `line` is the line of a syntax error, else 0. The menu is then the session's whole screen. A user reaches the shell only through a `command` entry.
 
 `RUN TERMINAL` ends its job at once and posts the push of the menu. So the shell's job is free while the menu shows, the menu's own command entries can run, and the shell owes only its `$` read until the menu closes. In this close mode BACK at the top asks `Close the menu?`. A `logout` entry still logs out.
 

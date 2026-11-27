@@ -344,11 +344,13 @@ TEST(tui_empty_and_failed_root)
 
     start(empty, 0);
     CHECK_EQ(t.level[0].menu.hidden, 1);
+    CHECK_STR(t.msg, "No menu entry for this user in TERMINAL.CFG");
     CHECK_STR(dump(),
               "00 N NORTH YARD\n"
               "01 N Nothing\n"
               "02 D " RULE "\n"
               "04 D (no entries)\n"
+              "27 N No menu entry for this user in TERMINAL.CFG\n"
               "28 D Nothing\n"
               "29 D BACK: log out\n");
     CHECK_EQ(key(INPUT_KEY_SELECT), TUI_ACT_NONE);
@@ -357,6 +359,24 @@ TEST(tui_empty_and_failed_root)
     start(bad, 0);
     CHECK_EQ(t.depth, 0);
     CHECK_STR(t.msg, "Bad menu file TERMINAL.CFG (line 3)");
+}
+
+TEST(tui_empty_why_cases)
+{
+    static const file_t allbad[] = { { "TERMINAL.CFG", "[entry 1]\nlabel=A\ntype=nope\n" }, { NULL, NULL } };
+    static const file_t noent[] = { { "TERMINAL.CFG", "[terminal]\ntitle = X\n" }, { NULL, NULL } };
+
+    CHECK_EQ(tui_empty_why(1, 0, 0), TUI_EMPTY_NONE);
+    CHECK_EQ(tui_empty_why(1, 2, 3), TUI_EMPTY_NONE);
+    CHECK_EQ(tui_empty_why(0, 1, 0), TUI_EMPTY_USER);
+    CHECK_EQ(tui_empty_why(0, 1, 2), TUI_EMPTY_USER);
+    CHECK_EQ(tui_empty_why(0, 0, 1), TUI_EMPTY_ERRORS);
+    CHECK_EQ(tui_empty_why(0, 0, 0), TUI_EMPTY_FILE);
+
+    start(allbad, 0);
+    CHECK_STR(t.msg, "TERMINAL.CFG: 1 errors, first: bad or missing type (line 3)");
+    start(noent, 0);
+    CHECK_STR(t.msg, "No menu entry in TERMINAL.CFG");
 }
 
 TEST(tui_file_errors_reported)
@@ -591,4 +611,65 @@ TEST(tui_names)
     CHECK_STR(tui_state_name(TUI_ST_CONFIRM), "confirm");
     CHECK_STR(tui_state_name(TUI_ST_DONE), "done");
     CHECK_STR(tui_state_name(9), "?");
+}
+
+/* ---- The choice at login ---- */
+
+/* Every row of the table for one privilege mask. `admin`: SYSTEM or
+ * SECURITY, which opens the shell for a refused file. */
+static void login_rows(uint32_t privs, int admin)
+{
+    int why = -1;
+
+    /* No file: the shell, nothing refused. */
+    CHECK_EQ(tui_login_choice(0, 0, TUI_OK, 0, privs, &why), TUI_OPEN_SHELL);
+    CHECK_EQ(why, TUI_WHY_NONE);
+    /* A good file: the menu. */
+    CHECK_EQ(tui_login_choice(1, 1, TUI_OK, 3, privs, &why), TUI_OPEN_MENU);
+    CHECK_EQ(why, TUI_WHY_NONE);
+    /* A file that cannot be read. */
+    CHECK_EQ(tui_login_choice(1, 0, TUI_OK, 0, privs, &why),
+             admin ? TUI_OPEN_SHELL : TUI_OPEN_MENU);
+    CHECK_EQ(why, TUI_WHY_READ);
+    /* A file that does not parse. */
+    CHECK_EQ(tui_login_choice(1, 1, TUI_E_SYNTAX, 0, privs, &why),
+             admin ? TUI_OPEN_SHELL : TUI_OPEN_MENU);
+    CHECK_EQ(why, TUI_WHY_SYNTAX);
+    /* A file with no entry this user can see. */
+    CHECK_EQ(tui_login_choice(1, 1, TUI_OK, 0, privs, &why),
+             admin ? TUI_OPEN_SHELL : TUI_OPEN_MENU);
+    CHECK_EQ(why, TUI_WHY_EMPTY);
+}
+
+TEST(login_choice_no_privilege)
+{
+    login_rows(0, 0);
+}
+
+TEST(login_choice_oper)
+{
+    login_rows(UOS_PRIV_OPER, 0);
+    login_rows(UOS_PRIV_OPER | UOS_PRIV_READALL, 0);
+}
+
+TEST(login_choice_security)
+{
+    login_rows(UOS_PRIV_SECURITY, 1);
+}
+
+TEST(login_choice_system)
+{
+    login_rows(UOS_PRIV_SYSTEM, 1);
+    login_rows(UOS_PRIV_ALL, 1);
+}
+
+TEST(login_choice_why_may_be_null)
+{
+    CHECK_EQ(tui_login_choice(1, 1, TUI_E_SYNTAX, 0, 0, NULL), TUI_OPEN_MENU);
+    CHECK_STR(tui_why_name(TUI_WHY_NONE), "none");
+    CHECK_STR(tui_why_name(TUI_WHY_READ), "read");
+    CHECK_STR(tui_why_name(TUI_WHY_SYNTAX), "syntax");
+    CHECK_STR(tui_why_name(TUI_WHY_EMPTY), "empty");
+    CHECK_STR(tui_why_name(-1), "?");
+    CHECK_STR(tui_why_name(TUI_WHY_EMPTY + 1), "?");
 }
