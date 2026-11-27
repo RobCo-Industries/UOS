@@ -264,7 +264,7 @@ sfx-preview: venv
 	    --sfx-preview-log $(abspath $(SFX_PREVIEW_DIR))/serial.log
 	@test -s $(SFX_PREVIEW_DIR)/serial.log || { \
 	    echo "sfx-preview: the session did not run, so there is no log" >&2; exit 1; }
-	$(PYTHON) -I $(SFX_TABLE) src/sfx/sfx_models.json --dump $(SFX_PREVIEW_DIR)/pcm
+	$(PYTHON) -I $(SFX_TABLE) src/sfx/sfx_models.json --dump $(SFX_PREVIEW_DIR)/pcm --bed fan
 	$(PYTHON) -I $(ROBCO_CORE)/tools/audio_preview.py $(SFX_PREVIEW_DIR)/serial.log \
 	    $(SFX_PREVIEW_WAV) --pcm $(SFX_PREVIEW_DIR)/pcm 2> $(SFX_PREVIEW_DIR)/preview.err
 	@cat $(SFX_PREVIEW_DIR)/preview.err >&2
