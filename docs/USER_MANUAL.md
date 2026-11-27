@@ -137,7 +137,9 @@ Type `SET PASSWORD`. The terminal asks for your old password, the new one, and t
 - `LOGOUT` ends your session.
 - An operator can type `SET HALT` to stop the terminal, or `SET HALT RESTART` to restart it. `SET HALT RESTART /MAINTENANCE` restarts into the boot agent's maintenance screen. From there the maintenance image can restore the default users when every password is lost, if the card's `BOOT.CFG` allows it. If the request cannot be saved, the terminal says so and stays up.
 - A security officer manages the users with `AUTHORIZE`: `AUTHORIZE LIST`, `AUTHORIZE ADD BOB`, `AUTHORIZE MODIFY BOB /DISABLED`, `AUTHORIZE REMOVE BOB`.
-- `RUN`, `HOLOTAPE` and `MAIL` are not part of this build yet: they say so.
+- `RUN HOLOTAPE` or `HOLOTAPE` opens the holotape reader, see [Reading holotapes](#reading-holotapes). `HOLOTAPE STORY` opens one tape.
+- `RUN HACK` opens the password game's screen. The game plays only at the login prompt, so from a session it tells you why it cannot start. BACK closes it.
+- `LOGIN GUEST` ends your session and asks for GUEST's password. `LOGIN` alone shows the login prompt.
 
 ## The terminal menu
 
@@ -239,7 +241,7 @@ To give a user the command line again, delete their `TERMINAL.CFG`. A user at th
 
 A holotape is a file on the terminal's card, in the folder `SYS$HOLO`. Each tape has a title and a few entries of text: logs, procedures, letters.
 
-This build has no way to open the reader from the shell or the menu yet: `HOLOTAPE` says it is not installed. The text below describes the reader for when it is.
+Open the reader with `RUN HOLOTAPE` or `HOLOTAPE` at the `$` prompt, or with a holotape entry of your menu. `HOLOTAPE STORY` opens the tape `STORY` at once. A tape name is 1 to 8 letters, digits, `$`, `_` or `-`, then nothing or `.HTP`. Another name gives `%UOS-E-IVSPEC`. When the reader closes, the prompt or the menu comes back.
 
 The holotape reader lists the tapes by file name and title. Use UP and DOWN to move the `>` mark, and SELECT to open a tape. The terminal shows `LOADING` with the tape's name while it reads. A large tape can take a few seconds.
 

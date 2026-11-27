@@ -34,6 +34,7 @@
 
 #include "con.h"
 #include "devs.h"
+#include "holofmt.h"
 #include "holoscr.h"
 #include "sess.h"
 #include "sh.h"
@@ -344,18 +345,19 @@ static void holo_done(void *ctx)
 
 static int holotape(void)
 {
-    char name[TUI_FILE_MAX + 1];
+    char name[HF_FILE_MAX + 1];
     char spec[32];
     char line[TUI_MSG_MAX + 1];
     vp_ctx_t ctx;
-    const char *p;
     int rc;
 
-    k_snprintf(name, sizeof(name), "%s", tm.name);
+    name[0] = '\0';
+    if (tm.name[0] != '\0' && hf_tape_name(tm.name, name) != 0) {
+        k_snprintf(line, sizeof(line), "Not a holotape name: %.40s", tm.name);
+        return fail(TUI_ACT_HOLOTAPE, tm.name, "badname", line);
+    }
     if (name[0] != '\0') {
-        for (p = name; *p != '\0' && *p != '.'; p++) {
-        }
-        k_snprintf(spec, sizeof(spec), "SYS$HOLO:%s%s", name, *p == '.' ? "" : ".HTP");
+        k_snprintf(spec, sizeof(spec), "SYS$HOLO:%s", name);
         rc = user_ctx(&ctx) == 0 ? vfs_exists(&ctx, sess_privs(), spec) : VFS_E_NOPRIV;
         if (rc == 0) {
             k_snprintf(line, sizeof(line), "No holotape %s", name);
@@ -576,14 +578,16 @@ static uos_screen_t *menu_next(void)
 
 /* ---- RUN TERMINAL ---- */
 
-static void push_program(void *arg)
+static void push_program(int live)
 {
     int rc;
 
-    (void)arg;
     ms.posted--;
-    if (ms.open || !sess_logged_in()) {
-        UOS_MARK("tui result=%s", ms.open ? "busy" : "gone");
+    if (!live) {
+        return;
+    }
+    if (ms.open) {
+        UOS_MARK("tui result=busy");
         return;
     }
     ms.prog = 1;
@@ -606,7 +610,7 @@ static int prog_start(const char *args, sh_prog_done_fn done, void *t)
     if (ms.open) {
         return 1;
     }
-    if (uos_post(push_program, NULL) != 0) {
+    if (sh_program_post(push_program) != 0) {
         return 1;
     }
     ms.posted++;

@@ -849,7 +849,7 @@ static int run_program(sh_job_t *j, const char *name, const char *args)
     j->prog_in_start = 0;
     if (rc != 0) {
         j->prog_wait = 0;
-        return sh_end(j, DCL_SYS_PROGERR, name, 0, 1);
+        return sh_end(j, rc == SH_PROG_IVSPEC ? DCL_SYS_IVSPEC : DCL_SYS_PROGERR, name, 0, 1);
     }
     return j->prog_sync ? SH_DONE : SH_WAIT;
 }
@@ -861,9 +861,7 @@ static int run_start(sh_job_t *j)
 
 static int holo_start(sh_job_t *j)
 {
-    k_snprintf(j->tmp, sizeof(j->tmp), "%s%s%s", param(j, 0) != NULL ? param(j, 0) : "",
-               param(j, 1) != NULL ? " " : "", param(j, 1) != NULL ? param(j, 1) : "");
-    return run_program(j, "HOLOTAPE", j->tmp);
+    return run_program(j, "HOLOTAPE", param(j, 0) != NULL ? param(j, 0) : "");
 }
 
 static void run_stop(sh_job_t *j)
@@ -888,6 +886,16 @@ static int logout_start(sh_job_t *j)
 
 static int login_start(sh_job_t *j)
 {
+    int rc = sh_login_name(param(j, 0), j->login_name, sizeof(j->login_name));
+
+    if (rc != DCL_NORMAL) {
+        return sh_end(j, rc, NULL, 0, 1);
+    }
+    if (j->login_name[0] != '\0') {
+        sh_out(j, "This session ends. Give the password at the prompt.");
+        j->after = SH_AFTER_LOGIN;
+        return sh_end(j, DCL_NORMAL, NULL, 0, 0);
+    }
     sh_out(j, "This session ends. Log in at the prompt.");
     j->after = SH_AFTER_LOGOUT;
     return sh_end(j, DCL_NORMAL, NULL, 0, 0);
@@ -907,11 +915,6 @@ static int robco_start(sh_job_t *j)
         sh_out(j, text[i]);
     }
     return sh_end(j, DCL_NORMAL, NULL, 0, 0);
-}
-
-static int mail_start(sh_job_t *j)
-{
-    return sh_end(j, DCL_SYS_NOTINST, "MAIL", 0, 1);
 }
 
 /* ---- DEVICE ---- */
@@ -964,7 +967,6 @@ const sh_impl_t sh_cmds[] = {
     { "LOGOUT", NULL, logout_start, NULL, NULL },
     { "ROBCO", NULL, robco_start, NULL, NULL },
     { "DEVICE", NULL, device_start, NULL, NULL },
-    { "MAIL", NULL, mail_start, NULL, NULL },
 };
 
 const unsigned sh_cmds_count = sizeof(sh_cmds) / sizeof(sh_cmds[0]);

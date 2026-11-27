@@ -250,6 +250,44 @@ int hf_entry_text(const hf_tape_t *t, uint32_t idx, const char **text, uint32_t 
     return HF_OK;
 }
 
+#define HF_STEM_MAX 8u
+
+static char hf_up(char c)
+{
+    return (c >= 'a' && c <= 'z') ? (char)(c - 'a' + 'A') : c;
+}
+
+int hf_tape_name(const char *in, char out[HF_FILE_MAX + 1])
+{
+    size_t i;
+    char c;
+
+    if (out == NULL) {
+        return -1;
+    }
+    out[0] = '\0';
+    if (in == NULL) {
+        return -1;
+    }
+    for (i = 0; in[i] != '\0' && in[i] != '.'; i++) {
+        c = hf_up(in[i]);
+        if (i >= HF_STEM_MAX ||
+            !((c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '$' || c == '_' ||
+              c == '-')) {
+            out[0] = '\0';
+            return -1;
+        }
+        out[i] = c;
+    }
+    if (i == 0 || (in[i] == '.' && !(hf_up(in[i + 1]) == 'H' && hf_up(in[i + 2]) == 'T' &&
+                                      hf_up(in[i + 3]) == 'P' && in[i + 4] == '\0'))) {
+        out[0] = '\0';
+        return -1;
+    }
+    k_memcpy(out + i, ".HTP", 5);
+    return 0;
+}
+
 char hf_display_char(uint8_t c)
 {
     if (printable(c) || c == '\t' || c == '\r' || c == '\n') {

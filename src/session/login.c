@@ -226,6 +226,12 @@ lg_hack_t lg_hack_where(lg_hack_t allowed, int on_top)
     return on_top ? LG_HACK_OK : LG_HACK_COVERED;
 }
 
+uint32_t lg_serial_next(uint32_t s)
+{
+    s++;
+    return s == 0 ? 1u : s;
+}
+
 const char *lg_hack_name(lg_hack_t h)
 {
     static const char *const names[LG_HACK_NUM] = {

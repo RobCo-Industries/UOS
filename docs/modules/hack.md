@@ -119,7 +119,7 @@ Memory: `hk_list_t` is about 3 KiB with 32-bit pointers, `hk_game_t` about 2 KiB
 
 ## The screen
 
-`hack_screen_start(done, ctx)` in `hackscr.h` pushes the game, loop only. It returns 0, `HACK_ERR_BUSY` or `HACK_ERR_SCREEN`. `done(how, ctx)` runs once when the screen leaves: `HACK_DONE_LEFT`, `HACK_DONE_WON` or `HACK_DONE_LOST`. At the login, F2 on an empty user name line starts it. The shell's `RUN` verb can register it.
+`hack_screen_start(done, ctx)` in `hackscr.h` pushes the game, loop only. It returns 0, `HACK_ERR_BUSY` or `HACK_ERR_SCREEN`. `done(how, ctx)` runs once when the screen leaves: `HACK_DONE_LEFT`, `HACK_DONE_WON` or `HACK_DONE_LOST`. At the login, F2 on an empty user name line starts it. The hack service registers the `HACK` program at its init: `RUN HACK` posts `hack_screen_start(NULL, NULL)`, ends the command at once, and marks `hack op=program rc=`. The shell runs only in a session, so this start always shows the `busy` refusal below.
 
 The game plays only when nobody is logged in and the login's user name prompt is the top screen at the call: `sess_prompt_on_top()`. The pure rule is `lg_hack_where()`. Any other start pushes the screen with its refusal, and BACK pops that screen alone. So a start from a session shows `busy`, a start over the holotape reader shows `covered`, and the screen under it comes back as it was. A win or a loss cannot happen from a session, since the game never plays there.
 

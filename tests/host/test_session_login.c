@@ -1,6 +1,7 @@
 #include <string.h>
 
 #include "login.h"
+#include "shrules.h"
 
 #include "rc_test.h"
 
@@ -463,4 +464,23 @@ TEST(hack_where_rules)
     CHECK_STR(lg_hack_name(LG_HACK_COVERED), "covered");
     CHECK(strlen(lg_hack_text(LG_HACK_COVERED)) > 0);
     CHECK(strlen(lg_hack_text(LG_HACK_COVERED)) < 79);
+}
+
+/* The session serial: a posted program call keeps it and runs only while
+ * it still matches. Each login and each logout gives a new, non-zero one,
+ * so a logout, LOGIN <user> and the same user's next login all differ. */
+TEST(session_serial)
+{
+    uint32_t out = 0, in1, out1, in2;
+
+    in1 = lg_serial_next(out);
+    out1 = lg_serial_next(in1);
+    in2 = lg_serial_next(out1);
+    CHECK(in1 != 0);
+    CHECK(in1 != in2);
+    CHECK_EQ(lg_serial_next(0xffffffffu), 1u);   /* 0 stays "no session" */
+    CHECK_EQ(sh_tag_live(1, in1, in1), 1);        /* the same session */
+    CHECK_EQ(sh_tag_live(0, out1, in1), 0);       /* logged out */
+    CHECK_EQ(sh_tag_live(1, in2, in1), 0);        /* a new login */
+    CHECK_EQ(sh_tag_live(1, 0, 0), 0);            /* posted with no session */
 }

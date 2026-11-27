@@ -11,7 +11,8 @@ The goal is a small real system in the style of the terminals of the Fallout gam
 - Eight pure modules are built and host-tested: the command language, file specifications, users and login, the on-screen keyboard, device control, the menu screen, the password minigame and holotapes. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#modules).
 - Three services wire some of them into the running system: the file system, the console with its line reader and pager, and the devices on the GPIO pins. They work together and are reached through the maintenance port. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#services).
 - A session service runs the login screen over them, with a lockout. After login the command shell runs, see [docs/COMMANDS.md](docs/COMMANDS.md), or the terminal menu for a user whose home holds `TERMINAL.CFG`. See [docs/USER_MANUAL.md](docs/USER_MANUAL.md#logging-in).
-- The holotape reader, the password game and the terminal menu run as screens. See [docs/USER_MANUAL.md](docs/USER_MANUAL.md#the-terminal-menu).
+- The holotape reader, the password game and the terminal menu run as screens. The shell opens each with `RUN HOLOTAPE`, `RUN HACK` and `RUN TERMINAL`. The game plays only at the login prompt, so `RUN HACK` from a session shows why it cannot start. See [docs/USER_MANUAL.md](docs/USER_MANUAL.md#the-terminal-menu).
+- `LOGIN <user>` asks only for that user's password. There is no mail.
 - The default card holds a user database, sample devices, a menu for OPER, word lists and holotapes. Their formats are in [docs/FORMATS.md](docs/FORMATS.md).
 - Nothing is validated on real hardware.
 

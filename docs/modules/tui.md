@@ -46,7 +46,7 @@ Targets by type:
 | `menu` | A plain 8.3 file name with the type `.CFG`. |
 | `command` | A command line, 1 to 127 printable characters, kept as written. |
 | `device` | A device name, 1 to 15 of `A-Z 0-9 _`, then an action word, 1 to 15 letters. Stored as `NAME WORD` in upper case. |
-| `holotape` | Empty for the tape list, or an 8.3 tape name. |
+| `holotape` | Empty for the tape list, or a tape name: 1 to 8 of `A-Z 0-9 $ _ -`, then nothing or `.HTP`. Another name shows `Not a holotape name: NAME`. |
 | `logout` | Must be empty. |
 
 A plain file name means a menu cannot reach outside the user's home.

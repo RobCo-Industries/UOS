@@ -178,8 +178,7 @@ Shape: `%FACILITY-S-IDENT, text`. Severity is `S`, `I`, `W`, `E` or `F`. In the 
 | `LOGOUT` | `LOGO` | none | | |
 | `ROBCO` | `RO` | none | | |
 | `DEVICE` | `DEV` | 1 required of 2: Device, Action (text) | | |
-| `HOLOTAPE` | `HO` | 0 required of 2: Tape, Entry (text) | | |
-| `MAIL` | `M` | keyword, prompt Action | see below | |
+| `HOLOTAPE` | `HO` | 0 required of 1: Tape (text) | | |
 | `AUTHORIZE` | `A` | keyword, prompt Action | see below | `SECURITY` |
 
 The "Shortest" column is informative. The test finds every verb's shortest prefix by trying lengths, so the column is not used by any test.
@@ -196,15 +195,6 @@ The "Shortest" column is informative. The test finds every verb's shortest prefi
 `SET HALT` halts. `SET HALT RESTART` restarts. `/MAINTENANCE` with `RESTART` asks the boot agent for the maintenance image.
 
 `SHOW` keywords: `DEFAULT`, `USERS`, `SYSTEM`, `TIME`, `DEVICES` with an optional Device (text), `TERMINAL`, `MEMORY`. None takes a parameter except `DEVICES`. `SHOW DEVICE DOOR1` works through abbreviation.
-
-`MAIL` keywords:
-
-| Keyword | P | Qualifiers |
-|---|---|---|
-| `DIRECTORY` | none | |
-| `READ` | 0 required: Message (number 1 to 9999) | |
-| `SEND` | 1: To (text) | `/SUBJECT=text` |
-| `DELETE` | 1: Message (number 1 to 9999) | |
 
 `AUTHORIZE` keywords, all needing `SECURITY` through the verb:
 

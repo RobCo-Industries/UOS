@@ -188,6 +188,10 @@ lg_hack_t lg_hack_where(lg_hack_t allowed, int on_top);
  * "covered". */
 const char *lg_hack_name(lg_hack_t h);
 
+/* The session serial after `s`: one more, and never 0, so 0 can mean "no
+ * session". It changes at each login and at each logout. */
+uint32_t lg_serial_next(uint32_t s);
+
 /* One line for the screen, never the target's password. "" for LG_HACK_OK. */
 const char *lg_hack_text(lg_hack_t h);
 

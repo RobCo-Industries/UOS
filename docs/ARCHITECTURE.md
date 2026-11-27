@@ -409,7 +409,7 @@ Every command each service registers. The `fs`, `readline`, `page` and `osk` com
 | `dev sense`, `dev hang`, `dev stall` | `devices` | Test builds only |
 | `sess state\|logout` | `session` | The login state and the session, see [Session](#session) |
 | `sh state\|run` | `shell` | The prompt state; a command line run as the session, see [The shell](#the-shell) |
-| `sh hold`, `sh prog` | `shell` | Test builds only: hold a command between two steps; register and end a test program for `RUN` |
+| `sh hold`, `sh park`, `sh prog` | `shell` | Test builds only: hold a command between two steps; hold a program's posted call; register and end a test program for `RUN` |
 | `sess login <user>` | `session` | Test builds only: a session with no password |
 | `button <key>` | `console` | Test builds only: a key from the GPIO source, which opens the on-screen keyboard during a read |
 | `holo open\|list\|pick <n>\|state` | `holo` | The holotape reader, see [Holotape reader](#holotape-reader) |
@@ -606,7 +606,7 @@ One command runs at a time, for the prompt and every other caller together. Othe
 |---|---|---|
 | `sh_run_line(line, flags, cb, ctx)` | loop | Runs one line as the logged-in user, with the shell's current folder. `SH_RUN_QUIET` keeps the output off the console. The callback gets a status, `SH_OK`, `SH_WARN`, `SH_FAIL` or `SH_CANCELLED`, and the final message's first line. A missing parameter or a bad line runs as a command that fails: only the prompt asks for a parameter. Returns 0 and calls `cb` exactly once, maybe before it returns; `cb` may be NULL. Or returns `SH_ERR_DOWN`, `SH_ERR_ARG` for NULL, an empty or comment-only line or one over `DCL_LINE_MAX`, `SH_ERR_BUSY`, `SH_ERR_NOUSER` or `SH_ERR_COVERED`, checked in that order, and never calls `cb`. `SH_ERR_COVERED` means the shell takes no job: its screen is not on the stack yet, as during the welcome, or another screen covers it. `sh_takes_job()` in `shrules.c` is the rule. `SH_RUN_QUIET` keeps output and messages off the console; a question still shows. |
 | `sh_busy()` | any | Non-zero while a command runs |
-| `sh_program_register(name, start)` | loop | A program for `RUN`. `start(args, done, tag)` pushes its screen, returns 0, and calls `done(tag, status, text)` once, with the tag it got. Status 0 is success, `SH_CANCELLED` is Ctrl-C, anything else a failure. Its screen owns the keys, so it must end the run with `SH_CANCELLED` on Ctrl-C. Returns `SH_ERR_DOWN` before the shell service started. A name with no entry answers `%UOS-W-NOTINST, <NAME> is not installed in this build`. At most 8 programs. |
+| `sh_program_register(name, start)` | loop | A program for `RUN`. `start(args, done, tag)` pushes its screen, returns 0, and calls `done(tag, status, text)` once, with the tag it got. Status 0 is success, `SH_CANCELLED` is Ctrl-C, anything else a failure. Its screen owns the keys, so it must end the run with `SH_CANCELLED` on Ctrl-C. Returns `SH_ERR_DOWN` before the shell service started. A name with no entry answers `%UOS-W-NOTINST, <NAME> is not installed in this build`. A start that returns `SH_PROG_IVSPEC` ends the run with `%UOS-E-IVSPEC`; `HOLOTAPE` does so for a tape name that breaks `hf_tape_name()`. At most 8 programs. The menu service registers `TERMINAL`, the holo service `HOLOTAPE` and the hack service `HACK`. |
 
 More calls of `sh.h`, for the terminal menu and any later screen that is not the shell:
 
@@ -676,6 +676,7 @@ stateDiagram-v2
 
   Files follow the atomic rules: a file a loop finished stays, a copy in progress is aborted and its work file removed, `CREATE` and `/OUTPUT` write nothing. `stop` frees what the command holds: a running copy is aborted and its work file removed.
 - Each command run gets an identity, a number from 1 that grows with every run. Every callback the shell hands out carries it as its context: the posted step, the `con_read_line()` of a `/CONFIRM` question, a `CREATE` line or a masked password, the `TYPE /PAGE` pager, and a program's `done()`. A callback whose identity is not the running job's comes from an ended run: the shell ignores it and prints `sh stale=<step|read|pager|prog> id= cur=`. So a program that ends after its run was cancelled cannot end a later `RUN` with its result. At most one step is posted at a time.
+- A program that opens its screen after its run ended, `HACK`, `HOLOTAPE` or `TERMINAL`, posts that call with `sh_program_post()`. The call keeps `sess_id()`, the identity of the session that asked. `sess_id()` changes at each login and each logout, and is 0 with no session. When the call runs, `sh_tag_live()` compares the two: a session that ended, through a logout, `LOGIN <user>` or a new login of the same user, makes the shell print `sh stale=post id= cur=` and the program opens nothing. So a logout queued after `RUN HACK` cannot leave the password game at the login prompt.
 - When the session ends under a command, the shell's `tick` ends it the same way: a logout pops every screen, so a read or a program it waited on never calls back.
 - Every error goes through `sh_err_msg()`, the one map from file system, `DEV:`, path and user database codes to `dcl` messages. `DEV:` codes keep the device service's meaning: a sensor gives `%DEVICE-E-SENSOR`, a bad action word `%DEVICE-E-IVACT`.
 - File loops walk `vfs_iter_begin()`, which checks access per matched file, and count done, failed, refused and declined files. `sh_tally_result()` gives the final message. The refused count comes from the listing filter, `vfs_list_keep()`, as well as from the per-file check, so a wildcard whose matches are all refused is `%UOS-E-NOPRIV`, not `%UOS-W-NOFILES`. `DIRECTORY` reads the same count from `vfs_last_refused()`.
@@ -710,6 +711,7 @@ No marker holds a password or a command line.
 | `sh state` | `sh state=<idle\|prompt\|running> kind= ask= verb= pending= prompts= runs= id=`. `pending` counts input events the loop has not taken yet. `id` is the running job's identity, 0 when idle. |
 | `sh api <-\|q> [null\|long\|<quoted line>]` | Test builds. Calls `sh_run_line()` with flags 0 or `SH_RUN_QUIET` on the line, an empty line, NULL or a line one byte over `DCL_LINE_MAX`. Prints `sh api=call rc= cbs=` and, per callback, `sh api=done n= status= result=`. |
 | `sh hold <1\|0>` | Test builds. 1: the next step of a command waits and prints `sh held=1`; Ctrl-C still cancels it. 0: it runs on. |
+| `sh park <1\|0>` | Test builds. 1: a call posted by `sh_program_post()` waits. 0: the waiting calls are posted. A test queues a logout between the two. |
 | `sh prog reg <NAME>` | Test builds. Registers a test program for `RUN <NAME>`. It pushes no screen and prints `sh prog=start n=` per run. |
 | `sh prog done <n> <status>` | Test builds. Ends the n-th run of the test program, with the tag that run got, even after its job ended. |
 | `sh run <line>` | Runs the line as the session. The line is quoted as the console's markers quote text: a blank is `%20`. A read at the prompt gives way and comes back after. A shell under another screen, such as the holotape reader, refuses with `sh run=refused why=covered`. |
@@ -761,7 +763,7 @@ Each action and what answers it:
 | `text` | `vfs_read_all()`, then `con_page_text()` with the menu as owner | the same read lines; `Cannot show NAME now` when a pager is open |
 | `command` | `sh_run_line_on()` with `SH_RUN_CAPTURE`. The output opens in the pager. The final message shows on the message row | the command's own message, such as `%UOS-E-FNF`; `A command is running: try again` |
 | `device` | `devs_command()` with the user's privileges and name | `NAME: <the device service's message>` |
-| `holotape` | `vfs_exists()` on `SYS$HOLO:NAME`, then `holo_screen_start_tape()` | `No holotape NAME`, `The holotape reader is busy` |
+| `holotape` | `hf_tape_name()`, `vfs_exists()` on `SYS$HOLO:NAME.HTP`, then `holo_screen_start_tape()` | `Not a holotape name: NAME`, `No holotape NAME.HTP`, `The holotape reader is busy` |
 | `logout` | `sess_logout(SESS_END_USER)` | none |
 
 Every file is read in the key's own loop pass, up to 64 KiB. The menu follows the held-key rule: `tui_map_key()` lets only UP and DOWN repeat. Ctrl-C while a command runs calls `sh_cancel()`.

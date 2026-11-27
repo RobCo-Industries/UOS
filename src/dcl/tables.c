@@ -24,13 +24,8 @@ static const dcl_param_t p_device[] = {
     { "Device", DCL_VT_TEXT, NULL, 0, 0 },
     { "Action", DCL_VT_TEXT, NULL, 0, 0 },
 };
-static const dcl_param_t p_tape[] = {
-    { "Tape", DCL_VT_TEXT, NULL, 0, 0 },
-    { "Entry", DCL_VT_TEXT, NULL, 0, 0 },
-};
+static const dcl_param_t p_tape[] = { { "Tape", DCL_VT_TEXT, NULL, 0, 0 } };
 static const dcl_param_t p_halt[] = { { "Action", DCL_VT_KEYWORD, k_restart, 0, 0 } };
-static const dcl_param_t p_message[] = { { "Message", DCL_VT_NUMBER, NULL, 1, 9999 } };
-static const dcl_param_t p_to[] = { { "To", DCL_VT_TEXT, NULL, 0, 0 } };
 
 /* Qualifiers. */
 static const dcl_qual_t q_directory[] = {
@@ -58,9 +53,6 @@ static const dcl_qual_t q_halt[] = {
 };
 static const dcl_qual_t q_output[] = {
     { "OUTPUT", 0, DCL_QV_REQUIRED, DCL_VT_FILE, NULL, 0, 0, NULL },
-};
-static const dcl_qual_t q_send[] = {
-    { "SUBJECT", 0, DCL_QV_REQUIRED, DCL_VT_TEXT, NULL, 0, 0, NULL },
 };
 static const dcl_qual_t q_user[] = {
     { "PASSWORD", 0, DCL_QV_NONE, DCL_VT_NONE, NULL, 0, 0, NULL }, /* asked for, masked */
@@ -90,13 +82,6 @@ static const dcl_verb_t show_keys[] = {
     { "MEMORY", 0, 0, NULL, 0, NULL, 0, NULL, NULL, 0, NULL },
 };
 
-static const dcl_verb_t mail_keys[] = {
-    { "DIRECTORY", 0, 0, NULL, 0, NULL, 0, NULL, NULL, 0, NULL },
-    { "READ", 0, 1, p_message, 0, NULL, 0, NULL, NULL, 0, NULL },
-    { "SEND", 1, 1, p_to, N(q_send), q_send, 0, NULL, NULL, 0, NULL },
-    { "DELETE", 1, 1, p_message, 0, NULL, 0, NULL, NULL, 0, NULL },
-};
-
 static const dcl_verb_t authorize_keys[] = {
     { "ADD", 1, 1, p_username, N(q_user), q_user, 0, NULL, NULL, 0, NULL },
     { "MODIFY", 1, 1, p_username, N(q_user), q_user, 0, NULL, NULL, 0, NULL },
@@ -121,8 +106,7 @@ static const dcl_verb_t uos_verbs[] = {
     { "ROBCO", 0, 0, NULL, 0, NULL, 0, NULL, NULL, 0, "SYS$HELP:ROBCO.HLP" },
     /* Features. */
     { "DEVICE", 1, 2, p_device, 0, NULL, 0, NULL, NULL, 0, "SYS$HELP:DEVICE.HLP" },
-    { "HOLOTAPE", 0, 2, p_tape, 0, NULL, 0, NULL, NULL, 0, "SYS$HELP:HOLOTAPE.HLP" },
-    { "MAIL", 0, 0, NULL, 0, NULL, N(mail_keys), mail_keys, "Action", 0, "SYS$HELP:MAIL.HLP" },
+    { "HOLOTAPE", 0, 1, p_tape, 0, NULL, 0, NULL, NULL, 0, "SYS$HELP:HOLOTAPE.HLP" },
     { "AUTHORIZE", 0, 0, NULL, 0, NULL, N(authorize_keys), authorize_keys, "Action", DCL_PRIV_SECURITY,
       "SYS$HELP:AUTHORIZ.HLP" },
 };

@@ -29,6 +29,10 @@
 #define SH_ERR_FULL     (-6)    /* SH_PROG_MAX programs already */
 #define SH_ERR_COVERED  (-7)    /* another screen covers the shell */
 
+/* A program's start() returns this when its argument is not a valid name:
+ * the run ends with %UOS-E-IVSPEC and nothing is posted. */
+#define SH_PROG_IVSPEC  2
+
 /* Flags of sh_run_line(). */
 #define SH_RUN_QUIET    0x01u   /* print no output or message on the console: only the result
                                    line counts; a question the command asks still shows */
@@ -114,8 +118,9 @@ int sh_busy(void);
 /*
  * loop: registers a program for RUN. `name` is 1 to 12 of A-Z 0-9 $ _,
  * any case; the RUN verb accepts the names of the command table: HACK,
- * TERMINAL and HOLOTAPE. The HOLOTAPE verb runs the HOLOTAPE program
- * with its parameters as `args`.
+ * TERMINAL and HOLOTAPE. The menu, holo and hack services register
+ * those three. The HOLOTAPE verb runs the HOLOTAPE program with its
+ * tape name, or "", as `args`; RUN passes "".
  *
  * start(args, done, tag) runs from the loop when RUN names the program.
  * It pushes its own screen and returns 0, then calls done(tag, status,
@@ -133,5 +138,18 @@ int sh_busy(void);
  * SH_ERR_DUP or SH_ERR_FULL.
  */
 int sh_program_register(const char *name, sh_prog_start_fn start);
+
+/*
+ * A program's start() that opens its screen later posts that call with
+ * sh_program_post(), never with uos_post(). The call keeps the session
+ * serial of the run, sess_id(). On its pass the shell calls fn(1)
+ * when that session still runs, else fn(0) with the marker
+ * "ev=sh stale=post id=<serial> cur=<serial>": the session that asked is
+ * gone, through a logout, a LOGIN <user> or a new login of the same user.
+ * fn(0) only clears the program's own count and acts on nothing. Loop.
+ * Returns 0, or non-zero when no slot or queue room is free.
+ */
+typedef void (*sh_prog_call_fn)(int live);
+int sh_program_post(sh_prog_call_fn fn);
 
 #endif

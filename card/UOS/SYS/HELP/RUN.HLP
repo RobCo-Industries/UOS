@@ -1,7 +1,14 @@
 RUN program
 
-Starts a program: HACK, TERMINAL or HOLOTAPE. A program that is not part
-of this build says so.
+Starts a program: HACK, TERMINAL or HOLOTAPE. RUN with no name asks
+for one; Ctrl-C drops it. Any other name is refused.
+
+  RUN TERMINAL   opens your terminal menu. BACK at its top closes it.
+  RUN HOLOTAPE   opens the holotape reader. BACK on the list of tapes
+                 closes it.
+  RUN HACK       opens the password game. The game plays only at the
+                 login prompt, so from a session it says why it cannot
+                 start. BACK closes it.
 
 Example:
-  RUN TERMINAL
+  RUN HOLOTAPE

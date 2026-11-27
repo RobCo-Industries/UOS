@@ -1,4 +1,8 @@
-LOGIN
+LOGIN [username]
 
-Ends this session and shows the login prompt, so another user can log
-in. A user name typed after LOGIN is not used: give it at the prompt.
+Ends this session and shows the login prompt. With a user name, the
+prompt asks only for that user's password. A wrong password counts
+toward the lockout, as at the login prompt.
+
+Example:
+  LOGIN GUEST

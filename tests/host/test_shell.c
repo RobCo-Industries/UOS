@@ -429,6 +429,44 @@ TEST(programs)
     CHECK_EQ(sh_prog_add(&t, "ONEMORE", prog_a), SH_PROG_ERR_FULL);
 }
 
+TEST(program_put_replaces)
+{
+    sh_progtab_t t;
+
+    sh_prog_init(&t);
+    CHECK_EQ(sh_prog_put(&t, "hack", prog_a), 0);
+    CHECK(sh_prog_find(&t, "HACK") == prog_a);
+    CHECK_EQ(sh_prog_put(&t, "HACK", prog_b), 0);
+    CHECK(sh_prog_find(&t, "HACK") == prog_b);
+    CHECK_EQ(t.count, 1u);
+    CHECK_EQ(sh_prog_put(&t, "BAD-NAME", prog_a), SH_PROG_ERR_ARG);
+    CHECK_EQ(sh_prog_put(&t, "OK", NULL), SH_PROG_ERR_ARG);
+    CHECK_EQ(sh_prog_add(&t, "HACK", prog_a), SH_PROG_ERR_DUP);
+}
+
+TEST(login_name)
+{
+    char n[UAF_NAME_MAX + 1];
+
+    strcpy(n, "x");
+    CHECK_EQ(sh_login_name(NULL, n, sizeof(n)), DCL_NORMAL);
+    CHECK_STR(n, "");
+    CHECK_EQ(sh_login_name("", n, sizeof(n)), DCL_NORMAL);
+    CHECK_STR(n, "");
+    CHECK_EQ(sh_login_name("guest", n, sizeof(n)), DCL_NORMAL);
+    CHECK_STR(n, "GUEST");
+    CHECK_EQ(sh_login_name("OPER_2$", n, sizeof(n)), DCL_NORMAL);
+    CHECK_STR(n, "OPER_2$");
+    CHECK_EQ(sh_login_name("ABCDEFGHIJKLMNOP", n, sizeof(n)), DCL_NORMAL);
+    CHECK_STR(n, "ABCDEFGHIJKLMNOP");
+    CHECK_EQ(sh_login_name("ABCDEFGHIJKLMNOPQ", n, sizeof(n)), DCL_SYS_IVUSER);
+    CHECK_STR(n, "");
+    CHECK_EQ(sh_login_name("BAD NAME", n, sizeof(n)), DCL_SYS_IVUSER);
+    CHECK_EQ(sh_login_name("a-b", n, sizeof(n)), DCL_SYS_IVUSER);
+    CHECK_EQ(sh_login_name("GUEST", n, 8), DCL_SYS_IVUSER);
+    CHECK_EQ(sh_login_name("GUEST", NULL, sizeof(n)), DCL_SYS_IVUSER);
+}
+
 /* ---- Markers ---- */
 
 TEST(verb_words)

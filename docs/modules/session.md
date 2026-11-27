@@ -225,6 +225,7 @@ In every state but `ok` the first screen stays, with a second row that says what
 |---|---|---|
 | `sess_logged_in()` | any | Non-zero while a user is logged in |
 | `sess_user()` | any | The name, upper-case, at most 16 characters, or `""` |
+| `sess_id()` | any | The session's identity, 0 with no session. It changes at each login and each logout, so a posted call that kept it knows when its session is gone |
 | `sess_privs()` | any | The privilege bits of `uos_privs.h`, or 0 |
 | `sess_flags()` | any | `UAF_FLAG_NOHACK` and the others, or 0 |
 | `sess_home()` | any | The home folder under `/UOS/HOME`, as `vp_ctx_t.home` takes it, or `""` |

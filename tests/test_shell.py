@@ -188,8 +188,8 @@ MAX_STEP_TICKS_DEFAULT = 100
 
 
 def test_show_help_and_simple_verbs(board, hooks_image, need_mtools, tmp_path):
-    """SHOW and each keyword, /OUTPUT, HELP with a topic and a bad one, ROBCO, RUN,
-    HOLOTAPE and MAIL with no program installed, a bad verb, SET TERMINAL."""
+    """SHOW and each keyword, /OUTPUT, HELP with a topic and a bad one, ROBCO, RUN
+    with a bad name, MAIL as an unknown verb, a bad verb, SET TERMINAL."""
     with alone(hooks_image, board, shell_card(tmp_path)) as vm:
         wait_ready(vm)
         login(vm, "ADMIN")
@@ -224,12 +224,7 @@ def test_show_help_and_simple_verbs(board, hooks_image, need_mtools, tmp_path):
         expect(vm, "HELP BOGUS", "NOHELP", "%HELP-W-NOHELP")
         _, _, s = expect(vm, "ROBCO", "NORMAL")
         assert "ROBCO INDUSTRIES UNIFIED OPERATING SYSTEM" in out(vm, s)
-        res, _, _ = expect(vm, "RUN HACK", "NOTINST")
-        assert res == "%UOS-W-NOTINST, HACK is not installed in this build", res
-        res, _, _ = expect(vm, "HOLOTAPE STORY", "NOTINST")
-        assert "HOLOTAPE is not installed" in res, res
-        res, _, _ = expect(vm, "MAIL DIRECTORY", "NOTINST")
-        assert "MAIL is not installed" in res, res
+        expect(vm, "MAIL DIRECTORY", "IVVERB", "%DCL-W-IVVERB")
         expect(vm, "RUN BOGUS", "IVKEYW")
         expect(vm, "FROB", "IVVERB", "%DCL-W-IVVERB")
         n = n_marks(vm, "term scheme=AMBER")

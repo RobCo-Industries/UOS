@@ -201,8 +201,22 @@ typedef struct {
 void sh_prog_init(sh_progtab_t *t);
 /* Adds a program; the name is stored upper-case. 0 or SH_PROG_ERR_*. */
 int sh_prog_add(sh_progtab_t *t, const char *name, sh_prog_start_fn start);
+/* As sh_prog_add(), but a program of the same name is replaced. For the
+ * test hooks, which stand a test program in for an installed one. */
+int sh_prog_put(sh_progtab_t *t, const char *name, sh_prog_start_fn start);
 /* The program of `name`, any case, or NULL. */
 sh_prog_start_fn sh_prog_find(const sh_progtab_t *t, const char *name);
+
+/* ---- LOGIN ---- */
+
+/*
+ * LOGIN's optional user name. NULL or "" gives "" in out and DCL_NORMAL:
+ * the login asks for a name. A name that breaks the name rules of
+ * uaf_check_name() gives DCL_SYS_IVUSER and "" in out. Else the name,
+ * upper-case, goes to out and DCL_NORMAL. `size` must hold
+ * UAF_NAME_MAX + 1 bytes, else DCL_SYS_IVUSER.
+ */
+int sh_login_name(const char *param, char *out, size_t size);
 
 /* ---- SET HALT and the maintenance request ---- */
 

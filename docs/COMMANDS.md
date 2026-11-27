@@ -33,13 +33,12 @@ This is the reference of every command of the UOS shell. The command table in `s
 | `SET HALT` | Done |
 | `SHOW` | Full. `SHOW USERS` lists the one session of this terminal. |
 | `HELP` | Full |
-| `RUN` | Partial: `TERMINAL` is installed. `HACK` and `HOLOTAPE` are not. |
-| `LOGIN` | Partial: the user name parameter is not passed to the login prompt |
+| `RUN` | Full: `TERMINAL`, `HOLOTAPE` and `HACK` are installed |
+| `LOGIN` | Full |
 | `LOGOUT` | Full |
 | `ROBCO` | Full |
 | `DEVICE` | Full |
-| `HOLOTAPE` | Not installed: it runs the `HOLOTAPE` program, which this build lacks |
-| `MAIL` | Not installed |
+| `HOLOTAPE` | Full |
 | `AUTHORIZE` | Full |
 
 ## DIRECTORY
@@ -223,13 +222,17 @@ Format: `HELP [topic]`. Prints `SYS$HELP:<verb>.HLP`, the file the command table
 
 ## RUN
 
-Format: `RUN program`, one of `HACK`, `TERMINAL`, `HOLOTAPE`. Starts a program another task registered with `sh_program_register()`. With no entry: `%UOS-W-NOTINST, HACK is not installed in this build`. A program that fails to start gives `%UOS-E-PROGERR`. Ctrl-C ends the wait for a program; if that program ends later, its result is ignored, also when another `RUN` waits by then.
+Format: `RUN program`, one of `HACK`, `TERMINAL`, `HOLOTAPE`. Starts a program another task registered with `sh_program_register()`. All three are installed. At the prompt, `RUN` alone asks `_Program:` until it gets a name, and Ctrl-C drops the command. From `sh_run_line()`, with no prompt, it gives `%DCL-W-INSFPRM`. Another name gives `%DCL-W-IVKEYW`. A program with no entry would give `%UOS-W-NOTINST, <NAME> is not installed in this build`. A program that fails to start gives `%UOS-E-PROGERR`, or `%UOS-E-IVSPEC` when its argument is not a valid name. Ctrl-C ends the wait for a program; if that program ends later, its result is ignored, also when another `RUN` waits by then.
 
 `RUN TERMINAL` opens the terminal menu of `TERMINAL.CFG` in your home over the shell. The command ends at once with success, so the menu's own command entries can run. BACK at the top level asks `Close the menu?`, and ENTER there brings the `$` prompt back. A `logout` entry still logs out. Without `TERMINAL.CFG` the menu shows `File TERMINAL.CFG not found`. `RUN TERMINAL` from a menu's command entry, while the menu is open, gives `%UOS-E-PROGERR`. See [tui](modules/tui.md#the-screen).
 
+`RUN HOLOTAPE` opens the holotape reader over the shell, on the list of tapes, as the menu's holotape entry does. The command ends at once with success. BACK on the list of tapes closes the reader and brings the `$` prompt back. With the reader already open it gives `%UOS-E-PROGERR`. See [holo](modules/holo.md#the-screen).
+
+`RUN HACK` opens the password game's screen over the shell, the same screen F2 opens at the login. The command ends at once with success. The game plays only at the login prompt with nobody logged in, so from a session it shows the session's refusal, `busy`, and nothing else: no game, no win, no lockout. BACK closes it and brings the `$` prompt back. See [hack](modules/hack.md#the-screen).
+
 ## LOGIN
 
-Format: `LOGIN [username]`. Ends the session and shows the login prompt. The user name is not passed on: type it at the prompt.
+Format: `LOGIN [username]`. Ends the session and shows the login prompt. Without a name the prompt asks `USERNAME:` as after `LOGOUT`. With a name the prompt skips `USERNAME:` and asks only `PASSWORD:` for that user. The login's rules apply as if the name had been typed: a wrong password or an unknown user counts toward the lockout and shows `ACCESS DENIED.`, Ctrl-C shows `LOGIN CANCELLED.`, and both bring `USERNAME:` back. A name that breaks the name rules, 1 to 16 of `A-Z 0-9 $ _`, gives `%UAF-E-IVNAME` and the session goes on.
 
 ## LOGOUT
 
@@ -250,11 +253,7 @@ LIGHT1   LIGHT  GPIO25  ON     Hall lights
 
 ## HOLOTAPE
 
-Format: `HOLOTAPE [tape [entry]]`. Runs the `HOLOTAPE` program with the parameters. Not installed in this build.
-
-## MAIL
-
-Format: `MAIL keyword`. Not installed: `%UOS-W-NOTINST, MAIL is not installed in this build`. Sending needs a write into another user's home, which the access table refuses, so mail needs a system-side spool first.
+Format: `HOLOTAPE [tape]`. Runs the `HOLOTAPE` program, as `RUN HOLOTAPE` does. A tape name is 1 to 8 of `A-Z 0-9 $ _ -`, any case, then nothing or `.HTP`. Any other name, a longer one among them, gives `%UOS-E-IVSPEC` and opens nothing: a name is never cut to fit. With a valid name the reader opens that tape once its scan ends; a tape the list does not hold leaves the list shown with `No holotape NAME.HTP`. A second parameter gives `%DCL-W-MAXPARM`.
 
 ## AUTHORIZE
 

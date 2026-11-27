@@ -39,6 +39,7 @@
 #include "hackui.h"
 #include "login.h"
 #include "sess.h"
+#include "sh.h"
 #include "uos.h"
 #include "uos_maint.h"
 #include "uos_service.h"
@@ -647,6 +648,35 @@ static int cmd_hack(int argc, char **argv)
 
 /* ---- The service ---- */
 
+/* ---- RUN HACK ---- */
+
+static int prog_posted;
+
+static void push_program(int live)
+{
+    prog_posted = 0;
+    if (!live) {
+        return;
+    }
+    UOS_MARK("hack op=program rc=%d", hack_screen_start(NULL, NULL));
+}
+
+/*
+ * RUN HACK. As RUN TERMINAL, the run ends at once and the push is posted
+ * after it. The shell runs only in a session, so the game shows the
+ * session's refusal, busy, and BACK brings the prompt back.
+ */
+static int prog_start(const char *args, sh_prog_done_fn done, void *tag)
+{
+    (void)args;
+    if (hack_screen_active() || prog_posted || sh_program_post(push_program) != 0) {
+        return 1;
+    }
+    prog_posted = 1;
+    done(tag, 0, NULL);
+    return 0;
+}
+
 static int hack_svc_init(void)
 {
     int rc = rng_init();
@@ -655,7 +685,11 @@ static int hack_svc_init(void)
     hg.pause = UOS_TIMER_NONE;
     UOS_MARK("hack op=rng result=%s rc=%d", hg.rng_hw ? "hw" : "fallback", rc);
     (void)sess_set_hack_entry(from_login);
-    return uos_maint_register("hack", cmd_hack, "the password game: start move select back state");
+    rc = uos_maint_register("hack", cmd_hack, "the password game: start move select back state");
+    if (rc != 0) {
+        return rc;
+    }
+    return sh_program_register("HACK", prog_start);
 }
 
 const uos_service_t uos_svc_hack = { "hack", hack_svc_init, NULL, NULL };

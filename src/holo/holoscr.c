@@ -36,6 +36,7 @@
 #include "holoscan.h"
 #include "holoscr.h"
 #include "sess.h"
+#include "sh.h"
 #include "uos.h"
 #include "uos_maint.h"
 #include "uos_text.h"
@@ -189,23 +190,6 @@ static void model_event(hf_event_t ev);
 
 /* 1 when list file `file` is tape `want`: the same name, or `want` with no
  * type names a .HTP file. Both are upper case. */
-static int tape_is(const char *file, const char *want)
-{
-    char full[HF_FILE_MAX + 1];
-    const char *p;
-
-    if (k_strcmp(file, want) == 0) {
-        return 1;
-    }
-    for (p = want; *p != '\0' && *p != '.'; p++) {
-    }
-    if (*p == '.') {
-        return 0;
-    }
-    k_snprintf(full, sizeof(full), "%s.HTP", want);
-    return k_strcmp(file, full) == 0;
-}
-
 /* holo_screen_start_tape(): selects the wanted tape and opens it, as
  * ENTER would. A tape the list does not hold leaves the list shown. */
 static void open_wanted(void)
@@ -216,7 +200,7 @@ static void open_wanted(void)
     if (hs.want[0] == '\0') {
         return;
     }
-    for (i = 0; i < hs.kept && !tape_is(hs.tapes[i].file, hs.want); i++) {
+    for (i = 0; i < hs.kept && k_strcmp(hs.tapes[i].file, hs.want) != 0; i++) {
     }
     UOS_MARK("holo op=want tape=%s result=%s", hs.want, i < hs.kept ? "found" : "missing");
     if (i >= hs.kept) {
@@ -485,15 +469,15 @@ int holo_screen_start(holo_done_fn done, void *ctx)
 
 int holo_screen_start_tape(const char *tape, holo_done_fn done, void *ctx)
 {
-    unsigned i;
-
     if (hs.st != ST_CLOSED) {
         return HOLO_ERR_BUSY;
     }
-    for (i = 0; tape != NULL && tape[i] != '\0' && i < HF_FILE_MAX; i++) {
-        hs.want[i] = tape[i] >= 'a' && tape[i] <= 'z' ? (char)(tape[i] - 'a' + 'A') : tape[i];
+    if (tape != NULL && tape[0] != '\0' && hf_tape_name(tape, hs.want) != 0) {
+        return HOLO_ERR_NAME;
     }
-    hs.want[i] = '\0';
+    if (tape == NULL || tape[0] == '\0') {
+        hs.want[0] = '\0';
+    }
     hs.done = done;
     hs.ctx = ctx;
     hs.msg[0] = '\0';
@@ -655,9 +639,57 @@ static int cmd_holo(int argc, char **argv)
     return uos_maint_fail("usage holo open|list|pick <n>|state");
 }
 
+/* ---- RUN HOLOTAPE and the HOLOTAPE verb ---- */
+
+static char prog_tape[HF_FILE_MAX + 1];  /* "NAME.HTP" from hf_tape_name(), "" for none */
+static int prog_posted;
+
+static void push_program(int live)
+{
+    int rc;
+
+    prog_posted = 0;
+    if (!live) {
+        return;
+    }
+    rc = holo_screen_start_tape(prog_tape, NULL, NULL);
+    UOS_MARK("holo op=program tape=%s rc=%d", prog_tape[0] != '\0' ? prog_tape : "-", rc);
+}
+
+/*
+ * The HOLOTAPE program, `args` the tape name or "". As RUN TERMINAL, the
+ * run ends at once and the push is posted after it: the shell owes only
+ * its prompt while the reader covers it, and shows it when BACK closes
+ * the reader.
+ */
+static int prog_start(const char *args, sh_prog_done_fn done, void *tag)
+{
+    if (holo_screen_active() || prog_posted) {
+        return 1;
+    }
+    if (args != NULL && args[0] != '\0') {
+        if (hf_tape_name(args, prog_tape) != 0) {
+            return SH_PROG_IVSPEC;
+        }
+    } else {
+        prog_tape[0] = '\0';
+    }
+    if (sh_program_post(push_program) != 0) {
+        return 1;
+    }
+    prog_posted = 1;
+    done(tag, 0, NULL);
+    return 0;
+}
+
 static int holo_svc_init(void)
 {
-    return uos_maint_register("holo", cmd_holo, "the holotape reader: open list pick state");
+    int rc = uos_maint_register("holo", cmd_holo, "the holotape reader: open list pick state");
+
+    if (rc != 0) {
+        return rc;
+    }
+    return sh_program_register("HOLOTAPE", prog_start);
 }
 
 static void holo_svc_shutdown(int why)

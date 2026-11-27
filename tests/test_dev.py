@@ -436,6 +436,8 @@ def test_expander_missing_chip(board, uos_image, need_mtools, tmp_path):
         assert len(marks(vm, "devfail", name="LAMP", op="write")) == 3
         assert dev_set(vm, "DOOR1", "OPEN").status == "ok"
         assert answer(vm, "dev set ARM ON") == ["dev name=ARM state=ON, 1 outputs unreachable"]
+        # The answer and the marker travel on two ports. Wait for the marker.
+        wait_mark(vm, "devarm name=ARM result=on")
         on = marks(vm, "devarm", result="on")
         assert len(on) == 1 and (on[0]["why"], on[0]["count"]) == ("unreachable", "1"), on
 

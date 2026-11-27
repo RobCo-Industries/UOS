@@ -29,8 +29,10 @@ typedef struct sess_state {
     lg_msg_t msg;
     char msg_text[80];          /* the message row, "" for none */
     char typed[UAF_NAME_MAX + 1];   /* the user name as typed, for the screen */
+    char preset[UAF_NAME_MAX + 1];  /* LOGIN <user>: the next user name, "" for none */
     /* The session. */
     int in;
+    uint32_t serial;            /* lg_serial_next() at each login and logout */
     int idx;
     char user[UAF_NAME_MAX + 1];
     char home[UAF_HOME_MAX + 1];

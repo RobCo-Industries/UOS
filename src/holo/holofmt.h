@@ -116,6 +116,14 @@ char hf_display_char(uint8_t c);
 #define HF_TAPES_MAX    32u         /* tapes the list holds */
 #define HF_FILE_MAX     12u         /* 8.3 name */
 
+/*
+ * A tape name as a person types it: a stem of 1 to 8 of A-Z 0-9 $ _ -, any
+ * case, then nothing or ".HTP". Writes the file name the tape list holds,
+ * "STEM.HTP", and returns 0; returns -1 for any other name and writes "".
+ * A longer name is refused, never cut.
+ */
+int hf_tape_name(const char *in, char out[HF_FILE_MAX + 1]);
+
 typedef struct hf_tape_info {
     char file[HF_FILE_MAX + 1];     /* "TECHLOG.HTP" */
     char title[HF_TITLE_MAX + 1];   /* from hf_title() when err is HF_OK */

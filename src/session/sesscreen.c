@@ -106,6 +106,8 @@ static void later(uos_call_fn fn)
 
 static void on_user(int result, const char *text, unsigned len, void *ctx);
 static void on_pass(int result, const char *text, unsigned len, void *ctx);
+static void start_pass(void);
+static void step(lg_event_t e);
 
 static void login_draw(uos_screen_t *s)
 {
@@ -149,6 +151,17 @@ static void start_user(void *arg)
     (void)arg;
     if (sess.st != LG_S_USER || reading_user || con_line_active() ||
         !uos_screen_on_top(&sess_login_screen)) {
+        return;
+    }
+    if (sess.preset[0] != '\0') {
+        /* LOGIN <user>: the name is given, the password is asked. */
+        k_snprintf(sess.typed, sizeof(sess.typed), "%s", sess.preset);
+        k_memset(sess.preset, 0, sizeof(sess.preset));
+        sess.msg_text[0] = '\0';
+        UOS_MARK("login state=user given=yes");
+        step(LG_E_USER_OK);
+        login_draw(&sess_login_screen);
+        start_pass();
         return;
     }
     set_cursor(ROW_USER);

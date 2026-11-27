@@ -6,7 +6,7 @@ HELP DIRECTORY. A command name may be shortened, as on the command line.
 Commands:
   DIRECTORY  TYPE      COPY      DELETE    RENAME    CREATE
   SET        SHOW      HELP      RUN       LOGIN     LOGOUT
-  ROBCO      DEVICE    HOLOTAPE  MAIL      AUTHORIZE
+  ROBCO      DEVICE    HOLOTAPE  AUTHORIZE
 
 Keys at the prompt: Enter runs the line, Ctrl-C clears it, UP and DOWN
 recall earlier lines. A line that ends with - goes on to the next line.

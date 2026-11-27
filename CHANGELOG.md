@@ -4,6 +4,21 @@ All notable changes to UOS are recorded here. The format follows [Keep a Changel
 
 ## [Unreleased]
 
+### Added
+
+- `RUN HOLOTAPE` and the `HOLOTAPE` verb open the holotape reader; `HOLOTAPE <tape>` opens one tape. `RUN HACK` opens the password game's screen, which from a session shows the `busy` refusal. Both end the command at once, as `RUN TERMINAL` does.
+- `LOGIN <user>` ends the session and asks only for that user's password, with the login's retries and lockout.
+
+### Fixed
+
+- A logout or `LOGIN <user>` queued right after `RUN HACK`, `RUN HOLOTAPE` or `RUN TERMINAL` no longer opens that screen over the login prompt. The password game no longer starts there for real. The dropped call prints `sh stale=post`.
+- `HOLOTAPE ABCDEFGH.HTPX` no longer opens `ABCDEFGH.HTP`. A typed tape name is used whole or refused: 1 to 8 of `A-Z 0-9 $ _ -`, then nothing or `.HTP`, else `%UOS-E-IVSPEC`. A menu's `holotape` target follows the same rule.
+
+### Removed
+
+- The `MAIL` verb, its keywords and `SYS$HELP:MAIL.HLP`. It was never installed.
+- The `HOLOTAPE` verb's second parameter, an entry, which the reader cannot open.
+
 ### Changed
 
 - A card taken out while UOS runs gives `%UOS-E-NODEV`, not a read or write error. `vfs_from_fs()` maps the library's new `FS_ERR_GONE` to `VFS_E_NOCARD`, and a host test fails for any library error code with no mapping.

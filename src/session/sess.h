@@ -43,6 +43,12 @@ int sess_logged_in(void);
  * characters; "" when nobody is logged in. */
 const char *sess_user(void);
 
+/* any: the identity of the running session, 0 when nobody is logged in.
+ * It changes at each login and each logout, so a value kept by a posted
+ * call names one session: a logout, a LOGIN <user> or the same user's
+ * next login all give a new value. */
+uint32_t sess_id(void);
+
 /* any: the privilege mask, bits of src/kernel/uos_privs.h; 0 when nobody
  * is logged in. */
 uint32_t sess_privs(void);
@@ -68,6 +74,16 @@ int sess_vp_ctx(vp_ctx_t *ctx);
  * unknown reason.
  */
 int sess_logout(int reason);
+
+/*
+ * loop: as sess_logout(), then the login takes `name` as the user name
+ * and asks only for its password. Every login rule applies: a wrong
+ * password counts, a cancel or a failure brings the user name prompt
+ * back. NULL or "" is sess_logout(). A name that breaks uaf_check_name(),
+ * one longer than UAF_NAME_MAX among them, returns -1 and changes
+ * nothing. An unknown name fails as a wrong password does.
+ */
+int sess_logout_as(int reason, const char *name);
 
 /* any: "user", "maint", "idle", "shell". */
 const char *sess_end_name(int reason);

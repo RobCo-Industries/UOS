@@ -635,3 +635,35 @@ TEST(reader_unchecked_tape_loads)
     CHECK_STR(hf_err_name(HF_E_UNCHECKED), "unchecked");
     CHECK_STR(hf_strerror(HF_E_UNCHECKED), "tape could not be checked");
 }
+
+/* A typed tape name is used whole or refused, never cut to fit. */
+TEST(tape_name_rule)
+{
+    char out[HF_FILE_MAX + 1];
+
+    CHECK_EQ(hf_tape_name("procs", out), 0);
+    CHECK_STR(out, "PROCS.HTP");
+    CHECK_EQ(hf_tape_name("Procs.htp", out), 0);
+    CHECK_STR(out, "PROCS.HTP");
+    CHECK_EQ(hf_tape_name("ABCDEFGH", out), 0);
+    CHECK_STR(out, "ABCDEFGH.HTP");
+    CHECK_EQ(hf_tape_name("ABCDEFGH.HTP", out), 0);
+    CHECK_STR(out, "ABCDEFGH.HTP");
+    CHECK_EQ(hf_tape_name("A$_-9", out), 0);
+    CHECK_STR(out, "A$_-9.HTP");
+    /* One over the stem, the finding's name, other types, bad characters. */
+    CHECK_EQ(hf_tape_name("ABCDEFGHI", out), -1);
+    CHECK_STR(out, "");
+    CHECK_EQ(hf_tape_name("ABCDEFGH.HTPX", out), -1);
+    CHECK_STR(out, "");
+    CHECK_EQ(hf_tape_name("ABCDEFGH.HT", out), -1);
+    CHECK_EQ(hf_tape_name("STORY.TXT", out), -1);
+    CHECK_EQ(hf_tape_name("STORY.", out), -1);
+    CHECK_EQ(hf_tape_name(".HTP", out), -1);
+    CHECK_EQ(hf_tape_name("", out), -1);
+    CHECK_EQ(hf_tape_name(NULL, out), -1);
+    CHECK_EQ(hf_tape_name("A B", out), -1);
+    CHECK_EQ(hf_tape_name("A*", out), -1);
+    CHECK_EQ(hf_tape_name("A.B.HTP", out), -1);
+    CHECK_EQ(hf_tape_name("X", NULL), -1);
+}
