@@ -47,6 +47,23 @@ def read_words(path):
     return [line.rstrip("\r") for line in text.split("\n") if line.rstrip("\r") != ""]
 
 
+def read_lines(path):
+    """Returns (line number, word) pairs, split the way hk_list_parse does.
+
+    Lines end at LF. One CR before the LF goes; any other CR stays and is
+    refused as a character. An empty line is skipped but counted.
+    """
+    with open(path, "rb") as f:
+        text = f.read().decode("ascii", errors="replace")
+    out = []
+    for i, line in enumerate(text.split("\n"), 1):
+        if line.endswith("\r"):
+            line = line[:-1]
+        if line != "":
+            out.append((i, line))
+    return out
+
+
 def check_list(path, n):
     """Returns (errors, notes) for one file. Errors are what UOS refuses."""
     if not os.path.isfile(path):
@@ -55,18 +72,19 @@ def check_list(path, n):
     size = os.path.getsize(path)
     if size > FILE_MAX:
         errors.append("%s: %d bytes, UOS reads at most %d" % (path, size, FILE_MAX))
-    words = read_words(path)
+    lines = read_lines(path)
+    words = [w for _, w in lines]
     seen = set()
-    for i, w in enumerate(words, 1):
+    for i, w in lines:
         if not (w.isascii() and w.isalpha() and w.isupper()):
-            errors.append("%s: word %d %r: not A to Z" % (path, i, w))
+            errors.append("%s: line %d %r: not A to Z" % (path, i, w))
         elif len(w) != n:
-            errors.append("%s: word %d %r: length %d, want %d" % (path, i, w, len(w), n))
+            errors.append("%s: line %d %r: length %d, want %d" % (path, i, w, len(w), n))
         if w in seen:
-            errors.append("%s: word %d %r: duplicate" % (path, i, w))
+            errors.append("%s: line %d %r: duplicate" % (path, i, w))
         seen.add(w)
         if w in DENY:
-            notes.append("%s: word %d %r: on the deny list" % (path, i, w))
+            notes.append("%s: line %d %r: on the deny list" % (path, i, w))
     if words != sorted(words):
         notes.append("%s: not sorted" % path)
     if len(words) < BOARD_WORDS[n]:

@@ -240,6 +240,56 @@ def test_sample():
     assert rc == 1 and "sample size" in err
 
 
+def raw_case(data, ok, expect=""):
+    """Writes W04.TXT as raw bytes and checks it the way UOS reads it."""
+    d = make_dir()
+    try:
+        with open(os.path.join(d, mkwords.list_name(4)), "wb") as f:
+            f.write(data)
+        rc, _, err = run(["check", d])
+        assert rc == (0 if ok else 1), err
+        assert expect in err, err
+    finally:
+        shutil.rmtree(d)
+
+
+def words8():
+    return [w.encode() for w in base()[:8]]
+
+
+def test_two_crs_before_lf_fail():
+    # UOS strips one CR and refuses the other one.
+    raw_case(b"\n".join(words8()) + b"\r\r\n", False, "line 8 ")
+
+
+def test_crlf_list_passes():
+    raw_case(b"".join(w + b"\r\n" for w in words8()), True)
+
+
+def test_last_line_without_lf_passes():
+    raw_case(b"\n".join(words8()), True)
+
+
+def test_line_of_one_cr_is_blank():
+    raw_case(b"\r\n".join(words8()[:4] + [b""] + words8()[4:]) + b"\r\n", True)
+
+
+def test_line_of_two_crs_fails():
+    raw_case(b"\n".join(words8() + [b"\r\r"]) + b"\n", False, "line 9 ")
+
+
+def test_bytes_after_last_lf_count_as_a_line():
+    raw_case(b"\n".join(words8()) + b"\nAB\r", False, "line 9 'AB'")
+
+
+def test_error_reports_line_number_with_blank_lines():
+    raw_case(b"\n\n".join(words8()) + b"\n\tABC\n", False, "line 16 ")
+
+
+def test_space_fails():
+    raw_case(b"\n".join(words8()) + b"\n \n", False, "line 9 ' ': not A to Z")
+
+
 if __name__ == "__main__":
     fails = 0
     tests = [(k, v) for k, v in sorted(globals().items()) if k.startswith("test_")]
