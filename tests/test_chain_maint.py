@@ -53,6 +53,11 @@ def agent_settled(vm):
 
 
 def test_whole_chain_maintenance(board, chain_card, chain_images, need_mtools):
+    # The road needs the full card: the maintenance image, and every image
+    # the scan is to check.
+    on_card = {n for n in card_names(chain_card, "ROBCO") if n.endswith(".SYS")}
+    assert {"MFBOOT.SYS", "UOS.SYS", "MAINT.SYS", "DIAG.SYS"} <= on_card, \
+        f"the maintenance road needs a card built with MAINT_SYS, DIAG_SYS and BOOT_CFG: {on_card}"
     with after_chain(chain_images[0], board, chain_card) as vm:
         # First boot: ADMIN asks for maintenance and restarts.
         wait_ready(vm)
@@ -94,8 +99,11 @@ def test_whole_chain_maintenance(board, chain_card, chain_images, need_mtools):
         answer(vm, "tool check_images")
         vm.wait_for(CHECKED, timeout=TIMEOUT)
         t = marks(boot_text(vm, 2), "maint", "tool")
-        assert len(t) == 1 and (t[0]["name"], t[0]["result"], t[0]["writes"]) == \
-            ("check_images", "ok", "0"), t
+        assert len(t) == 1 and (t[0]["name"], t[0]["result"], t[0]["bad"], t[0]["writes"]) == \
+            ("check_images", "ok", "0", "0"), t
+        scanned = {i["path"]: i["rc"] for i in marks(boot_text(vm, 2), "maint", "image")}
+        assert scanned == {f"/ROBCO/{n}": "ok" for n in on_card}, scanned
+        assert t[0]["images"] == str(len(on_card)), t
         answer(vm, "tool restart")
         vm.wait_for(MAINT_REBOOT, timeout=TIMEOUT)
         t = [x["name"] for x in marks(boot_text(vm, 2), "maint", "tool")]
