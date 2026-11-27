@@ -14,7 +14,8 @@
 #                             first two stages and their config.
 #                             MAINT_SYS=... DIAG_SYS=... add the boot agent's
 #                             maintenance and diagnostics images, and
-#                             BOOT_CFG=<file> replaces the chain's BOOT.CFG
+#                             BOOT_CFG=<file> replaces the chain's BOOT.CFG.
+#                             CARD_NOTE=<file> adds /ROBCO/VERSIONS.TXT
 #   make bootdir DIR=<path> RETROS_IMG=... MFBOOT_SYS=...
 #                             the files of a real card for the whole chain,
 #                             with the Pi firmware unless FIRMWARE=0.
@@ -251,6 +252,21 @@ ifneq ($(BOOT_CFG),)
 else
 	printf '$(CHAIN_CFG)' > $(SDIMAGE_STAGE)/ROBCO/BOOT.CFG
 endif
+endif
+
+# CARD_NOTE=<file> copies that file to /ROBCO/VERSIONS.TXT, with or
+# without CHAIN=1. The stage is shared, so bootdir writes it too. A
+# CARD_NOTE that names no file stops the build. The recipe reads it from
+# the environment, so a space, a quote or a dollar sign in the path
+# reaches cp as it was typed.
+override CARD_NOTE := $(value CARD_NOTE)
+export CARD_NOTE
+
+sdimage-stage::
+ifneq ($(strip $(CARD_NOTE)),)
+	@test -f "$$CARD_NOTE" || { echo "sdimage: CARD_NOTE names no file: $$CARD_NOTE" >&2; exit 1; }
+	mkdir -p $(SDIMAGE_STAGE)/ROBCO
+	cp "$$CARD_NOTE" $(SDIMAGE_STAGE)/ROBCO/VERSIONS.TXT
 endif
 
 # `make bootdir DIR=<path>` writes the files of a real card for the whole
