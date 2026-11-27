@@ -263,18 +263,21 @@ static void init_mmu(void)
 /*
  * The six panel buttons, unless UOS.CFG switches them off. The library's
  * stuck-line guard samples for 10 ticks; the boot sleeps in wfi until it
- * ends, 30 ticks at most. Repeat runs only once the buttons are active.
+ * ends, 30 ticks at most. Repeat is set before the guard, so a press the
+ * guard reports at its end repeats, and is turned off again unless active.
  */
 static void start_buttons(void)
 {
     const char *repeat = "none";
     char rbuf[12];
     int setting = settings.buttons_enabled;
-    int rc = 0, status = INPUT_GPIO_OFF;
+    int rc = 0, rrc = 0, status = INPUT_GPIO_OFF;
     uint32_t t0 = uos_ticks(), waited = 0;
     size_t i;
 
     if (setting) {
+        /* Before the guard: a button held through it repeats from its first press. */
+        rrc = input_set_repeat(UOS_BUTTONS_REPEAT_MS, UOS_BUTTONS_RATE_MS);
         for (i = 0; i < UOS_BUTTONS_COUNT && rc == 0; i++) {
             rc = input_gpio_add_button(uos_buttons[i].pin, uos_buttons[i].code, 0, GPIO_PULL_UP);
         }
@@ -292,10 +295,12 @@ static void start_buttons(void)
     uos.buttons = uos_buttons_result(setting, rc, status);
     if (uos.buttons == UOS_BUTTONS_ERROR) {
         uos_set_error("buttons");
-    } else if (uos.buttons == UOS_BUTTONS_ACTIVE) {
-        k_snprintf(rbuf, sizeof(rbuf), "%d",
-                   input_set_repeat(UOS_BUTTONS_REPEAT_MS, UOS_BUTTONS_RATE_MS));
+    }
+    if (uos.buttons == UOS_BUTTONS_ACTIVE) {
+        k_snprintf(rbuf, sizeof(rbuf), "%d", rrc);
         repeat = rbuf;
+    } else if (setting) {
+        (void)input_set_repeat(0, 0);   /* repeat stays off unless active */
     }
     UOS_MARK("buttons result=%s rc=%d setting=%d repeat=%s ticks=%u",
              uos_buttons_result_name(uos.buttons), rc, setting, repeat, (unsigned)waited);
