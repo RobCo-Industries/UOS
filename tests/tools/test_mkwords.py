@@ -59,6 +59,25 @@ def bad_case(n, words, expect, crlf=False):
         shutil.rmtree(d)
 
 
+def note_case(n, words, expect):
+    """A note keeps exit 0 by default and fails under --strict."""
+    d = make_dir()
+    try:
+        if words is None:
+            os.remove(os.path.join(d, mkwords.list_name(n)))
+        else:
+            write(d, n, words)
+        rc, out, err = run(["check", d])
+        assert rc == 0, err
+        assert "note: " in err and expect in err, err
+        assert "8 lists ok" in out if words is None else "9 lists ok" in out
+        rc, out, err = run(["check", "--strict", d])
+        assert rc == 1 and expect in err and "note: " not in err, err
+        assert "8 lists ok" in out
+    finally:
+        shutil.rmtree(d)
+
+
 def base(n=4):
     return mkwords.read_words(os.path.join(CARD, mkwords.list_name(n)))
 
@@ -78,11 +97,55 @@ def test_duplicate():
 
 
 def test_unsorted():
-    bad_case(4, list(reversed(base())), "not sorted")
+    note_case(4, list(reversed(base())), "not sorted")
 
 
 def test_too_few():
-    bad_case(4, base()[:63], "63 words, want at least 64")
+    note_case(4, base()[:63], "63 words, want at least 64")
+
+
+def test_fewer_than_the_board_needs():
+    bad_case(4, base()[:7], "7 words, the board needs 8")
+    bad_case(6, base(6)[:11], "11 words, the board needs 12")
+    bad_case(9, base(9)[:13], "13 words, the board needs 14")
+    bad_case(12, base(12)[:15], "15 words, the board needs 16")
+
+
+def test_board_minimum_ok():
+    d = make_dir()
+    try:
+        for n, need in mkwords.BOARD_WORDS.items():
+            write(d, n, base(n)[:need])
+        rc, out, err = run(["check", d])
+        assert rc == 0, err
+        assert "9 lists ok" in out
+    finally:
+        shutil.rmtree(d)
+
+
+def test_too_many():
+    words = ["Q%c%cZ" % (chr(65 + i // 26), chr(65 + i % 26)) for i in range(513)]
+    bad_case(4, words, "513 words, want at most 512")
+
+
+def test_unsorted_short_list_passes_with_notes():
+    d = make_dir()
+    try:
+        write(d, 6, list(reversed(base(6)[:20])))
+        rc, out, err = run(["check", d])
+        assert rc == 0, err
+        assert "note: " in err and "not sorted" in err and "20 words" in err
+        assert "9 lists ok" in out
+        rc, _, err = run(["check", "--strict", d])
+        assert rc == 1
+    finally:
+        shutil.rmtree(d)
+
+
+def test_card_lists_pass_strict():
+    rc, out, err = run(["check", "--strict", CARD])
+    assert rc == 0, err
+    assert "9 lists ok" in out and err == ""
 
 
 def test_at_minimum_ok():
@@ -96,17 +159,11 @@ def test_at_minimum_ok():
 
 
 def test_deny_list():
-    bad_case(4, sorted(base() + ["KILL"]), "deny list")
+    note_case(4, sorted(base() + ["KILL"]), "deny list")
 
 
 def test_missing_file():
-    d = make_dir()
-    try:
-        os.remove(os.path.join(d, "W07.TXT"))
-        rc, _, err = run(["check", d])
-        assert rc == 1 and "missing" in err
-    finally:
-        shutil.rmtree(d)
+    note_case(7, None, "missing")
 
 
 def test_sort_fixes_order_and_dups():
