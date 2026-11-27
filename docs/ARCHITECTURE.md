@@ -923,6 +923,6 @@ The pure files allocate nothing. The file system's whole-file reads take their b
 
 ## Pending library features
 
-These wait on RobCo-Core changes and a pin bump. The pin `ef5079f` still lacks them.
+These wait on RobCo-Core changes and a pin bump. The pin `815e1fc` still lacks them.
 
 - Data tapes in `rimg`. `rimg_validate()` cannot accept a data tape, subtype 2, because it looks up a slot first and subtype 2 has none. `tools/rimg.py seal` and `pack` refuse subtype 2 for the same reason. The holo module works around both: `holofmt.c` checks the slot rules itself, and `tools/mkholo.py` writes the header itself. See [holo](modules/holo.md).
