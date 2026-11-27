@@ -31,3 +31,36 @@ unsigned sfx_pick_key(sfx_pick_t *p)
     p->rnd = p->rnd * 1103515245u + 12345u;
     return (p->rnd >> 16) & 1u ? UOS_SFX_ID_KEY_B : UOS_SFX_ID_KEY_A;
 }
+
+void sfx_rest_init(sfx_rest_t *r)
+{
+    r->ready = 0;
+    r->retry = 1;
+    r->shut = 0;
+}
+
+int sfx_rest_ready(sfx_rest_t *r, const sfx_rest_ops_t *ops)
+{
+    int rc;
+
+    if (r->ready) {
+        return 1;
+    }
+    if (r->shut || ops->busy()) {
+        return 0;
+    }
+    rc = ops->rest_mid();
+    if (rc == 0 && !ops->busy()) {
+        r->ready = 1;
+        return 1;
+    }
+    if (r->retry) {
+        r->retry = 0;
+        return 0;
+    }
+    if (rc == 0) {
+        ops->stop();
+    }
+    r->shut = 1;
+    return 0;
+}

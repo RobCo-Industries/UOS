@@ -114,3 +114,104 @@ TEST(sfx_sum_fits)
     CHECK(loop > 0);
     CHECK(shot + loop <= 127u);
 }
+
+/* A fake driver for the rest gate. A ramp plays while `playing`; a call
+ * to rest_mid() starts one unless one has ended or `rc` is set. */
+static struct {
+    int playing, ended, rc, calls, stops;
+} drv;
+
+static int fake_rest_mid(void)
+{
+    drv.calls++;
+    if (drv.rc || drv.ended) {
+        return drv.rc;
+    }
+    drv.playing = 1;
+    return 0;
+}
+
+static int fake_busy(void)
+{
+    return drv.playing;
+}
+
+static void fake_stop(void)
+{
+    drv.stops++;
+    drv.playing = 0;
+}
+
+static const sfx_rest_ops_t fake = { fake_rest_mid, fake_busy, fake_stop };
+
+static void gate_start(sfx_rest_t *r)
+{
+    memset(&drv, 0, sizeof(drv));
+    CHECK_EQ(fake_rest_mid(), 0);
+    sfx_rest_init(r);
+}
+
+/* While the ramp plays nothing passes; once it ends the gate opens. */
+TEST(sfx_rest_waits_for_the_ramp)
+{
+    sfx_rest_t r;
+
+    gate_start(&r);
+    CHECK_EQ(sfx_rest_ready(&r, &fake), 0);
+    CHECK_EQ(drv.calls, 1);
+    drv.playing = 0;
+    drv.ended = 1;
+    CHECK_EQ(sfx_rest_ready(&r, &fake), 1);
+    CHECK_EQ(sfx_rest_ready(&r, &fake), 1);
+    CHECK_EQ(drv.calls, 2);
+}
+
+/* A cut ramp: the gate starts one more and opens when that one ends. */
+TEST(sfx_rest_retries_a_cut_ramp)
+{
+    sfx_rest_t r;
+
+    gate_start(&r);
+    drv.playing = 0;
+    CHECK_EQ(sfx_rest_ready(&r, &fake), 0);
+    CHECK_EQ(drv.playing, 1);
+    CHECK_EQ(sfx_rest_ready(&r, &fake), 0);
+    drv.playing = 0;
+    drv.ended = 1;
+    CHECK_EQ(sfx_rest_ready(&r, &fake), 1);
+    CHECK_EQ(drv.stops, 0);
+}
+
+/* The retry cut too: the gate stops the third ramp it started and stays shut. */
+TEST(sfx_rest_shuts_after_one_retry)
+{
+    sfx_rest_t r;
+
+    gate_start(&r);
+    drv.playing = 0;
+    CHECK_EQ(sfx_rest_ready(&r, &fake), 0);
+    drv.playing = 0;
+    CHECK_EQ(sfx_rest_ready(&r, &fake), 0);
+    CHECK_EQ(drv.stops, 1);
+    CHECK_EQ(drv.playing, 0);
+    drv.ended = 1;
+    CHECK_EQ(sfx_rest_ready(&r, &fake), 0);
+    CHECK_EQ(drv.calls, 3);
+}
+
+/* A refused retry counts as the retry; a second refusal shuts the gate. */
+TEST(sfx_rest_refused_retry)
+{
+    sfx_rest_t r;
+
+    gate_start(&r);
+    drv.playing = 0;
+    drv.rc = -3;
+    CHECK_EQ(sfx_rest_ready(&r, &fake), 0);
+    CHECK_EQ(sfx_rest_ready(&r, &fake), 0);
+    CHECK_EQ(r.shut, 1);
+    CHECK_EQ(drv.stops, 0);
+    drv.rc = 0;
+    drv.ended = 1;
+    CHECK_EQ(sfx_rest_ready(&r, &fake), 0);
+}

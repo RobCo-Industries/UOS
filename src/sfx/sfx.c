@@ -1,7 +1,8 @@
 /*
  * The sound service. With `[audio] sound = on` its init starts the
  * library's audio, sets the volume and plays the rest ramp, which moves
- * the pin's rest level to the midpoint. With the default `off` it takes
+ * the pin's rest level to the midpoint. No effect plays until that ramp
+ * has ended: see the rest gate in sfxrules.h. With the default `off` it takes
  * nothing: no audio_init(), no tick slot, no trace line. Either way it
  * prints one "sound result=<on|off|error> rc=<rc>" marker.
  *
@@ -31,6 +32,8 @@ static int on;          /* audio_init() and the ramp succeeded */
 static int trace;       /* [audio] trace */
 static int line_start = 1;
 static sfx_pick_t pick;
+static sfx_rest_t rest;
+static const sfx_rest_ops_t rest_ops = { audio_rest_mid, audio_busy, audio_stop };
 
 /* The k_printf() hook while the trace is on. */
 static void trace_keep(char c)
@@ -77,6 +80,10 @@ void uos_sfx(unsigned id)
     if (!on || t == NULL) {
         return;
     }
+    /* No effect before the rest ramp ends: a play would cut it. */
+    if (!sfx_rest_ready(&rest, &rest_ops)) {
+        return;
+    }
     /* A refused play is dropped: a sound is never worth a wait. */
     (void)audio_play_pcm(t->data, t->len, UOS_SFX_RATE_HZ, AUDIO_PRIORITY);
 }
@@ -109,6 +116,7 @@ static int sfx_init(void)
             rc = audio_rest_mid();
         }
         on = rc == 0;
+        sfx_rest_init(&rest);
         if (!on) {
             uos_set_error("sound");
         }

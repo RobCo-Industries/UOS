@@ -205,3 +205,20 @@ def test_off_typing_gives_no_audio_line(board, uos_image, need_mtools, tmp_path)
         type_keys(vm, "ADMIN", plays=False)
         wait_marker(vm, "login state=pass")
         assert not AUDIO.search(vm.serial), vm.serial
+
+
+
+def test_key_at_service_start_keeps_the_ramp(board, uos_image, need_mtools, tmp_path):
+    """A key sent at the sound marker, while the ramp may still play: no key
+    sound, and the ramp reaches its last sample. A key at the prompt clicks.
+    In QEMU the first screen takes that early key, and the line editor runs
+    only after the ramp's end. tests/host/test_sfx.c covers the rest gate
+    that drops an effect before the ramp ends."""
+    with alone(uos_image, board, login_card(tmp_path, ON_CFG)) as vm:
+        vm.wait_for(re.compile(r"@RC stage=uos ev=sound result=on [^\n]*\n"), timeout=TIMEOUT)
+        vm.send("A", port=0)
+        lines = check_ramp(vm)
+        user_prompt(vm)
+        assert not key_lines(vm), lines
+        type_keys(vm, "A", plays=True)
+        assert len(key_lines(vm)) == 2, audio_lines(vm)

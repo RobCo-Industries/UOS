@@ -913,7 +913,7 @@ The `sound` service in `src/sfx/sfx.c` opens the audio path and plays the sound 
 
 With the default `[audio] sound = off` the service does nothing. It never calls `audio_init()`, takes no tick slot and prints no `ev=audio` line. It prints `ev=sound result=off rc=0`.
 
-With `sound = on` its init calls `audio_init()`, sets the `[audio] volume`, and calls `audio_rest_mid()`. That ramp moves the pin's rest level to the midpoint: 882 samples at 22050 Hz, at full scale whatever the volume. It is the first `ev=audio` line, `op=pcm rate=22050 len=882`, then `op=pcm_end`. The marker is `ev=sound result=on rc=0`. A failed call gives `result=error` with the library's code and sets `error=sound`.
+With `sound = on` its init calls `audio_init()`, sets the `[audio] volume`, and calls `audio_rest_mid()`. That ramp moves the pin's rest level to the midpoint: 882 samples at 22050 Hz, at full scale whatever the volume. It is the first `ev=audio` line, `op=pcm rate=22050 len=882`, then `op=pcm_end`. The marker is `ev=sound result=on rc=0`. A failed call gives `result=error` with the library's code and sets `error=sound`. No effect plays until the ramp has reached its last sample, so a key never cuts it: `uos_sfx()` drops the sound while the driver is busy, then asks `audio_rest_mid()` again, which starts nothing once a ramp has ended and starts one more after a cut. After a second failed ramp no effect plays until the next boot.
 
 The loop calls `uos_sfx_poll()` on every pass. QEMU has no PWM, so the library queues one trace record per play, and `audio_poll()` prints the queue with `k_printf()`. The library has no call that drains the queue without printing. So the poll points the `k_printf()` hook somewhere else for the call, then back at `uart_putc()`:
 

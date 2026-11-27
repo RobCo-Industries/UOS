@@ -45,4 +45,33 @@ void sfx_pick_init(sfx_pick_t *p);
 /* UOS_SFX_ID_KEY_A or UOS_SFX_ID_KEY_B. */
 unsigned sfx_pick_key(sfx_pick_t *p);
 
+/*
+ * The rest gate. No effect plays until the library's rest ramp has
+ * reached its end: a play that cuts the ramp leaves the rest level at
+ * duty 0, and the next sound starts with a click. The library gives no
+ * status call, but two calls tell it. audio_busy() is non-zero while the
+ * ramp plays. Once the driver is idle, audio_rest_mid() returns 0 and
+ * starts nothing when a ramp has ended at its last sample; after a cut it
+ * starts a new ramp, so the driver is busy again. The gate tries that
+ * once more; if the second ramp fails or is cut too, it stops what it
+ * started and stays shut.
+ */
+typedef struct {
+    int (*rest_mid)(void);      /* audio_rest_mid() */
+    int (*busy)(void);          /* audio_busy() */
+    void (*stop)(void);         /* audio_stop() */
+} sfx_rest_ops_t;
+
+typedef struct {
+    int ready;                  /* a ramp has reached its end */
+    int retry;                  /* 1 while the one retry is left */
+    int shut;                   /* the retry failed: no effect plays */
+} sfx_rest_t;
+
+/* Call after the service's own audio_rest_mid() returned 0. */
+void sfx_rest_init(sfx_rest_t *r);
+
+/* 1 when an effect may play now. Main context only. */
+int sfx_rest_ready(sfx_rest_t *r, const sfx_rest_ops_t *ops);
+
 #endif
