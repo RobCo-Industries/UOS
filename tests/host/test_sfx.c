@@ -4,6 +4,7 @@
 
 #include "rc_test.h"
 
+#include "hack.h"
 #include "sfx_table.h"
 #include "sfxrules.h"
 
@@ -214,4 +215,53 @@ TEST(sfx_rest_refused_retry)
     drv.rc = 0;
     drv.ended = 1;
     CHECK_EQ(sfx_rest_ready(&r, &fake), 0);
+}
+
+/* char_scroll starts at most once per 30 ms: 29 ms after a start is
+ * refused, 30 and 31 pass. The first move always passes. */
+TEST(sfx_gap_boundaries)
+{
+    sfx_gap_t g;
+
+    CHECK_EQ(SFX_SCROLL_GAP_MS, 30u);
+    sfx_gap_init(&g);
+    CHECK_EQ(sfx_gap_pass(&g, 0), 1);
+    CHECK_EQ(sfx_gap_pass(&g, 29), 0);
+    CHECK_EQ(sfx_gap_pass(&g, 30), 1);
+    CHECK_EQ(sfx_gap_pass(&g, 59), 0);
+    CHECK_EQ(sfx_gap_pass(&g, 61), 1);
+    CHECK_EQ(sfx_gap_pass(&g, 61), 0);
+    sfx_gap_init(&g);
+    CHECK_EQ(sfx_gap_pass(&g, 5000), 1);
+    CHECK_EQ(sfx_gap_pass(&g, 5031), 1);
+}
+
+/* The millisecond clock wraps at 2^32: only the difference counts. */
+TEST(sfx_gap_wraps)
+{
+    sfx_gap_t g;
+
+    sfx_gap_init(&g);
+    CHECK_EQ(sfx_gap_pass(&g, 0xfffffff0u), 1);
+    CHECK_EQ(sfx_gap_pass(&g, 0x0000000cu), 0);     /* 28 ms later */
+    CHECK_EQ(sfx_gap_pass(&g, 0x0000000du), 0);     /* 29 ms */
+    CHECK_EQ(sfx_gap_pass(&g, 0x0000000eu), 1);     /* 30 ms */
+    sfx_gap_init(&g);
+    CHECK_EQ(sfx_gap_pass(&g, 0xffffffffu), 1);
+    CHECK_EQ(sfx_gap_pass(&g, 0x0000001eu), 1);     /* 31 ms */
+}
+
+/* One SELECT, one sound. */
+TEST(sfx_hack_one_sound)
+{
+    CHECK_EQ(sfx_hack_sound(HK_EV_WIN), UOS_SFX_ID_PASS_GOOD);
+    CHECK_EQ(sfx_hack_sound(HK_EV_DENIED), UOS_SFX_ID_PASS_BAD);
+    CHECK_EQ(sfx_hack_sound(HK_EV_LOCKOUT), UOS_SFX_ID_PASS_BAD);
+    CHECK_EQ(sfx_hack_sound(HK_EV_DUD), UOS_SFX_PICK_KEY);
+    CHECK_EQ(sfx_hack_sound(HK_EV_RESET), UOS_SFX_PICK_KEY);
+    CHECK_EQ(sfx_hack_sound(HK_EV_NONE), UOS_SFX_NONE);
+    CHECK_EQ(sfx_hack_sound(99), UOS_SFX_NONE);
+    /* The two markers are not sound ids. */
+    CHECK(sfx_sound(UOS_SFX_PICK_KEY) == NULL);
+    CHECK(sfx_sound(UOS_SFX_NONE) == NULL);
 }

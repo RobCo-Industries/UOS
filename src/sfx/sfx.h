@@ -18,6 +18,14 @@ void uos_sfx(unsigned id);
 /* Plays key_a or key_b, by the pick of sfxrules.h. Main context only. */
 void uos_sfx_key(void);
 
+/* Plays char_scroll for a cursor move, at most once per 30 ms by the
+ * scroll limit of sfxrules.h. Main context only. */
+void uos_sfx_scroll(void);
+
+/* Plays the one sound of a SELECT in the password game, from its
+ * hk_event_t, by sfx_hack_sound(). Main context only. */
+void uos_sfx_hack(int ev);
+
 /* Stops what plays. Does nothing while the sound is off. Any context. */
 void uos_sfx_stop(void);
 

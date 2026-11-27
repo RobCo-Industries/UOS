@@ -2,6 +2,7 @@
  * The pure rules of the sound service. See sfxrules.h.
  */
 
+#include "hack.h"
 #include "sfx_table.h"
 #include "sfxrules.h"
 
@@ -63,4 +64,36 @@ int sfx_rest_ready(sfx_rest_t *r, const sfx_rest_ops_t *ops)
     }
     r->shut = 1;
     return 0;
+}
+
+void sfx_gap_init(sfx_gap_t *g)
+{
+    g->last_ms = 0;
+    g->started = 0;
+}
+
+int sfx_gap_pass(sfx_gap_t *g, uint32_t now_ms)
+{
+    if (g->started && (uint32_t)(now_ms - g->last_ms) < SFX_SCROLL_GAP_MS) {
+        return 0;
+    }
+    g->started = 1;
+    g->last_ms = now_ms;
+    return 1;
+}
+
+unsigned sfx_hack_sound(int ev)
+{
+    switch (ev) {
+    case HK_EV_WIN:
+        return UOS_SFX_ID_PASS_GOOD;
+    case HK_EV_DENIED:
+    case HK_EV_LOCKOUT:
+        return UOS_SFX_ID_PASS_BAD;
+    case HK_EV_DUD:
+    case HK_EV_RESET:
+        return UOS_SFX_PICK_KEY;
+    default:
+        return UOS_SFX_NONE;
+    }
 }

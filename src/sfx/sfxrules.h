@@ -1,6 +1,7 @@
 /*
  * The pure rules of the sound service, src/sfx/sfxrules.c: which table
- * each sound id plays, and which of the two key sounds a key picks.
+ * each sound id plays, which of the two key sounds a key picks, how
+ * often char_scroll may start and which sound a game result plays.
  * No hardware access. The host tests link this file.
  */
 #ifndef UOS_SFXRULES_H
@@ -19,6 +20,11 @@ enum {
     UOS_SFX_ID_FAN,
     UOS_SFX_ID_COUNT
 };
+
+/* Not sounds: what sfx_hack_sound() returns for a key sound and for
+ * no sound at all. */
+#define UOS_SFX_PICK_KEY  (UOS_SFX_ID_COUNT + 0u)
+#define UOS_SFX_NONE      (UOS_SFX_ID_COUNT + 1u)
 
 /* One generated table. */
 typedef struct {
@@ -73,5 +79,31 @@ void sfx_rest_init(sfx_rest_t *r);
 
 /* 1 when an effect may play now. Main context only. */
 int sfx_rest_ready(sfx_rest_t *r, const sfx_rest_ops_t *ops);
+
+/*
+ * The scroll limit. char_scroll starts at most once per
+ * SFX_SCROLL_GAP_MS, so a held arrow key does not smear. The time is the
+ * kernel's millisecond clock, which wraps at 2^32: only the difference
+ * counts. The first move always passes.
+ */
+#define SFX_SCROLL_GAP_MS 30u
+
+typedef struct {
+    uint32_t last_ms;           /* the last start that passed */
+    int started;                /* 0 until a start passed */
+} sfx_gap_t;
+
+void sfx_gap_init(sfx_gap_t *g);
+
+/* 1 when char_scroll may start at `now_ms`; it then counts as started. */
+int sfx_gap_pass(sfx_gap_t *g, uint32_t now_ms);
+
+/*
+ * The sound of a SELECT in the password game, from its hk_event_t:
+ * pass_good for a win, pass_bad for a denied word and a lockout,
+ * UOS_SFX_PICK_KEY for a dud and a reset, UOS_SFX_NONE for anything
+ * else. One event, one sound.
+ */
+unsigned sfx_hack_sound(int ev);
 
 #endif

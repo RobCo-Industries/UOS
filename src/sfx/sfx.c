@@ -19,6 +19,7 @@
 
 #include <robco/audio.h>
 #include <robco/irq.h>
+#include <robco/tick.h>
 #include <robco/klibc.h>
 #include <robco/uart.h>
 
@@ -33,6 +34,7 @@ static int trace;       /* [audio] trace */
 static int line_start = 1;
 static sfx_pick_t pick;
 static sfx_rest_t rest;
+static sfx_gap_t gap;
 static const sfx_rest_ops_t rest_ops = { audio_rest_mid, audio_busy, audio_stop };
 
 /* The k_printf() hook while the trace is on. */
@@ -95,6 +97,24 @@ void uos_sfx_key(void)
     }
 }
 
+void uos_sfx_scroll(void)
+{
+    if (on && sfx_gap_pass(&gap, tick_ms())) {
+        uos_sfx(UOS_SFX_ID_CHAR_SCROLL);
+    }
+}
+
+void uos_sfx_hack(int ev)
+{
+    unsigned id = sfx_hack_sound(ev);
+
+    if (id == UOS_SFX_PICK_KEY) {
+        uos_sfx_key();
+    } else if (id != UOS_SFX_NONE) {
+        uos_sfx(id);
+    }
+}
+
 void uos_sfx_stop(void)
 {
     if (on) {
@@ -109,6 +129,7 @@ static int sfx_init(void)
 
     trace = s->trace_enabled;
     sfx_pick_init(&pick);
+    sfx_gap_init(&gap);
     if (s->sound_enabled) {
         rc = audio_init();
         if (rc == 0) {
