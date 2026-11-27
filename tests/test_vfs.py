@@ -7,7 +7,7 @@ import struct
 import zlib
 
 from uos import (TIMEOUT, alone, answer, card, card_free, card_names, card_put, card_tree, fs,
-                 uos_card, wait_ready)
+                 state, uos_card, wait_ready)
 from harness.boot import parse_markers
 from harness.sdimage import make_sd_image
 
@@ -394,9 +394,11 @@ def test_card_taken_out(board, uos_image, need_mtools, tmp_path):
     with alone(uos_image, board, home_card(tmp_path)) as vm:
         wait_ready(vm)
         ok(fs(vm, "ls *.*")[0])
+        assert state(vm)["card"] == "ok"
         drive = [b for b in vm.qmp.execute("query-block") if b["device"] == "sd0"][0]
         vm.qmp.execute("eject", id=drive["qdev"], force=True)
         no_card_checks(vm, "nocard")
+        assert state(vm)["card"] == "gone"
 
 
 def test_no_uos_tree(board, uos_image, need_mtools, tmp_path):

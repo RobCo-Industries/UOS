@@ -93,6 +93,12 @@ extern uos_state_t uos;
 /* Records the last error for `state`. `what` is short, without spaces. */
 void uos_set_error(const char *what);
 
+/*
+ * The card state now: uos.card, or UOS_CARD_GONE once a file call has met
+ * an empty slot. It does no I/O and works in any phase.
+ */
+int uos_card_now(void);
+
 /* The settings from UOS.CFG, or the defaults. */
 const uos_settings_t *uos_settings(void);
 

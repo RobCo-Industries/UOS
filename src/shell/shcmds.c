@@ -687,7 +687,7 @@ static int show_system(sh_job_t *j)
     sh_out(j, line);
     k_snprintf(line, sizeof(line), "Uptime %s", up);
     sh_out(j, line);
-    k_snprintf(line, sizeof(line), "Card %s, devices %u, users %u", uos_card_name(uos.card),
+    k_snprintf(line, sizeof(line), "Card %s, devices %u, users %u", uos_card_name(uos_card_now()),
                devs_count(), db != NULL ? (unsigned)db->count : 0u);
     sh_out(j, line);
     k_snprintf(line, sizeof(line), "Buttons %s", uos_buttons_result_name(uos.buttons));

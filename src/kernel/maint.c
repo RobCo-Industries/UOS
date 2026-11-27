@@ -151,7 +151,7 @@ static int cmd_state(int argc, char **argv)
     uos_maint_reply("phase=%s screen=%s user=%s card=%s trusted=%d error=%s",
                     phase_name(uos.phase),
                     top != NULL && top->name != NULL ? top->name : "none",
-                    uos.user[0] != '\0' ? uos.user : "none", uos_card_name(uos.card),
+                    uos.user[0] != '\0' ? uos.user : "none", uos_card_name(uos_card_now()),
                     uos.trusted, uos.error[0] != '\0' ? uos.error : "none");
     return 0;
 }

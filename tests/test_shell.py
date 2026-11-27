@@ -972,3 +972,18 @@ def test_held_keys_over_the_shell(board, hooks_image, need_mtools, tmp_path):
         st = wait_state(vm, state="prompt", kind="cmd")
         assert n_marks(vm, "cmd state=start verb=ROBCO") == starts + 1
         assert int(st["prompts"]) == prompts + 1, st
+
+
+def test_show_system_says_card_gone(board, hooks_image, need_mtools, tmp_path):
+    """A card pulled after boot: SHOW SYSTEM says `Card gone` once a file
+    command has met the empty slot."""
+    with alone(hooks_image, board, shell_card(tmp_path)) as vm:
+        wait_ready(vm)
+        login(vm, "ADMIN")
+        _, _, s = expect(vm, "SHOW SYSTEM", "NORMAL")
+        assert any(l.startswith("Card ok,") for l in out(vm, s)), out(vm, s)
+        drive = [b for b in vm.qmp.execute("query-block") if b["device"] == "sd0"][0]
+        vm.qmp.execute("eject", id=drive["qdev"], force=True)
+        expect(vm, "TYPE NOTICE.TXT", "NODEV")
+        _, _, s = expect(vm, "SHOW SYSTEM", "NORMAL")
+        assert any(l.startswith("Card gone,") for l in out(vm, s)), out(vm, s)

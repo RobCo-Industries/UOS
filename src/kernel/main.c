@@ -162,6 +162,17 @@ static void init_heap(void)
     UOS_MARK("heap base=0x%08x size=%u", (unsigned)(uintptr_t)base, (unsigned)size);
 }
 
+/*
+ * fs_changes() once the boot volume mounted. UOS mounts one volume and never
+ * unmounts it, so the count moves after that only when the card leaves.
+ */
+static uint32_t card_changes;
+
+int uos_card_now(void)
+{
+    return uos_card_live(uos.card, card_changes, fs_changes());
+}
+
 /* The card: the boot volume by the shared rule, then the /UOS tree. */
 static void mount_card(void)
 {
@@ -182,6 +193,7 @@ static void mount_card(void)
         UOS_MARK("mount result=none why=%s rc=%d", part_boot_strerror(rc), rc);
         return;
     }
+    card_changes = fs_changes();
     if (fs_stat("/UOS", &st) != 0 || !st.is_dir) {
         uos.card = UOS_CARD_NOTREE;
         uos_set_error("notree");
