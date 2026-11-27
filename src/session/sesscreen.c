@@ -71,14 +71,21 @@ static void header(int serial)
 {
     char line[UOS_LINE_MAX + 1];
     unsigned i;
+    int bright;
 
     if (uos.fb_ok) {
         console_set_attr(CONSOLE_ATTR_NORMAL);
         console_clear();
     }
     for (i = 0; i < LG_HEADER_ROWS; i++) {
-        (void)lg_header_line(uos_settings()->name, i, line, sizeof(line));
-        put_row(i, line, i == 0 ? CONSOLE_ATTR_BRIGHT : CONSOLE_ATTR_NORMAL);
+        if (i == LG_HEADER_ROWS - 1) {
+            /* The device errors join here later; 0 for now. */
+            (void)lg_notice_line(uos.cfg_bad, 0, line, sizeof(line));
+        } else {
+            (void)lg_header_line(uos_settings()->name, i, line, sizeof(line));
+        }
+        bright = i == 0 || i == LG_HEADER_ROWS - 1;
+        put_row(i, line, bright ? CONSOLE_ATTR_BRIGHT : CONSOLE_ATTR_NORMAL);
         if (serial) {
             sess_serial(line);
         }

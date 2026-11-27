@@ -262,6 +262,13 @@ int lg_welcome_line(const char *name, uint32_t privs, unsigned row, char *buf, s
 int lg_header_line(const char *sysname, unsigned row, char *buf, size_t size);
 
 /*
+ * The notice for the last header row. `cfg_bad` is set when UOS.CFG had
+ * a bad, clamped or unknown value; `dev_bad` when DEVICES.CFG had errors.
+ * Empty when both are 0. Length or -1.
+ */
+int lg_notice_line(int cfg_bad, int dev_bad, char *buf, size_t size);
+
+/*
  * The typed user name as one marker word: upper-case, A-Z 0-9 $ _ kept,
  * every other byte as '?', at most UAF_NAME_MAX characters, "-" when
  * empty. The name field is not secret: the screen shows it as typed.
