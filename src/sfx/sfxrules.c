@@ -156,3 +156,22 @@ unsigned sfx_hack_sound(int ev)
         return UOS_SFX_NONE;
     }
 }
+
+void sfx_mix_head(uint8_t *head, const uint8_t *shot, const uint8_t *bed, size_t n)
+{
+    size_t i;
+
+    for (i = 0; i < n; i++) {
+        int v = (int)shot[i] + (int)bed[i] - 128;
+
+        head[i] = (uint8_t)(v < 0 ? 0 : v > 255 ? 255 : v);
+    }
+}
+
+unsigned sfx_topup(int busy, int can_queue)
+{
+    if (can_queue) {
+        return SFX_TOPUP_QUEUE;
+    }
+    return busy ? SFX_TOPUP_NONE : SFX_TOPUP_START;
+}

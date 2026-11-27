@@ -390,3 +390,75 @@ TEST(sfx_result_wins_one_tick)
     CHECK_EQ(drv_trace[1], UOS_SFX_ID_PASS_GOOD);
     CHECK_EQ(drv_trace[2], UOS_SFX_ID_KEY_A);
 }
+
+/* One head and one rest against the generated header. */
+static void head(unsigned id, size_t head_len, uint32_t head_crc, size_t rest_len,
+                 uint32_t rest_crc)
+{
+    static uint8_t buf[UOS_SFX_BED_HEAD_MAX];
+    const sfx_sound_t *s = sfx_sound(id);
+
+    CHECK(s->len <= UOS_SFX_BED_HEAD_MAX);
+    CHECK_EQ(s->len, head_len);
+    sfx_mix_head(buf, s->data, uos_sfx_fan, s->len);
+    CHECK_EQ(crc32(buf, s->len), head_crc);
+    CHECK_EQ(UOS_SFX_FAN_LEN - s->len, rest_len);
+    CHECK_EQ(crc32(uos_sfx_fan + s->len, UOS_SFX_FAN_LEN - s->len), rest_crc);
+}
+
+TEST(sfx_heads_match_header)
+{
+    CHECK_STR(UOS_SFX_BED_NAME, "fan");
+    head(UOS_SFX_ID_KEY_A, UOS_SFX_KEY_A_HEAD_LEN, UOS_SFX_KEY_A_HEAD_CRC32,
+         UOS_SFX_KEY_A_REST_LEN, UOS_SFX_KEY_A_REST_CRC32);
+    head(UOS_SFX_ID_KEY_B, UOS_SFX_KEY_B_HEAD_LEN, UOS_SFX_KEY_B_HEAD_CRC32,
+         UOS_SFX_KEY_B_REST_LEN, UOS_SFX_KEY_B_REST_CRC32);
+    head(UOS_SFX_ID_CHAR_SCROLL, UOS_SFX_CHAR_SCROLL_HEAD_LEN, UOS_SFX_CHAR_SCROLL_HEAD_CRC32,
+         UOS_SFX_CHAR_SCROLL_REST_LEN, UOS_SFX_CHAR_SCROLL_REST_CRC32);
+    head(UOS_SFX_ID_PASS_GOOD, UOS_SFX_PASS_GOOD_HEAD_LEN, UOS_SFX_PASS_GOOD_HEAD_CRC32,
+         UOS_SFX_PASS_GOOD_REST_LEN, UOS_SFX_PASS_GOOD_REST_CRC32);
+    head(UOS_SFX_ID_PASS_BAD, UOS_SFX_PASS_BAD_HEAD_LEN, UOS_SFX_PASS_BAD_HEAD_CRC32,
+         UOS_SFX_PASS_BAD_REST_LEN, UOS_SFX_PASS_BAD_REST_CRC32);
+}
+
+TEST(sfx_mix_head_clamps)
+{
+    const uint8_t shot[4] = { 0, 255, 130, 128 };
+    const uint8_t bed[4] = { 10, 200, 131, 125 };
+    uint8_t out[4];
+
+    sfx_mix_head(out, shot, bed, 4);
+    CHECK_EQ(out[0], 0);
+    CHECK_EQ(out[1], 255);
+    CHECK_EQ(out[2], 133);
+    CHECK_EQ(out[3], 125);
+}
+
+/* The loudest one-shot over the fan never needs the clamp. */
+TEST(sfx_fan_sum_within_127)
+{
+    unsigned peaks[] = { UOS_SFX_KEY_A_PEAK, UOS_SFX_KEY_B_PEAK, UOS_SFX_CHAR_SCROLL_PEAK,
+                         UOS_SFX_PASS_GOOD_PEAK, UOS_SFX_PASS_BAD_PEAK };
+    unsigned i, top = 0;
+
+    for (i = 0; i < sizeof(peaks) / sizeof(peaks[0]); i++) {
+        top = peaks[i] > top ? peaks[i] : top;
+    }
+    CHECK(top + UOS_SFX_FAN_PEAK <= 127u);
+}
+
+/* The rest behind the longest head outlasts a top-up period. */
+TEST(sfx_fan_rest_outlasts_topup)
+{
+    CHECK((UOS_SFX_FAN_LEN - UOS_SFX_BED_HEAD_MAX) * 1000u / UOS_SFX_RATE_HZ >= SFX_TOPUP_MS);
+}
+
+TEST(sfx_topup_rule)
+{
+    /* Playing with the queue free: the next pass. */
+    CHECK_EQ(sfx_topup(1, 1), SFX_TOPUP_QUEUE);
+    /* Playing with a pass already waiting: nothing. */
+    CHECK_EQ(sfx_topup(1, 0), SFX_TOPUP_NONE);
+    /* Nothing plays: start the fan again. */
+    CHECK_EQ(sfx_topup(0, 0), SFX_TOPUP_START);
+}
