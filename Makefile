@@ -11,7 +11,10 @@
 #   make test-tools           pytest over tests/tools/
 #   make sdimage              build/sd.img: UOS.SYS and the card/ tree.
 #                             CHAIN=1 RETROS_IMG=... MFBOOT_SYS=... adds the
-#                             first two stages and their config
+#                             first two stages and their config.
+#                             MAINT_SYS=... DIAG_SYS=... add the boot agent's
+#                             maintenance and diagnostics images, and
+#                             BOOT_CFG=<file> replaces the chain's BOOT.CFG
 #   make run BOARD=raspi2b    boot build/sd.img in QEMU on this terminal
 #                             (WINDOW=1 also opens the display window)
 #   make check-pins           CI workflow pins and doc links match the submodule,
@@ -104,7 +107,9 @@ SDIMAGE_MIB   ?= 64
 SDIMAGE_DEPS  := $(BUILD)/UOS.SYS
 SDIMAGE_DIR   := card
 SDIMAGE_FILES := $(BUILD)/UOS.SYS:ROBCO/UOS.SYS \
-                 $(if $(filter 1,$(CHAIN)),$(MFBOOT_SYS):ROBCO/MFBOOT.SYS)
+                 $(if $(filter 1,$(CHAIN)),$(MFBOOT_SYS):ROBCO/MFBOOT.SYS) \
+                 $(if $(MAINT_SYS),$(MAINT_SYS):ROBCO/MAINT.SYS) \
+                 $(if $(DIAG_SYS),$(DIAG_SYS):ROBCO/DIAG.SYS)
 
 .DEFAULT_GOAL := all
 include $(ROBCO_CORE)/mk/robco.mk
@@ -223,7 +228,10 @@ $(HOST_GEN)/uaf_vectors.h: tests/vectors/uaf.json tools/mkuaf.py
 
 # CHAIN=1 puts RETROS-BIOS on the card as the first stage, with its
 # config.txt, MFBootAgent as /ROBCO/MFBOOT.SYS and a BOOT.CFG that boots
-# UOS, so the card boots the whole chain.
+# UOS, so the card boots the whole chain. BOOT_CFG=<file> gives that
+# BOOT.CFG instead, such as RETROS-BIOS's boot/BOOT.CFG with the MAINT and
+# DIAG entries. MAINT_SYS and DIAG_SYS go to /ROBCO/MAINT.SYS and
+# /ROBCO/DIAG.SYS, the paths of those entries.
 CHAIN_CFG := [boot]\ndefault = UOS\ntimeout = 3\n\n[entry UOS]\npath = /ROBCO/UOS.SYS\n
 
 sdimage-stage::
@@ -232,7 +240,11 @@ ifeq ($(CHAIN),1)
 	$(if $(MFBOOT_SYS),,$(error CHAIN=1 needs MFBOOT_SYS=<MFBOOT.SYS>))
 	$(ROBCO_CORE)/tools/mkbootdir.sh $(RETROS_IMG) $(SDIMAGE_STAGE) \
 	    --kernel-name RETROS.IMG --no-firmware
+ifneq ($(BOOT_CFG),)
+	cp $(BOOT_CFG) $(SDIMAGE_STAGE)/ROBCO/BOOT.CFG
+else
 	printf '$(CHAIN_CFG)' > $(SDIMAGE_STAGE)/ROBCO/BOOT.CFG
+endif
 endif
 
 # Alone, a two-word image at 0x8000 jumps to UOS at its link address.
