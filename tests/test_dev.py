@@ -7,7 +7,8 @@ import os
 import re
 import time
 
-from uos import IDLE, ROOT, SERVICES, TICK_HZ, TIMEOUT, alone, answer, events, one, uos_card
+from uos import (IDLE, ROOT, SERVICES, TICK_HZ, TIMEOUT, alone, answer, dump_until, events, one,
+                 uos_card)
 from uos import wait_ready as wait_uos
 
 CFG = "/UOS/DEVICES.CFG"
@@ -340,6 +341,59 @@ def test_bad_file(board, uos_image, need_mtools, tmp_path):
         warns = [(m["name"], m["line"], m["why"]) for m in events(vm, "devwarn")]
         assert warns == [("HOT", "14", "PULLUP")], warns
         assert list(dev_list(vm)) == ["D1", "HOT"]
+
+
+# An unknown key, a key given twice, and an unknown key in an expander
+# section. Key names are case-sensitive.
+BAD_KEYS = b"""[device LIGHT1]
+type = light
+gpio = 25
+actve = low
+[device DOOR1]
+type = door
+gpio = 12
+active = low
+active = high
+[device GATE]
+type = door
+gpio = 24
+[expander 0]
+addr = 0x20
+speed = 100
+[device LAMP]
+type = light
+gpio = X0.1
+"""
+CFGERR = "%DEVICE-W-CFGERR, DEVICES.CFG has 4 errors: the serial line names each"
+DEV_NOTICE = "DEVICES: SOME DEVICES REFUSED"
+
+
+def test_bad_keys_refuse_the_section(board, hooks_image, need_mtools, tmp_path):
+    """Each bad section is refused with a deverr marker at the key's line, its pin
+    is never driven, SHOW DEVICES ends with the CFGERR line and the login screen
+    shows the devices notice."""
+    from test_login import ROW_NOTICE, wait_user_prompt
+    from test_shell import expect, login, out, shell_card
+
+    with alone(hooks_image, board, shell_card(tmp_path, {CFG: BAD_KEYS})) as vm:
+        wait_ready(vm)
+        cfg = one(vm, "devcfg")
+        assert (cfg["result"], cfg["loaded"], cfg["skipped"], cfg["unknown"], cfg["errors"]) == \
+            ("ok", "1", "3", "2", "4"), cfg
+        errs = [(m["name"], m["line"], m["why"]) for m in events(vm, "deverr")]
+        assert errs == [("LIGHT1", "4", "BADKEY"), ("DOOR1", "9", "DUPKEY"),
+                        ("X0", "15", "BADKEY"), ("LAMP", "16", "NOCHIP")], errs
+        assert pins(record(vm)) == [(24, 0)], vm.serial
+        assert list(dev_list(vm)) == ["GATE"]
+        wait_user_prompt(vm)
+        dump_until(vm, lambda r: r[ROW_NOTICE].strip() == DEV_NOTICE)
+        login(vm, "ADMIN")
+        _, _, s = expect(vm, "SHOW DEVICES", "NORMAL")
+        # The rows, without the next prompt.
+        o = [line for line in out(vm, s) if line.strip() and not line.strip().startswith("$")]
+        assert not any(line.startswith("LIGHT1") for line in o), o
+        assert any(line.startswith("GATE") for line in o), o
+        assert o[-1] == CFGERR, o
 
 
 # QEMU's pca9554 model on the BSC1 bus, as in RobCo-Core's test_gpiox.py.
