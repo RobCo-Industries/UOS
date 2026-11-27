@@ -34,6 +34,12 @@ int devs_command(const char *name, const char *action, uint32_t privs, const cha
 /* Devices loaded: the rows of SHOW DEVICES. */
 unsigned devs_count(void);
 
+/*
+ * Errors in DEVICES.CFG: each one has a deverr marker. 1 when the file
+ * exists but could not be read. 0 when it is missing.
+ */
+unsigned devs_cfg_errors(void);
+
 /* The SHOW DEVICES header line. Length, or DV_ERR_SPACE. Caller's buffer. */
 int devs_status_header(char *buf, size_t size);
 

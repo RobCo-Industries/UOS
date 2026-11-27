@@ -21,6 +21,7 @@
 #include <robco/uart.h>
 
 #include "con.h"
+#include "devs.h"
 #include "sessint.h"
 
 /* Rows of the login screen. */
@@ -79,8 +80,7 @@ static void header(int serial)
     }
     for (i = 0; i < LG_HEADER_ROWS; i++) {
         if (i == LG_HEADER_ROWS - 1) {
-            /* The device errors join here later; 0 for now. */
-            (void)lg_notice_line(uos.cfg_bad, 0, line, sizeof(line));
+            (void)lg_notice_line(uos.cfg_bad, devs_cfg_errors() != 0, line, sizeof(line));
         } else {
             (void)lg_header_line(uos_settings()->name, i, line, sizeof(line));
         }

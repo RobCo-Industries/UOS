@@ -761,6 +761,10 @@ static int show_devices(sh_job_t *j)
             sh_say(j, sh_err_msg(SH_SRC_DEV, rc, -1, 0), j->ents[i].name, 0);
         }
     }
+    if (devs_cfg_errors() != 0 &&
+        dcl_format_message(line, sizeof(line), DCL_SYS_CFGERR, NULL, devs_cfg_errors()) >= 0) {
+        sh_out(j, line);
+    }
     return sh_end(j, DCL_NORMAL, NULL, 0, 0);
 }
 

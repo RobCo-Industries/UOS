@@ -81,6 +81,7 @@ static const struct {
     { DCL_SYS_FILREN, "%RENAME-I-FILREN,  renamed" },
     { DCL_SYS_PROGERR, "%UOS-E-PROGERR, the program could not start" },
     { DCL_SYS_SKIPPED, "%UOS-I-SKIPPED, 0 files skipped: not enough privilege" },
+    { DCL_SYS_CFGERR, "%DEVICE-W-CFGERR, DEVICES.CFG has 0 errors: the serial line names each" },
 };
 
 TEST(every_message_text)
@@ -95,6 +96,14 @@ TEST(every_message_text)
                  strlen(expect[i].line));
         CHECK_STR(buf, expect[i].line);
     }
+}
+
+TEST(cfgerr_count)
+{
+    char buf[DCL_MSG_SIZE];
+
+    CHECK(dcl_format_message(buf, sizeof(buf), DCL_SYS_CFGERR, NULL, 3) > 0);
+    CHECK_STR(buf, "%DEVICE-W-CFGERR, DEVICES.CFG has 3 errors: the serial line names each");
 }
 
 TEST(parts)
