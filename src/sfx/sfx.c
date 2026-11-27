@@ -19,6 +19,7 @@
 
 #include <robco/audio.h>
 #include <robco/irq.h>
+#include <robco/tick.h>
 #include <robco/klibc.h>
 #include <robco/uart.h>
 
@@ -33,6 +34,8 @@ static int trace;       /* [audio] trace */
 static int line_start = 1;
 static sfx_pick_t pick;
 static sfx_rest_t rest;
+static sfx_gap_t gap;
+static sfx_lane_t lane;
 static const sfx_rest_ops_t rest_ops = { audio_rest_mid, audio_busy, audio_stop };
 
 /* The k_printf() hook while the trace is on. */
@@ -73,25 +76,60 @@ void uos_sfx_poll(void)
     irq_restore(s);
 }
 
-void uos_sfx(unsigned id)
+int uos_sfx(unsigned id)
 {
     const sfx_sound_t *t = sfx_sound(id);
 
     if (!on || t == NULL) {
-        return;
+        return 0;
     }
     /* No effect before the rest ramp ends: a play would cut it. */
     if (!sfx_rest_ready(&rest, &rest_ops)) {
-        return;
+        return 0;
+    }
+    /* A priority play replaces one that waits for its tick: the lane keeps
+     * a result sound from being erased that way by a key or a scroll. */
+    if (!sfx_lane_may(&lane, id, tick_count())) {
+        return 0;
     }
     /* A refused play is dropped: a sound is never worth a wait. */
-    (void)audio_play_pcm(t->data, t->len, UOS_SFX_RATE_HZ, AUDIO_PRIORITY);
+    if (audio_play_pcm(t->data, t->len, UOS_SFX_RATE_HZ, AUDIO_PRIORITY) != 0) {
+        return 0;
+    }
+    sfx_lane_took(&lane, id, tick_count());
+    return 1;
 }
 
 void uos_sfx_key(void)
 {
-    if (on) {
-        uos_sfx(sfx_pick_key(&pick));
+    /* The pick steps only for a key that sounds. */
+    if (on && uos_sfx(sfx_pick_peek(&pick))) {
+        sfx_pick_take(&pick);
+    }
+}
+
+void uos_sfx_scroll(void)
+{
+    uint32_t now;
+
+    if (!on) {
+        return;
+    }
+    /* The gap starts only when the driver took the tick. */
+    now = tick_ms();
+    if (sfx_gap_open(&gap, now) && uos_sfx(UOS_SFX_ID_CHAR_SCROLL)) {
+        sfx_gap_mark(&gap, now);
+    }
+}
+
+void uos_sfx_hack(int ev)
+{
+    unsigned id = sfx_hack_sound(ev);
+
+    if (id == UOS_SFX_PICK_KEY) {
+        uos_sfx_key();
+    } else if (id != UOS_SFX_NONE) {
+        uos_sfx(id);
     }
 }
 
@@ -109,6 +147,8 @@ static int sfx_init(void)
 
     trace = s->trace_enabled;
     sfx_pick_init(&pick);
+    sfx_gap_init(&gap);
+    sfx_lane_init(&lane);
     if (s->sound_enabled) {
         rc = audio_init();
         if (rc == 0) {

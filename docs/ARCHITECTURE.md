@@ -928,13 +928,30 @@ The tick has 4 callback slots. With everything on, UOS takes all 4: the GPIO but
 
 ### The sounds
 
-All sounds are original synthesis from the parameters in `src/sfx/sfx_models.json`. The library's `tools/sfx_table.py` renders that model into `src/sfx/sfx_table.c` and `sfx_table.h`: one 8-bit table per sound at 37500 Hz, with its length, peak and CRC-32. Both files are committed. `make sfx-table` writes them, and `make sfx-table-check`, which every build runs first, stops the build when the model changed and the table did not. The model holds six sounds. The key sounds use two of them now.
+All sounds are original synthesis from the parameters in `src/sfx/sfx_models.json`. The library's `tools/sfx_table.py` renders that model into `src/sfx/sfx_table.c` and `sfx_table.h`: one 8-bit table per sound at 37500 Hz, with its length, peak and CRC-32. Both files are committed. `make sfx-table` writes them, and `make sfx-table-check`, which every build runs first, stops the build when the model changed and the table did not. The model holds six sounds. Five of them play now; the fan does not.
 
-`uos_sfx(id)` plays one table with `audio_play_pcm()` at 37500 Hz and `AUDIO_PRIORITY`, so a new sound replaces the one that plays. It never blocks. With the sound off it does nothing, and a play the driver refuses is dropped. A new play starts at the next tick, so two keys within 10 ms give one play.
+`uos_sfx(id)` plays one table with `audio_play_pcm()` at 37500 Hz and `AUDIO_PRIORITY`, so a new sound replaces the one that plays. It never blocks. With the sound off it does nothing, and a play the driver refuses is dropped. A new play starts at the next tick, so two keys within 10 ms give one play. A priority play also replaces one that still waits for its tick, so the service ranks its sounds: the password sounds first, then `char_scroll`, then the key sounds. In the tick of a waiting play, a lower rank is dropped and the same or a higher rank replaces it, so a key never erases a result sound.
 
 A key the line editor takes plays a key sound: a typed character, a deletion, a cursor move and Enter. A key it ignores, a cancel and an on-screen keyboard move play nothing. The keys come from the serial line, the panel buttons, the maintenance port and the on-screen keyboard alike, and one event plays at most one sound. The read screen in `src/console/readline.c` calls `uos_sfx_key()`.
 
 Each key picks `key_a` or `key_b` with the pure rule in `src/sfx/sfxrules.c`: `rnd = rnd * 1103515245 + 12345` from seed 1 at boot, and bit 16 of the new value picks `key_b` when set. A strict alternation would tick like a clock.
+
+The other sounds have these triggers:
+
+| Sound | Where | When |
+|---|---|---|
+| `pass_good` | `check_done()` in `src/session/sesscreen.c` | The password check gives `UAF_OK`. |
+| `pass_bad` | `check_done()` | Any other result, the lock started or not. |
+| `pass_good` | `do_select()` in `src/hack/hackscr.c` | SELECT on the password. |
+| `pass_bad` | `do_select()` | SELECT on a wrong word, the last attempt included. |
+| `key_a` or `key_b` | `do_select()` | SELECT on a bracket that removes a dud or resets the attempts. |
+| `char_scroll` | `do_key()` in `src/hack/hackscr.c` | A move key moves the game's cursor. |
+| `char_scroll` | `menu_event()` in `src/tui/tuiscr.c` | A key moves the menu's selection. |
+| `char_scroll` | `pv_event()` in `src/console/pager.c` | A key moves the pager's top line. |
+
+A SELECT in the game plays one sound only, by `sfx_hack_sound()` in `src/sfx/sfxrules.c`. A SELECT that changes nothing plays nothing. At the login, Enter plays its key sound when the line editor takes it, and the result sound plays later, when the check ends; it replaces the click if that still plays. A move at an edge that moves nothing plays nothing. The menu's `menu pick` command moves the selection without a sound.
+
+`char_scroll` starts at most once per 30 ms, so a held arrow key does not smear. `uos_sfx_scroll()` asks the pure rule `sfx_gap_open()` with the tick clock `tick_ms()` and calls `sfx_gap_mark()` only when the driver took the tick, which wraps at 2^32 ms: only the difference counts. The audio trace stamps its `t_ms` from the same clock when the play starts, at the next tick.
 
 One sound plays at a time, and a loop sits under it later. The loudest one-shot plus the loudest loop stays within 127 steps of the midpoint: `tests/host/test_sfx.c` checks it from the header.
 
