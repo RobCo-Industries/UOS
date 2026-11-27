@@ -20,6 +20,7 @@ CORE = os.environ.get("ROBCO_CORE", os.path.join(ROOT, "external", "robco-core")
 RIMG = os.path.join(CORE, "tools", "rimg.py")
 CHECK = os.environ.get("HOLO_CHECK", os.path.join(ROOT, "build", "host", "holocheck"))
 CARD = os.path.join(ROOT, "card", "UOS", "HOLO")
+SOURCES = os.path.join(ROOT, "tools", "holotapes")
 SAMPLES = {
     "TECHLOG": "Alder Creek technician's log",
     "PROCS": "Alder Creek operating procedures",
@@ -153,17 +154,48 @@ def test_usage_and_io_errors(tmp_path):
     assert r.returncode == mkholo.EX_IO and "not a folder" in r.stderr
     r = run("list", "--rimg", RIMG, str(tmp_path / "nope.HTP"))
     assert r.returncode == mkholo.EX_IO
-    r = run("list", "--rimg", str(tmp_path / "rimg.py"), "x")
-    assert r.returncode == mkholo.EX_RIMG and "rimg.py not found" in r.stderr
     env = {"PATH": os.environ.get("PATH", "")}
-    r = subprocess.run([sys.executable, os.path.join(ROOT, "tools", "mkholo.py"), "list", "x"],
-                       capture_output=True, text=True, env=env)
-    assert r.returncode == mkholo.EX_RIMG and "ROBCO_CORE is not set" in r.stderr
-    env["ROBCO_CORE"] = CORE
     (tmp_path / "x").write_bytes(b"")
     r = subprocess.run([sys.executable, os.path.join(ROOT, "tools", "mkholo.py"), "list",
                         str(tmp_path / "x")], capture_output=True, text=True, env=env)
     assert r.returncode == 1 and "io: tape file is too short" in r.stderr
+
+
+def test_list_finds_rimg_in_the_checkout():
+    env = {"PATH": os.environ.get("PATH", "")}
+    r = subprocess.run([sys.executable, os.path.join(ROOT, "tools", "mkholo.py"), "list",
+                        os.path.join(CARD, "STORY.HTP")], capture_output=True, text=True, env=env)
+    assert r.returncode == 0, r.stderr
+    assert r.stdout.startswith("title: The rake with the longer handle\n")
+
+
+def test_rimg_not_found(tmp_path):
+    tools = tmp_path / "tools"
+    tools.mkdir()
+    tool = tools / "mkholo.py"
+    tool.write_bytes(open(os.path.join(ROOT, "tools", "mkholo.py"), "rb").read())
+    env = {"PATH": os.environ.get("PATH", "")}
+    for args in (["list", "x"], ["check", "--rimg", str(tmp_path / "rimg.py"), "x"],
+                 ["build", "--title", "t", "--out", "o", str(tmp_path)]):
+        r = subprocess.run([sys.executable, str(tool), *args], capture_output=True, text=True,
+                           env=env)
+        assert r.returncode == mkholo.EX_RIMG
+        assert r.stderr == ("mkholo: error: rimg.py not found: give --rimg, set ROBCO_CORE, "
+                            "or run from a UOS checkout\n")
+
+
+def test_usage_shows_rimg_on_every_command():
+    for cmd in ("build", "list", "check"):
+        r = run(cmd)
+        assert r.returncode == mkholo.EX_USAGE and "[--rimg PATH]" in r.stderr, r.stderr
+    with open(os.path.join(ROOT, "tools", "mkholo.py")) as f:
+        assert "mkholo.py list [--rimg PATH] NAME.HTP" in f.read()
+
+
+def test_card_holo_holds_only_tapes():
+    names = os.listdir(CARD)
+    assert names and all(n.endswith(".HTP") and os.path.isfile(os.path.join(CARD, n))
+                         for n in names), names
 
 
 def test_check_reports_damage(tmp_path):
@@ -241,10 +273,10 @@ def test_shipped_tapes_match_sources(tmp_path, tape, rimg):
     shipped = os.path.join(CARD, f"{tape}.HTP")
     out = str(tmp_path / f"{tape}.HTP")
     r = run("build", "--rimg", RIMG, "--title", SAMPLES[tape], "--out", out,
-            os.path.join(CARD, "SRC", tape))
+            os.path.join(SOURCES, tape))
     assert r.returncode == 0, r.stderr
     with open(out, "rb") as a, open(shipped, "rb") as b:
-        assert a.read() == b.read(), f"{tape}.HTP is stale: rebuild it from SRC/{tape}"
+        assert a.read() == b.read(), f"{tape}.HTP is stale: rebuild it from tools/holotapes/{tape}"
     assert holocheck([shipped]) == ["ok"]
 
 
